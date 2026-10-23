@@ -1,5 +1,6 @@
 #if os(macOS)
 import Combine
+import CryptoKit
 import Foundation
 import XYZCore
 
@@ -17,36 +18,68 @@ final class WorkspaceSession: ObservableObject {
     @Published var selectedPath: String?
     @Published private(set) var buffer: WorkspaceFileBuffer?
     @Published var rootError: String?
+    @Published var actionMessage: String?
+    @Published var nameQuery = "" {
+        didSet {
+            guard nameQuery != oldValue else { return }
+            scheduleContentSearch()
+        }
+    }
+    @Published private(set) var indexedEntries: [WorkspacePathEntry] = []
+    @Published private(set) var contentHits: [WorkspaceContentHit] = []
+    @Published private(set) var contentSearching = false
+    @Published var viewMode: EditorViewMode
+    /// Set when a new item should start inline rename once the row exists.
+    var pendingEditPath: String?
+    var focusSearchHandler: (() -> Void)?
 
+    private var editingMode: EditorViewMode
     private let monitor = DirectoryMonitor()
     private var accessStarted = false
     private var didStart = false
     private var fileWatchKey: String?
     private var reloadTasks: [String: Task<Void, Never>] = [:]
     private var loadGeneration: [String: Int] = [:]
+    private var indexTask: Task<Void, Never>?
+    private var contentTask: Task<Void, Never>?
+    private var indexGeneration = 0
 
     init(rootURL: URL, bookmark: Data?) {
         self.rootURL = rootURL
         self.bookmark = bookmark
         self.displayName = rootURL.lastPathComponent
+        let saved = UserDefaults.standard.string(forKey: Self.viewModeKey(for: rootURL))
+        let mode = EditorViewMode(rawValue: saved ?? "") ?? .preview
+        self.viewMode = mode
+        self.editingMode = mode == .reading ? .preview : mode
     }
 
     func activate() {
         guard !didStart else { return }
         didStart = true
         accessStarted = rootURL.startAccessingSecurityScopedResource()
+        if let saved = UserDefaults.standard.stringArray(forKey: Self.expansionKey(for: rootURL)) {
+            expanded = Set(saved.filter { !$0.isEmpty && !WorkspaceContentSearch.shouldSkipRelativePath($0) })
+        }
         load(parent: "")
+        for path in expanded.sorted(by: { $0.count < $1.count }) {
+            load(parent: path)
+            watchDirectory(path)
+        }
         monitor.watch(url: rootURL, key: "") { [weak self] in
             Task { @MainActor in
                 self?.scheduleReload("")
             }
         }
+        scheduleIndex()
     }
 
     func shutdown() {
         buffer?.flush()
         monitor.stop()
         reloadTasks.values.forEach { $0.cancel() }
+        indexTask?.cancel()
+        contentTask?.cancel()
         if accessStarted {
             rootURL.stopAccessingSecurityScopedResource()
             accessStarted = false
@@ -68,14 +101,176 @@ final class WorkspaceSession: ObservableObject {
             if children[node.relativePath] == nil {
                 load(parent: node.relativePath)
             }
-            monitor.watch(url: url(for: node.relativePath), key: node.relativePath) { [weak self] in
-                Task { @MainActor in
-                    self?.scheduleReload(node.relativePath)
-                }
-            }
+            watchDirectory(node.relativePath)
         } else {
             collapse(node.relativePath)
         }
+        rememberExpansion()
+    }
+
+    var searchTree: WorkspaceSearchTree? {
+        let trimmed = nameQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+        let source = indexedEntries.isEmpty ? flattenedLoadedEntries() : indexedEntries
+        return WorkspaceTreeQuery.filter(entries: source, query: trimmed)
+    }
+
+    func selectViewMode(_ mode: EditorViewMode) {
+        if mode != .reading {
+            editingMode = mode
+        }
+        viewMode = mode
+        UserDefaults.standard.set(mode.rawValue, forKey: Self.viewModeKey(for: rootURL))
+    }
+
+    func toggleReadingView() {
+        let next = EditorViewMode.toggleReading(current: viewMode, editing: editingMode)
+        editingMode = next.editing
+        viewMode = next.mode
+        UserDefaults.standard.set(viewMode.rawValue, forKey: Self.viewModeKey(for: rootURL))
+    }
+
+    func toggleSourceMode() {
+        selectViewMode(EditorViewMode.toggleSource(current: viewMode))
+    }
+
+    func focusSearch() {
+        focusSearchHandler?()
+    }
+
+    func openRelative(_ relativePath: String) {
+        if let node = node(at: relativePath) {
+            openFile(node)
+            return
+        }
+        let name = (relativePath as NSString).lastPathComponent
+        openFile(WorkspaceNode(
+            name: name,
+            relativePath: relativePath,
+            isDirectory: false,
+            isHidden: WorkspacePaths.isHidden(name: name, resourceHidden: false)
+        ))
+    }
+
+    func createItem(directory: Bool, in parent: String) {
+        let names = Set((children[parent] ?? []).map(\.name))
+        let preferred = directory ? "Untitled Folder" : "Untitled.md"
+        let name = WorkspaceItemName.unique(preferred: preferred, existing: names)
+        let relative = WorkspacePaths.child(parent: parent, name: name)
+        let destination = url(for: relative)
+        if !parent.isEmpty {
+            expanded.insert(parent)
+            rememberExpansion()
+            if children[parent] == nil {
+                load(parent: parent)
+                watchDirectory(parent)
+            }
+        }
+        Task { [weak self] in
+            do {
+                if directory {
+                    try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: false)
+                } else {
+                    try Data().write(to: destination, options: .atomic)
+                }
+            } catch {
+                await MainActor.run { self?.actionFailed("Couldn't create this item.") }
+                return
+            }
+            await MainActor.run {
+                guard let self else { return }
+                self.pendingEditPath = relative
+                if !directory {
+                    self.openFile(WorkspaceNode(
+                        name: name,
+                        relativePath: relative,
+                        isDirectory: false,
+                        isHidden: name.hasPrefix(".")
+                    ))
+                }
+                self.scheduleReload(parent)
+                self.scheduleIndex()
+            }
+        }
+    }
+
+    /// Nil when the rename landed. A string is a message safe to show in an alert.
+    func rename(relativePath: String, to rawName: String) -> String? {
+        if let issue = WorkspaceItemName.issue(with: rawName) { return issue }
+        let name = WorkspaceItemName.normalized(rawName)
+        let current = (relativePath as NSString).lastPathComponent
+        if name == current { return nil }
+        let parent = WorkspacePaths.parent(of: relativePath)
+        if (children[parent] ?? []).contains(where: { $0.name == name }) {
+            return "An item with that name already exists."
+        }
+        let destination = WorkspacePaths.child(parent: parent, name: name)
+        do {
+            try FileManager.default.moveItem(at: url(for: relativePath), to: url(for: destination))
+        } catch {
+            return "Couldn't rename this item."
+        }
+        retarget(from: relativePath, to: destination)
+        if buffer?.relativePath == relativePath {
+            buffer?.flush()
+            openFile(WorkspaceNode(
+                name: name,
+                relativePath: destination,
+                isDirectory: false,
+                isHidden: name.hasPrefix(".")
+            ))
+        } else if let selected = selectedPath, selected == relativePath || selected.hasPrefix(relativePath + "/") {
+            selectedPath = destination + selected.dropFirst(relativePath.count)
+        }
+        scheduleReload(parent)
+        scheduleIndex()
+        return nil
+    }
+
+    func trash(relativePath: String) throws {
+        if let open = buffer?.relativePath, open == relativePath || open.hasPrefix(relativePath + "/") {
+            buffer?.flush()
+            buffer = nil
+            selectedPath = nil
+        }
+        try FileManager.default.trashItem(at: url(for: relativePath), resultingItemURL: nil)
+        expanded = Set(expanded.filter { $0 != relativePath && !$0.hasPrefix(relativePath + "/") })
+        rememberExpansion()
+        scheduleReload(WorkspacePaths.parent(of: relativePath))
+        scheduleIndex()
+    }
+
+    func move(relativePath: String, toParent parent: String) -> String? {
+        guard WorkspaceItemName.canMove(item: relativePath, into: parent) else { return nil }
+        let current = (relativePath as NSString).lastPathComponent
+        let unique = WorkspaceItemName.unique(preferred: current, existing: Set((children[parent] ?? []).map(\.name)))
+        let destination = WorkspacePaths.child(parent: parent, name: unique)
+        do {
+            if !parent.isEmpty {
+                try FileManager.default.createDirectory(at: url(for: parent), withIntermediateDirectories: true)
+            }
+            try FileManager.default.moveItem(at: url(for: relativePath), to: url(for: destination))
+        } catch {
+            return "Couldn't move this item."
+        }
+        retarget(from: relativePath, to: destination)
+        if buffer?.relativePath == relativePath {
+            buffer?.flush()
+            openFile(WorkspaceNode(
+                name: unique,
+                relativePath: destination,
+                isDirectory: false,
+                isHidden: unique.hasPrefix(".")
+            ))
+        }
+        scheduleReload(WorkspacePaths.parent(of: relativePath))
+        scheduleReload(parent)
+        scheduleIndex()
+        return nil
+    }
+
+    func clearQuery() {
+        nameQuery = ""
     }
 
     func openFile(_ node: WorkspaceNode) {
@@ -106,6 +301,143 @@ final class WorkspaceSession: ObservableObject {
     func node(at relativePath: String) -> WorkspaceNode? {
         let parent = WorkspacePaths.parent(of: relativePath)
         return children[parent]?.first { $0.relativePath == relativePath }
+    }
+
+    private func actionFailed(_ message: String) {
+        actionMessage = message
+    }
+
+    private func watchDirectory(_ path: String) {
+        monitor.watch(url: url(for: path), key: path) { [weak self] in
+            Task { @MainActor in
+                self?.scheduleReload(path)
+            }
+        }
+    }
+
+    private func rememberExpansion() {
+        let kept = expanded
+            .filter { !$0.isEmpty && !WorkspaceContentSearch.shouldSkipRelativePath($0) }
+            .sorted()
+        UserDefaults.standard.set(kept, forKey: Self.expansionKey(for: rootURL))
+    }
+
+    private func retarget(from old: String, to new: String) {
+        expanded = Set(expanded.map { path in
+            if path == old { return new }
+            if path.hasPrefix(old + "/") { return new + path.dropFirst(old.count) }
+            return path
+        })
+        rememberExpansion()
+    }
+
+    private func flattenedLoadedEntries() -> [WorkspacePathEntry] {
+        var entries: [WorkspacePathEntry] = []
+        func walk(_ parent: String) {
+            for node in children[parent] ?? [] {
+                entries.append(WorkspacePathEntry(
+                    name: node.name,
+                    relativePath: node.relativePath,
+                    isDirectory: node.isDirectory,
+                    isHidden: node.isHidden
+                ))
+                if node.isDirectory {
+                    walk(node.relativePath)
+                }
+            }
+        }
+        walk("")
+        return entries
+    }
+
+    private func scheduleIndex() {
+        indexTask?.cancel()
+        indexGeneration += 1
+        let generation = indexGeneration
+        let root = rootURL
+        indexTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(200))
+            guard !Task.isCancelled else { return }
+            let entries = await Task.detached(priority: .utility) {
+                WorkspaceIndexScan.entries(at: root)
+            }.value
+            guard let self, self.indexGeneration == generation else { return }
+            self.indexedEntries = entries
+            if !self.nameQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                self.scheduleContentSearch()
+            }
+        }
+    }
+
+    private func scheduleContentSearch() {
+        contentTask?.cancel()
+        let query = nameQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else {
+            contentHits = []
+            contentSearching = false
+            return
+        }
+        contentSearching = true
+        let files = indexedEntries.filter {
+            !$0.isDirectory && !WorkspaceContentSearch.shouldSkipRelativePath($0.relativePath)
+        }
+        let root = rootURL
+        contentTask = Task { [weak self] in
+            try? await Task.sleep(for: .milliseconds(220))
+            guard !Task.isCancelled else { return }
+            let hits = await Self.searchContents(files: files, root: root, query: query)
+            guard !Task.isCancelled, let self else { return }
+            guard self.nameQuery.trimmingCharacters(in: .whitespacesAndNewlines) == query else { return }
+            self.contentHits = hits
+            self.contentSearching = false
+        }
+    }
+
+    private static func searchContents(
+        files: [WorkspacePathEntry],
+        root: URL,
+        query: String
+    ) async -> [WorkspaceContentHit] {
+        await Task.detached(priority: .utility) {
+            var found: [WorkspaceContentHit] = []
+            for entry in files {
+                if Task.isCancelled || found.count >= WorkspaceContentSearch.hitLimit { break }
+                let url = entry.relativePath.split(separator: "/").reduce(root) {
+                    $0.appendingPathComponent(String($1))
+                }
+                let size = WorkspaceFileCoordination.fileSize(at: url)
+                let sample = (try? WorkspaceFileCoordination.readSample(
+                    at: url,
+                    limit: WorkspaceFileClassifier.sampleLimit
+                )) ?? Data()
+                if WorkspaceContentSearch.shouldSkipContents(name: entry.name, byteCount: size, sample: sample) {
+                    continue
+                }
+                guard let data = try? WorkspaceFileCoordination.readData(at: url),
+                      let text = String(data: data, encoding: .utf8) else { continue }
+                let room = min(3, WorkspaceContentSearch.hitLimit - found.count)
+                found.append(contentsOf: WorkspaceContentSearch.hits(
+                    in: text,
+                    relativePath: entry.relativePath,
+                    query: query,
+                    limit: room
+                ))
+            }
+            return found
+        }.value
+    }
+
+    private static func token(for url: URL) -> String {
+        let digest = SHA256.hash(data: Data(url.standardizedFileURL.path.utf8))
+        return digest.prefix(8).map { String(format: "%02x", $0) }.joined()
+    }
+
+    private static func expansionKey(for url: URL) -> String {
+        "xyz.workspace.expansion." + token(for: url)
+    }
+
+    private static func viewModeKey(for url: URL) -> String {
+        "xyz.workspace.viewMode." + token(for: url)
     }
 
     private func collapse(_ path: String) {
@@ -149,6 +481,7 @@ final class WorkspaceSession: ObservableObject {
                         WorkspaceLog.rootEnumerated(path: self.rootURL.path, count: nodes.count)
                     }
                     self.noteOpenFileStillPresent(parent: parent, nodes: nodes)
+                    self.scheduleIndex()
                 case .failure:
                     let message = "Couldn't read this folder."
                     self.loadErrors[parent] = message
@@ -352,6 +685,47 @@ final class WorkspaceFileBuffer: ObservableObject {
         } catch {
             status = "Couldn't save this file."
         }
+    }
+}
+
+/// Name-only walk. Skips the inside of `.git`, `node_modules`, and `.build`, and stops at a cap.
+private enum WorkspaceIndexScan {
+    static let cap = 20_000
+
+    static func entries(at root: URL) -> [WorkspacePathEntry] {
+        let keys: Set<URLResourceKey> = [.isDirectoryKey, .isSymbolicLinkKey, .isHiddenKey]
+        guard let enumerator = FileManager.default.enumerator(
+            at: root,
+            includingPropertiesForKeys: Array(keys),
+            options: [.skipsPackageDescendants]
+        ) else {
+            return []
+        }
+        let rootPath = root.standardizedFileURL.path
+        var results: [WorkspacePathEntry] = []
+        while let url = enumerator.nextObject() as? URL {
+            if Task.isCancelled { break }
+            let name = url.lastPathComponent
+            if name.isEmpty || name == "." || name == ".." { continue }
+            let values = try? url.resourceValues(forKeys: keys)
+            let isLink = values?.isSymbolicLink == true
+            let isDirectory = values?.isDirectory == true && !isLink
+            if isDirectory && WorkspaceContentSearch.shouldSkipDirectory(name) {
+                enumerator.skipDescendants()
+            }
+            let full = url.standardizedFileURL.path
+            let prefix = rootPath + "/"
+            guard full.hasPrefix(prefix) else { continue }
+            let relative = String(full.dropFirst(prefix.count))
+            results.append(WorkspacePathEntry(
+                name: name,
+                relativePath: relative,
+                isDirectory: isDirectory,
+                isHidden: WorkspacePaths.isHidden(name: name, resourceHidden: values?.isHidden == true)
+            ))
+            if results.count >= cap { break }
+        }
+        return results
     }
 }
 #endif

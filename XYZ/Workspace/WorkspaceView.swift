@@ -6,6 +6,7 @@ import XYZCore
 struct WorkspaceActions {
     var showsHidden: Bool
     var toggleHidden: () -> Void
+    var focusSearch: () -> Void
 }
 
 private struct WorkspaceActionsKey: FocusedValueKey {
@@ -35,7 +36,7 @@ struct WorkspaceView: View {
         .navigationTitle(titleText)
         .modifier(WorkspaceSubtitle(text: subtitleText))
         .toolbarRole(.editor)
-        .toolbarBackground(.visible, for: .windowToolbar)
+        .toolbar { ViewModeToolbar(mode: session.viewMode) { session.selectViewMode($0) } }
         .frame(minWidth: 880, minHeight: 520)
         .background(WorkspaceWindowChrome(title: titleText))
         .workspaceFolderDrop()
@@ -43,9 +44,11 @@ struct WorkspaceView: View {
             \.workspaceActions,
             WorkspaceActions(
                 showsHidden: session.showsHiddenFiles,
-                toggleHidden: { session.showsHiddenFiles.toggle() }
+                toggleHidden: { session.showsHiddenFiles.toggle() },
+                focusSearch: { session.focusSearch() }
             )
         )
+        .modifier(WorkspaceEditorActions(session: session))
     }
 
     private var titleText: String {
@@ -120,11 +123,23 @@ final class WorkspaceChromeView: NSView {
 
     func apply() {
         guard let window else { return }
+        WorkspaceChrome.apply(to: window, title: title)
+    }
+}
+
+enum WorkspaceChrome {
+    static func apply(to window: NSWindow, title: String) {
         window.representedURL = nil
         window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
-        window.titlebarSeparatorStyle = .none
-        window.toolbarStyle = .unified
+        if #available(macOS 26, *) {
+            window.titlebarAppearsTransparent = false
+            window.titlebarSeparatorStyle = .automatic
+            window.toolbarStyle = .automatic
+        } else {
+            window.titlebarAppearsTransparent = true
+            window.titlebarSeparatorStyle = .none
+            window.toolbarStyle = .unified
+        }
         if !window.styleMask.contains(.fullSizeContentView) {
             window.styleMask.insert(.fullSizeContentView)
         }
@@ -139,7 +154,7 @@ private struct WorkspaceDetail: View {
 
     var body: some View {
         if let buffer = session.buffer {
-            WorkspaceFilePane(buffer: buffer)
+            WorkspaceFilePane(buffer: buffer, mode: session.viewMode)
                 .id(buffer.relativePath)
         } else {
             ContentUnavailableView(
@@ -153,14 +168,16 @@ private struct WorkspaceDetail: View {
 
 private struct WorkspaceFilePane: View {
     @ObservedObject var buffer: WorkspaceFileBuffer
+    var mode: EditorViewMode
     @Environment(\.undoManager) private var undoManager
-    @State private var showsPreview: Bool
     @State private var bridge: PreviewBridge
+    @State private var webHost: PreviewWebHost
 
-    init(buffer: WorkspaceFileBuffer) {
+    init(buffer: WorkspaceFileBuffer, mode: EditorViewMode) {
         self.buffer = buffer
-        _showsPreview = State(initialValue: buffer.kind == .markdown)
+        self.mode = mode
         _bridge = State(initialValue: PreviewBridge(text: buffer.text))
+        _webHost = State(initialValue: PreviewWebHost())
     }
 
     var body: some View {
@@ -189,14 +206,6 @@ private struct WorkspaceFilePane: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.editorBackground)
-        .toolbar {
-            if buffer.kind == .markdown {
-                ToolbarItem(placement: .primaryAction) {
-                    PreviewToolbarButton(showsPreview: $showsPreview)
-                }
-            }
-        }
-        .modifier(PreviewFocusModifier(isEnabled: buffer.kind == .markdown, showsPreview: $showsPreview))
         .onChange(of: buffer.reloadToken) { _, _ in
             bridge.send(buffer.text)
         }
@@ -230,11 +239,11 @@ private struct WorkspaceFilePane: View {
     }
 
     private var markdownBody: some View {
-        EditorPreviewSplit(showsPreview: showsPreview, editor: editor, preview: preview)
+        EditorPreviewSplit(mode: mode, editor: editor, preview: preview)
     }
 
     private var preview: some View {
-        MarkdownPreview(bridge: bridge)
+        MarkdownPreview(bridge: bridge, host: webHost)
     }
 
     private var editor: some View {
@@ -264,14 +273,21 @@ private struct WorkspaceFilePane: View {
     }
 }
 
-/// Attaches the preview command only while a Markdown file is in front.
-private struct PreviewFocusModifier: ViewModifier {
-    var isEnabled: Bool
-    @Binding var showsPreview: Bool
+/// View menu actions while a Markdown file is the one on screen.
+private struct WorkspaceEditorActions: ViewModifier {
+    @ObservedObject var session: WorkspaceSession
 
     func body(content: Content) -> some View {
-        if isEnabled {
-            content.focusedSceneValue(\.xyzShowsPreview, $showsPreview)
+        if session.buffer?.kind == .markdown {
+            content.focusedSceneValue(
+                \.editorViewActions,
+                EditorViewActions(
+                    mode: session.viewMode,
+                    select: { session.selectViewMode($0) },
+                    toggleReading: { session.toggleReadingView() },
+                    toggleSource: { session.toggleSourceMode() }
+                )
+            )
         } else {
             content
         }

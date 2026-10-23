@@ -23,9 +23,7 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
         window.title = session.displayName
         window.representedURL = nil
         window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
-        window.titlebarSeparatorStyle = .none
-        window.toolbarStyle = .unified
+        WorkspaceChrome.apply(to: window, title: session.displayName)
         window.styleMask.insert(.fullSizeContentView)
         window.contentMinSize = NSSize(width: 880, height: 520)
         window.isReleasedWhenClosed = false
@@ -289,6 +287,12 @@ struct WorkspaceCommands: Commands {
                 actions?.toggleHidden()
             }
             .keyboardShortcut(".", modifiers: [.command, .shift])
+            .disabled(actions == nil)
+
+            Button("Filter Files") {
+                actions?.focusSearch()
+            }
+            .keyboardShortcut("f", modifiers: [.command, .shift])
             .disabled(actions == nil)
         }
     }

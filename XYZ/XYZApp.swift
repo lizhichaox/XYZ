@@ -1,6 +1,10 @@
 import SwiftUI
 import XYZCore
 
+#if os(macOS)
+import AppKit
+#endif
+
 @main
 struct XYZApp: App {
     #if os(macOS)
@@ -18,8 +22,9 @@ struct XYZApp: App {
         .defaultSize(width: 980, height: 700)
         #endif
         .commands {
-            PreviewCommands()
+            ViewModeCommands()
             #if os(macOS)
+            AboutCommands()
             WorkspaceCommands()
             #endif
         }
@@ -50,16 +55,71 @@ private struct EditorSettingsView: View {
 }
 #endif
 
-struct PreviewCommands: Commands {
-    @FocusedValue(\.xyzShowsPreview) private var showsPreview
+struct ViewModeCommands: Commands {
+    @FocusedValue(\.editorViewActions) private var actions
 
     var body: some Commands {
         CommandGroup(after: .sidebar) {
-            Button(showsPreview?.wrappedValue == true ? "Hide Preview" : "Show Preview") {
-                showsPreview?.wrappedValue.toggle()
+            modeToggle("Coding", .coding)
+            modeToggle("Preview", .preview)
+            modeToggle("Reading", .reading)
+            Divider()
+            Button("Toggle Reading View") {
+                actions?.toggleReading()
             }
-            .keyboardShortcut("p", modifiers: [.command, .shift])
-            .disabled(showsPreview == nil)
+            .keyboardShortcut("e", modifiers: .command)
+            .disabled(actions == nil)
+            Button("Source Code Mode") {
+                actions?.toggleSource()
+            }
+            .keyboardShortcut("/", modifiers: .command)
+            .disabled(actions == nil)
+        }
+    }
+
+    private func modeToggle(_ title: String, _ mode: EditorViewMode) -> some View {
+        Toggle(title, isOn: Binding(
+            get: { actions?.mode == mode },
+            set: { isOn in
+                if isOn { actions?.select(mode) }
+            }
+        ))
+        .disabled(actions == nil)
+    }
+}
+
+#if os(macOS)
+private struct AboutCommands: Commands {
+    var body: some Commands {
+        CommandGroup(replacing: .appInfo) {
+            Button("About XYZ") {
+                NSApp.orderFrontStandardAboutPanel(options: [
+                    .credits: AboutCredits.make()
+                ])
+            }
         }
     }
 }
+
+private enum AboutCredits {
+    static let line = "Made by LIZHICHAO with 💗"
+
+    static func make() -> NSAttributedString {
+        let text = line as NSString
+        let attributed = NSMutableAttributedString(string: line)
+        let full = NSRange(location: 0, length: text.length)
+        let style = NSMutableParagraphStyle()
+        style.alignment = .center
+        attributed.addAttribute(.font, value: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize), range: full)
+        attributed.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: full)
+        attributed.addAttribute(.paragraphStyle, value: style, range: full)
+        let name = text.range(of: "LIZHICHAO")
+        if name.location != NSNotFound, let url = URL(string: "https://lizhichao.com") {
+            attributed.addAttribute(.link, value: url, range: name)
+            attributed.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: name)
+            attributed.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: name)
+        }
+        return attributed
+    }
+}
+#endif

@@ -37,7 +37,7 @@ public enum WorkspacePaths {
 }
 
 public enum WorkspaceTreeSort {
-    /// Folders first, then case-insensitive name, matching Finder's basic order.
+    /// Folders first, then Finder-style natural order (`localizedStandardCompare`), so v0.0.10 follows v0.0.9.
     public static func ordered(_ nodes: [WorkspaceNode]) -> [WorkspaceNode] {
         nodes.sorted { lhs, rhs in
             if lhs.isDirectory != rhs.isDirectory {

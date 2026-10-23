@@ -29,6 +29,19 @@ final class WorkspaceTreeTests: XCTestCase {
         XCTAssertLessThan(firstFile, names.firstIndex(of: "B.txt")!)
     }
 
+    func testNaturalSortOrdersVersionNumbers() {
+        let nodes = [
+            WorkspaceNode(name: "v0.0.10.md", relativePath: "v0.0.10.md", isDirectory: false, isHidden: false),
+            WorkspaceNode(name: "v0.0.9.md", relativePath: "v0.0.9.md", isDirectory: false, isHidden: false),
+            WorkspaceNode(name: "v0.0.2.md", relativePath: "v0.0.2.md", isDirectory: false, isHidden: false),
+            WorkspaceNode(name: "Notes", relativePath: "Notes", isDirectory: true, isHidden: false),
+        ]
+        XCTAssertEqual(
+            WorkspaceTreeSort.ordered(nodes).map(\.name),
+            ["Notes", "v0.0.2.md", "v0.0.9.md", "v0.0.10.md"]
+        )
+    }
+
     func testFilterHidesDotfiles() {
         let nodes = [
             WorkspaceNode(name: ".github", relativePath: ".github", isDirectory: true, isHidden: true),
@@ -71,6 +84,131 @@ final class WorkspaceTreeTests: XCTestCase {
         let firstFile = nodes.firstIndex { !$0.isDirectory }
         XCTAssertNotNil(firstFile)
         XCTAssertTrue(nodes.prefix(firstFile!).allSatisfy(\.isDirectory))
+    }
+}
+
+final class WorkspaceSearchTests: XCTestCase {
+    func testSubstringBeatsFuzzyAndIgnoresCase() {
+        let spans = WorkspaceNameMatching.spans(in: "Notes.md", query: "note")
+        XCTAssertEqual(spans, [WorkspaceNameSpan(location: 0, length: 4)])
+        XCTAssertNil(WorkspaceNameMatching.spans(in: "Notes.md", query: "   "))
+    }
+
+    func testFuzzySubsequenceHighlightsEachCharacter() {
+        let spans = WorkspaceNameMatching.spans(in: "Daily notes", query: "dn")
+        XCTAssertEqual(spans?.count, 2)
+        XCTAssertEqual(spans?.first, WorkspaceNameSpan(location: 0, length: 1))
+        let second = spans?[1]
+        let name = "Daily notes" as NSString
+        XCTAssertEqual(second.map { name.substring(with: NSRange(location: $0.location, length: $0.length)) }, "n")
+    }
+
+    func testFilterKeepsParentsExpandsThemAndIncludesHiddenNames() {
+        let entries = [
+            WorkspacePathEntry(name: ".git", relativePath: ".git", isDirectory: true, isHidden: true),
+            WorkspacePathEntry(name: "config", relativePath: ".git/config", isDirectory: false, isHidden: false),
+            WorkspacePathEntry(name: "Notes", relativePath: "Notes", isDirectory: true, isHidden: false),
+            WorkspacePathEntry(name: "Daily notes.md", relativePath: "Notes/Daily notes.md", isDirectory: false, isHidden: false),
+            WorkspacePathEntry(name: "Other.txt", relativePath: "Other.txt", isDirectory: false, isHidden: false),
+            WorkspacePathEntry(name: ".gitignore", relativePath: ".gitignore", isDirectory: false, isHidden: true),
+        ]
+        let tree = WorkspaceTreeQuery.filter(entries: entries, query: "git")
+        XCTAssertEqual(Set(tree.children[""]?.map(\.name) ?? []), [".git", ".gitignore"])
+        XCTAssertTrue(tree.expanded.contains(".git"))
+        XCTAssertEqual(tree.children[".git"]?.map(\.name), ["config"])
+        XCTAssertNil(tree.children["Notes"])
+        XCTAssertFalse(tree.highlights[".gitignore", default: []].isEmpty)
+    }
+
+    func testFilterDropsUnrelatedSiblings() {
+        let entries = [
+            WorkspacePathEntry(name: "Notes", relativePath: "Notes", isDirectory: true, isHidden: false),
+            WorkspacePathEntry(name: "Daily notes.md", relativePath: "Notes/Daily notes.md", isDirectory: false, isHidden: false),
+            WorkspacePathEntry(name: "Other.txt", relativePath: "Other.txt", isDirectory: false, isHidden: false),
+        ]
+        let tree = WorkspaceTreeQuery.filter(entries: entries, query: "daily")
+        XCTAssertEqual(tree.children[""]?.map(\.name), ["Notes"])
+        XCTAssertEqual(tree.children["Notes"]?.map(\.name), ["Daily notes.md"])
+        XCTAssertTrue(tree.expanded.contains("Notes"))
+    }
+
+    func testSymbolsAndDimmedExtension() {
+        XCTAssertEqual(WorkspaceFileSymbolChoice.symbol(name: "Notes", isDirectory: true, isExpanded: false), .folder)
+        XCTAssertEqual(WorkspaceFileSymbolChoice.symbol(name: "Notes", isDirectory: true, isExpanded: true), .folderOpen)
+        XCTAssertEqual(WorkspaceFileSymbolChoice.symbol(name: "Note.md", isDirectory: false, isExpanded: false), .markdown)
+        XCTAssertEqual(WorkspaceFileSymbolChoice.symbol(name: ".gitignore", isDirectory: false, isExpanded: false), .gear)
+        XCTAssertEqual(WorkspaceFileSymbolChoice.symbol(name: "App.swift", isDirectory: false, isExpanded: false), .document)
+        let span = WorkspaceFileSymbolChoice.extensionSpan(in: "Note.md")
+        XCTAssertEqual(span, WorkspaceNameSpan(location: 4, length: 3))
+        XCTAssertNil(WorkspaceFileSymbolChoice.extensionSpan(in: "App.swift"))
+    }
+
+    func testNamesAndMoves() {
+        XCTAssertNotNil(WorkspaceItemName.issue(with: " "))
+        XCTAssertNotNil(WorkspaceItemName.issue(with: "a/b"))
+        XCTAssertNil(WorkspaceItemName.issue(with: "Note.md"))
+        XCTAssertEqual(
+            WorkspaceItemName.unique(preferred: "Untitled.md", existing: ["Untitled.md", "Untitled 2.md"]),
+            "Untitled 3.md"
+        )
+        XCTAssertFalse(WorkspaceItemName.canMove(item: "Notes", into: "Notes"))
+        XCTAssertFalse(WorkspaceItemName.canMove(item: "Notes", into: "Notes/Drafts"))
+        XCTAssertFalse(WorkspaceItemName.canMove(item: "Notes/A.md", into: "Notes"))
+        XCTAssertTrue(WorkspaceItemName.canMove(item: "Notes/A.md", into: "Archive"))
+    }
+
+    func testContentHitsAndSkipRules() {
+        XCTAssertTrue(WorkspaceContentSearch.shouldSkipDirectory(".git"))
+        XCTAssertTrue(WorkspaceContentSearch.shouldSkipRelativePath("Notes/.git/config"))
+        XCTAssertFalse(WorkspaceContentSearch.shouldSkipRelativePath("Notes/Daily.md"))
+        XCTAssertTrue(WorkspaceContentSearch.shouldSkipContents(
+            name: "pic.png",
+            byteCount: 4,
+            sample: Data([0x89, 0x50, 0x00, 0x00])
+        ))
+        XCTAssertTrue(WorkspaceContentSearch.shouldSkipContents(
+            name: "big.md",
+            byteCount: WorkspaceContentSearch.maxFileBytes + 1,
+            sample: Data("hello".utf8)
+        ))
+        XCTAssertFalse(WorkspaceContentSearch.shouldSkipContents(
+            name: "Note.md",
+            byteCount: 12,
+            sample: Data("alpha beta".utf8)
+        ))
+        let hits = WorkspaceContentSearch.hits(
+            in: "intro\nalpha beta\nAlpha tail\n",
+            relativePath: "Notes/Daily.md",
+            query: "alpha",
+            limit: 5
+        )
+        XCTAssertEqual(hits.map(\.lineNumber), [2, 3])
+        XCTAssertEqual(hits.first?.excerpt, "alpha beta")
+        XCTAssertEqual(hits.first?.relativePath, "Notes/Daily.md")
+    }
+}
+
+final class EditorViewModeTests: XCTestCase {
+    func testReadingToggleReturnsToTheEditingModeYouLeft() {
+        let toReading = EditorViewMode.toggleReading(current: .preview, editing: .preview)
+        XCTAssertEqual(toReading.mode, .reading)
+        XCTAssertEqual(toReading.editing, .preview)
+        let back = EditorViewMode.toggleReading(current: toReading.mode, editing: toReading.editing)
+        XCTAssertEqual(back.mode, .preview)
+
+        let fromCoding = EditorViewMode.toggleReading(current: .coding, editing: .preview)
+        XCTAssertEqual(fromCoding.mode, .reading)
+        XCTAssertEqual(fromCoding.editing, .coding)
+        XCTAssertEqual(
+            EditorViewMode.toggleReading(current: .reading, editing: .coding).mode,
+            .coding
+        )
+    }
+
+    func testSourceToggleMatchesTypora() {
+        XCTAssertEqual(EditorViewMode.toggleSource(current: .preview), .coding)
+        XCTAssertEqual(EditorViewMode.toggleSource(current: .coding), .preview)
+        XCTAssertEqual(EditorViewMode.toggleSource(current: .reading), .coding)
     }
 }
 

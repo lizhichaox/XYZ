@@ -1,38 +1,251 @@
 import SwiftUI
 import XYZCore
 
-#if os(iOS)
+#if os(macOS)
+import AppKit
+#elseif os(iOS)
 import UIKit
 #endif
 
-struct PreviewToolbarButton: View {
-    @Binding var showsPreview: Bool
-
-    var body: some View {
-        Button {
-            showsPreview.toggle()
-        } label: {
-            Label("Preview", systemImage: showsPreview ? "eye.fill" : "eye")
-                .labelStyle(.titleAndIcon)
-                #if !os(macOS)
-                .labelStyle(.iconOnly)
-                #endif
-        }
-        .help(showsPreview ? "Hide preview" : "Show preview")
-        .accessibilityLabel(showsPreview ? "Hide preview" : "Show preview")
-    }
+struct EditorViewActions {
+    var mode: EditorViewMode
+    var select: (EditorViewMode) -> Void
+    var toggleReading: () -> Void
+    var toggleSource: () -> Void
 }
 
-struct ShowsPreviewKey: FocusedValueKey {
-    typealias Value = Binding<Bool>
+private struct EditorViewActionsKey: FocusedValueKey {
+    typealias Value = EditorViewActions
 }
 
 extension FocusedValues {
-    var xyzShowsPreview: Binding<Bool>? {
-        get { self[ShowsPreviewKey.self] }
-        set { self[ShowsPreviewKey.self] = newValue }
+    var editorViewActions: EditorViewActions? {
+        get { self[EditorViewActionsKey.self] }
+        set { self[EditorViewActionsKey.self] = newValue }
     }
 }
+
+enum ViewModeSymbol {
+    static func name(_ mode: EditorViewMode) -> String {
+        switch mode {
+        case .coding:
+            return "chevron.left.forwardslash.chevron.right"
+        case .preview:
+            return "rectangle.split.2x1"
+        case .reading:
+            return "book"
+        }
+    }
+
+    static func help(_ mode: EditorViewMode) -> String {
+        switch mode {
+        case .coding:
+            return "Coding. ⌘/ toggles source code mode."
+        case .preview:
+            return "Preview. ⌘/ toggles source code mode."
+        case .reading:
+            return "Reading. ⌘E toggles reading view."
+        }
+    }
+}
+
+struct ViewModeToolbar: ToolbarContent {
+    var mode: EditorViewMode
+    var onSelect: (EditorViewMode) -> Void
+
+    var body: some ToolbarContent {
+        #if os(macOS)
+        if #available(macOS 26, *) {
+            ToolbarSpacer(.flexible)
+            ToolbarItem(id: "xyz.viewMode") {
+                ViewModeControl(mode: mode, onSelect: onSelect)
+            }
+            .sharedBackgroundVisibility(.hidden)
+        } else {
+            ToolbarItem(placement: .primaryAction) {
+                ViewModeControl(mode: mode, onSelect: onSelect)
+            }
+        }
+        #else
+        ToolbarItem(placement: .primaryAction) {
+            ViewModeControl(mode: mode, onSelect: onSelect)
+        }
+        #endif
+    }
+}
+
+struct ViewModeControl: View {
+    var mode: EditorViewMode
+    var onSelect: (EditorViewMode) -> Void
+
+    var body: some View {
+        #if os(macOS)
+        MacViewModeControl(mode: mode, onSelect: onSelect)
+        #else
+        ViewModeMenu(mode: mode, onSelect: onSelect)
+        #endif
+    }
+}
+
+#if os(macOS)
+private struct MacViewModeControl: View {
+    var mode: EditorViewMode
+    var onSelect: (EditorViewMode) -> Void
+    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.colorSchemeContrast) private var contrast
+
+    var body: some View {
+        if #available(macOS 26, *), !reduceTransparency, contrast != .increased {
+            GlassModeControl(mode: mode, onSelect: onSelect, reduceMotion: reduceMotion)
+        } else {
+            ClassicModeControl(mode: mode, onSelect: onSelect)
+        }
+    }
+}
+
+@available(macOS 26, *)
+private struct GlassModeControl: View {
+    var mode: EditorViewMode
+    var onSelect: (EditorViewMode) -> Void
+    var reduceMotion: Bool
+
+    var body: some View {
+        GlassEffectContainer(spacing: 0) {
+            HStack(spacing: 0) {
+                ForEach(EditorViewMode.allCases) { item in
+                    segment(item)
+                }
+            }
+            .padding(2)
+            .glassEffect(.regular, in: Capsule())
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("View mode")
+    }
+
+    private func segment(_ item: EditorViewMode) -> some View {
+        Button {
+            onSelect(item)
+        } label: {
+            segmentImage(item)
+                .frame(width: 34, height: 26)
+                .background {
+                    if mode == item {
+                        Capsule().fill(Color.accentColor.opacity(0.18))
+                    }
+                }
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(mode == item ? Color.accentColor : Color.primary)
+        .help(ViewModeSymbol.help(item))
+        .accessibilityLabel(item.title)
+        .accessibilityAddTraits(mode == item ? .isSelected : [])
+    }
+
+    @ViewBuilder
+    private func segmentImage(_ item: EditorViewMode) -> some View {
+        let symbol = Image(systemName: ViewModeSymbol.name(item))
+            .font(.system(size: 13, weight: .medium))
+            .symbolRenderingMode(.monochrome)
+            .contentTransition(.symbolEffect(.replace))
+        if reduceMotion {
+            symbol
+        } else {
+            symbol.symbolEffect(.bounce, value: mode == item)
+        }
+    }
+}
+
+private struct ClassicModeControl: NSViewRepresentable {
+    var mode: EditorViewMode
+    var onSelect: (EditorViewMode) -> Void
+
+    func makeNSView(context: Context) -> NSSegmentedControl {
+        let control = NSSegmentedControl()
+        control.segmentCount = EditorViewMode.allCases.count
+        control.trackingMode = .selectOne
+        control.segmentStyle = .rounded
+        control.controlSize = .small
+        control.setAccessibilityLabel("View mode")
+        for (index, item) in EditorViewMode.allCases.enumerated() {
+            let image = NSImage(systemSymbolName: ViewModeSymbol.name(item), accessibilityDescription: item.title)
+            control.setImage(image, forSegment: index)
+            control.setToolTip(ViewModeSymbol.help(item), forSegment: index)
+            control.setWidth(36, forSegment: index)
+        }
+        control.target = context.coordinator
+        control.action = #selector(Coordinator.pick(_:))
+        control.selectedSegment = index(of: mode)
+        return control
+    }
+
+    func updateNSView(_ control: NSSegmentedControl, context: Context) {
+        context.coordinator.onSelect = onSelect
+        let selected = index(of: mode)
+        if control.selectedSegment != selected {
+            control.selectedSegment = selected
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onSelect: onSelect)
+    }
+
+    private func index(of mode: EditorViewMode) -> Int {
+        EditorViewMode.allCases.firstIndex(of: mode) ?? 1
+    }
+
+    final class Coordinator: NSObject {
+        var onSelect: (EditorViewMode) -> Void
+
+        init(onSelect: @escaping (EditorViewMode) -> Void) {
+            self.onSelect = onSelect
+        }
+
+        @objc func pick(_ sender: NSSegmentedControl) {
+            let index = sender.selectedSegment
+            guard EditorViewMode.allCases.indices.contains(index) else { return }
+            onSelect(EditorViewMode.allCases[index])
+        }
+    }
+}
+#else
+private struct ViewModeMenu: View {
+    var mode: EditorViewMode
+    var onSelect: (EditorViewMode) -> Void
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    var body: some View {
+        Menu {
+            Picker("View", selection: selection) {
+                ForEach(EditorViewMode.allCases) { item in
+                    Label(item.title, systemImage: ViewModeSymbol.name(item)).tag(item)
+                }
+            }
+        } label: {
+            label
+        }
+        .accessibilityLabel(mode.title)
+    }
+
+    private var selection: Binding<EditorViewMode> {
+        Binding(get: { mode }, set: { onSelect($0) })
+    }
+
+    @ViewBuilder
+    private var label: some View {
+        let symbol = Image(systemName: ViewModeSymbol.name(mode))
+            .symbolRenderingMode(.monochrome)
+            .contentTransition(.symbolEffect(.replace))
+        if reduceMotion {
+            symbol
+        } else {
+            symbol.symbolEffect(.bounce, value: mode)
+        }
+    }
+}
+#endif
 
 /// Editor and Markdown preview for one open document.
 struct DocumentEditorView: View {
@@ -42,20 +255,25 @@ struct DocumentEditorView: View {
     @Environment(\.undoManager) private var undoManager
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     #endif
-    @State private var showsPreview: Bool
+    @State private var viewMode: EditorViewMode
+    @State private var editingMode: EditorViewMode
     @State private var bridge: PreviewBridge
+    @State private var webHost: PreviewWebHost
 
     init(document: MarkdownFileDocument, isEditable: Bool) {
         self.document = document
         self.isEditable = isEditable
         _bridge = State(initialValue: PreviewBridge(text: document.text))
+        _webHost = State(initialValue: PreviewWebHost())
         #if os(iOS)
-        let startWithPreview = UIDevice.current.userInterfaceIdiom != .phone
+        let start: EditorViewMode = UIDevice.current.userInterfaceIdiom == .phone ? .coding : .preview
         #else
-        let startWithPreview = true
+        let start = EditorViewMode.preview
         #endif
-        _showsPreview = State(initialValue: startWithPreview)
+        _viewMode = State(initialValue: start)
+        _editingMode = State(initialValue: start == .reading ? .preview : start)
     }
 
     var body: some View {
@@ -71,8 +289,16 @@ struct DocumentEditorView: View {
         #if os(macOS)
         .frame(minWidth: 640, minHeight: 400)
         #endif
-        .toolbar { toolbarContent }
-        .focusedSceneValue(\.xyzShowsPreview, $showsPreview)
+        .toolbar { ViewModeToolbar(mode: viewMode) { select($0) } }
+        .focusedSceneValue(
+            \.editorViewActions,
+            EditorViewActions(
+                mode: viewMode,
+                select: { select($0) },
+                toggleReading: { toggleReading() },
+                toggleSource: { toggleSource() }
+            )
+        )
     }
 
     private var editor: some View {
@@ -89,13 +315,13 @@ struct DocumentEditorView: View {
     }
 
     private var preview: some View {
-        MarkdownPreview(bridge: bridge)
+        MarkdownPreview(bridge: bridge, host: webHost)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     #if os(macOS)
     private var macBody: some View {
-        EditorPreviewSplit(showsPreview: showsPreview, editor: editor, preview: preview)
+        EditorPreviewSplit(mode: viewMode, editor: editor, preview: preview)
     }
     #endif
 
@@ -104,80 +330,75 @@ struct DocumentEditorView: View {
         horizontalSizeClass == .compact
     }
 
-    @ViewBuilder
     private var iosBody: some View {
-        if isCompactPhone {
-            phoneBody
-        } else {
-            padBody
+        Group {
+            if isCompactPhone {
+                phoneBody
+            } else {
+                padBody
+            }
+        }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: viewMode)
+        .onChange(of: viewMode) { _, mode in
+            guard mode == .reading else { return }
+            UIApplication.shared.sendAction(
+                #selector(UIResponder.resignFirstResponder),
+                to: nil,
+                from: nil,
+                for: nil
+            )
         }
     }
 
+    @ViewBuilder
     private var phoneBody: some View {
-        VStack(spacing: 0) {
-            Picker("Mode", selection: $showsPreview) {
-                Text("Edit").tag(false)
-                Text("Preview").tag(true)
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
-            .accessibilityLabel("Edit or preview")
-
-            ZStack {
-                editor
-                    .opacity(showsPreview ? 0 : 1)
-                    .allowsHitTesting(!showsPreview)
-                    .accessibilityHidden(showsPreview)
-                preview
-                    .opacity(showsPreview ? 1 : 0)
-                    .allowsHitTesting(showsPreview)
-                    .accessibilityHidden(!showsPreview)
-            }
-        }
-        .onChange(of: showsPreview) { _, visible in
-            if visible {
-                UIApplication.shared.sendAction(
-                    #selector(UIResponder.resignFirstResponder),
-                    to: nil,
-                    from: nil,
-                    for: nil
-                )
-            }
-        }
-    }
-
-    private var padBody: some View {
-        HStack(spacing: 0) {
+        switch viewMode {
+        case .coding:
             editor
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            if showsPreview {
+        case .reading:
+            preview
+        case .preview:
+            VStack(spacing: 0) {
+                editor
                 Divider()
                 preview
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var padBody: some View {
+        switch viewMode {
+        case .coding:
+            editor
+        case .reading:
+            preview
+        case .preview:
+            HStack(spacing: 0) {
+                editor
+                Divider()
+                preview
             }
         }
     }
     #endif
 
-    @ToolbarContentBuilder
-    private var toolbarContent: some ToolbarContent {
-        #if os(macOS)
-        ToolbarItem(placement: .primaryAction) {
-            PreviewToolbarButton(showsPreview: $showsPreview)
+    private func select(_ mode: EditorViewMode) {
+        if mode != .reading {
+            editingMode = mode
         }
-        #else
-        if !isCompactPhone {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    showsPreview.toggle()
-                } label: {
-                    Label("Preview", systemImage: showsPreview ? "eye.fill" : "eye")
-                }
-                .labelStyle(.iconOnly)
-                .accessibilityLabel(showsPreview ? "Hide preview" : "Show preview")
-            }
-        }
-        #endif
+        viewMode = mode
+    }
+
+    private func toggleReading() {
+        let next = EditorViewMode.toggleReading(current: viewMode, editing: editingMode)
+        editingMode = next.editing
+        viewMode = next.mode
+    }
+
+    private func toggleSource() {
+        let next = EditorViewMode.toggleSource(current: viewMode)
+        editingMode = next
+        viewMode = next
     }
 }

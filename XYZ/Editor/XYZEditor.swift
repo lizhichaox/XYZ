@@ -13,10 +13,12 @@ import UIKit
 struct XYZEditorStyle: Equatable {
     var fontSize: CGFloat = 16
     /// Target line height relative to the font size. Soft wraps use this; hard returns also get `paragraphSpacing`.
-    var lineHeight: CGFloat = 1.58
-    var paragraphSpacing: CGFloat = 6
+    var lineHeight: CGFloat = 1.6
+    var paragraphSpacing: CGFloat = 2
     var horizontalInset: CGFloat = 32
-    var verticalInset: CGFloat = 24
+    var verticalInset: CGFloat = 28
+    /// Centered measure. Side inset grows once the pane is wider than this.
+    static let measure: CGFloat = 700
     var monospaced: Bool = false
 
     static let monospacedKey = "xyz.editor.monospaced"

@@ -23,6 +23,16 @@ final class XYZMacTextView: NSTextView {
         super.viewDidChangeEffectiveAppearance()
         onAppearanceChange?()
     }
+
+    override func layout() {
+        super.layout()
+        guard let width = enclosingScrollView?.contentSize.width, width > 1 else { return }
+        let side = max(XYZEditorStyle.markdown.horizontalInset, floor((width - XYZEditorStyle.measure) / 2))
+        let next = NSSize(width: side, height: XYZEditorStyle.markdown.verticalInset)
+        if textContainerInset != next {
+            textContainerInset = next
+        }
+    }
 }
 
 struct XYZMacEditor: NSViewRepresentable {

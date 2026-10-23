@@ -14,6 +14,22 @@ final class XYZIOSTextView: UITextView {
     override var intrinsicContentSize: CGSize {
         CGSize(width: UIView.noIntrinsicMetric, height: UIView.noIntrinsicMetric)
     }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        let width = bounds.width
+        guard width > 1 else { return }
+        let side = max(XYZEditorStyle.markdown.horizontalInset, floor((width - XYZEditorStyle.measure) / 2))
+        let next = UIEdgeInsets(
+            top: XYZEditorStyle.markdown.verticalInset,
+            left: side,
+            bottom: XYZEditorStyle.markdown.verticalInset,
+            right: side
+        )
+        if textContainerInset != next {
+            textContainerInset = next
+        }
+    }
 }
 
 struct XYZIOSEditor: UIViewRepresentable {

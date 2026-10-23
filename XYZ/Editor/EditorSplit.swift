@@ -1,20 +1,19 @@
 #if os(macOS)
 import AppKit
 import SwiftUI
+import XYZCore
 
-/// Side-by-side editor and preview.
+/// Editor and preview panes. Both stay mounted so the web view is not recreated.
 ///
-/// SwiftUI's `HSplitView` sizes itself from the text view's fitting width, which
-/// collapses the editor to a narrow column and leaves the preview blank. This
-/// split view owns both widths, starts at half, and keeps a draggable hairline.
+/// Changing mode moves the divider. It does not change the window frame.
 struct EditorPreviewSplit<Editor: View, Preview: View>: View {
-    var showsPreview: Bool
+    var mode: EditorViewMode
     var editor: Editor
     var preview: Preview
 
     var body: some View {
         EditorPreviewSplitRepresentable(
-            showsPreview: showsPreview,
+            mode: mode,
             editor: AnyView(editor),
             preview: AnyView(preview)
         )
@@ -22,7 +21,7 @@ struct EditorPreviewSplit<Editor: View, Preview: View>: View {
 }
 
 private struct EditorPreviewSplitRepresentable: NSViewRepresentable {
-    var showsPreview: Bool
+    var mode: EditorViewMode
     var editor: AnyView
     var preview: AnyView
 
@@ -30,14 +29,14 @@ private struct EditorPreviewSplitRepresentable: NSViewRepresentable {
         let view = EditorPreviewSplitContainer()
         view.editorHost.rootView = editor
         view.previewHost.rootView = preview
-        view.setShowsPreview(showsPreview)
+        view.setMode(mode)
         return view
     }
 
     func updateNSView(_ view: EditorPreviewSplitContainer, context: Context) {
         view.editorHost.rootView = editor
         view.previewHost.rootView = preview
-        view.setShowsPreview(showsPreview)
+        view.setMode(mode)
     }
 
     func sizeThatFits(
@@ -56,7 +55,7 @@ final class EditorPreviewSplitContainer: NSView, NSSplitViewDelegate {
     let editorHost = FixedHostingView(rootView: AnyView(EmptyView()))
     let previewHost = FixedHostingView(rootView: AnyView(EmptyView()))
 
-    private var showsPreview = false
+    private var mode: EditorViewMode = .preview
     private var didApplyInitial = false
     private var applyingPosition = false
 
@@ -80,6 +79,10 @@ final class EditorPreviewSplitContainer: NSView, NSSplitViewDelegate {
         editorHost.frame = NSRect(x: 0, y: 0, width: 480, height: 640)
         previewHost.frame = NSRect(x: 0, y: 0, width: 480, height: 640)
         split.addArrangedSubview(editorHost)
+        split.addArrangedSubview(previewHost)
+        let priority = NSLayoutConstraint.Priority(249)
+        split.setHoldingPriority(priority, forSubviewAt: 0)
+        split.setHoldingPriority(priority, forSubviewAt: 1)
         setContentHuggingPriority(.defaultLow, for: .horizontal)
         setContentHuggingPriority(.defaultLow, for: .vertical)
         setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -95,40 +98,46 @@ final class EditorPreviewSplitContainer: NSView, NSSplitViewDelegate {
         NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
     }
 
-    func setShowsPreview(_ show: Bool) {
-        let expected = show ? 2 : 1
-        guard show != showsPreview || split.arrangedSubviews.count != expected else { return }
-        showsPreview = show
-        if show {
-            if !split.arrangedSubviews.contains(previewHost) {
-                split.addArrangedSubview(previewHost)
-                let priority = NSLayoutConstraint.Priority(249)
-                split.setHoldingPriority(priority, forSubviewAt: 0)
-                split.setHoldingPriority(priority, forSubviewAt: 1)
-                didApplyInitial = false
-            }
-        } else if split.arrangedSubviews.contains(previewHost) {
-            previewHost.removeFromSuperview()
+    func setMode(_ mode: EditorViewMode) {
+        let changed = self.mode != mode
+        self.mode = mode
+        split.showsDivider = mode == .preview
+        guard bounds.width > 1, split.arrangedSubviews.count == 2 else {
+            if mode == .preview { didApplyInitial = false }
+            return
         }
-        needsLayout = true
+        if mode == .preview { didApplyInitial = true }
+        let target = position(for: mode, width: bounds.width)
+        let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = (changed && !reduceMotion) ? 0.22 : 0
+            context.allowsImplicitAnimation = changed && !reduceMotion
+            split.animator().setPosition(target, ofDividerAt: 0)
+        }
     }
 
     override func layout() {
         super.layout()
         layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
-        guard showsPreview, !didApplyInitial, bounds.width > 80, split.arrangedSubviews.count == 2 else { return }
+        guard bounds.width > 1, split.arrangedSubviews.count == 2 else { return }
+        if mode != .preview {
+            let target = position(for: mode, width: bounds.width)
+            if abs(split.arrangedSubviews[0].frame.width - target) > 1 {
+                applyingPosition = true
+                split.setPosition(target, ofDividerAt: 0)
+                applyingPosition = false
+            }
+            return
+        }
+        guard !didApplyInitial else { return }
         didApplyInitial = true
-        let stored = UserDefaults.standard.double(forKey: Self.fractionKey)
-        let fraction = (stored > 0.2 && stored < 0.8) ? stored : 0.5
-        let minPane = min(260, bounds.width / 2)
-        let position = min(max(bounds.width * CGFloat(fraction), minPane), bounds.width - minPane)
         applyingPosition = true
-        split.setPosition(position, ofDividerAt: 0)
+        split.setPosition(position(for: .preview, width: bounds.width), ofDividerAt: 0)
         applyingPosition = false
     }
 
     func splitViewDidResizeSubviews(_ notification: Notification) {
-        guard !applyingPosition, didApplyInitial, showsPreview, bounds.width > 1 else { return }
+        guard !applyingPosition, didApplyInitial, mode == .preview, bounds.width > 1 else { return }
         guard split.arrangedSubviews.count == 2 else { return }
         let fraction = Double(split.arrangedSubviews[0].frame.width / bounds.width)
         guard fraction > 0.15, fraction < 0.85 else { return }
@@ -140,7 +149,8 @@ final class EditorPreviewSplitContainer: NSView, NSSplitViewDelegate {
         constrainMinCoordinate proposedMinimumPosition: CGFloat,
         ofSubviewAt dividerIndex: Int
     ) -> CGFloat {
-        min(260, splitView.bounds.width / 2)
+        if mode != .preview { return 0 }
+        return min(260, splitView.bounds.width / 2)
     }
 
     func splitView(
@@ -148,12 +158,36 @@ final class EditorPreviewSplitContainer: NSView, NSSplitViewDelegate {
         constrainMaxCoordinate proposedMaximumPosition: CGFloat,
         ofSubviewAt dividerIndex: Int
     ) -> CGFloat {
+        if mode != .preview { return splitView.bounds.width }
         let minPane = min(260, splitView.bounds.width / 2)
         return max(minPane, splitView.bounds.width - minPane)
     }
 
+    func splitView(
+        _ splitView: NSSplitView,
+        effectiveRect proposedEffectiveRect: NSRect,
+        forDrawnRect drawnRect: NSRect,
+        ofDividerAt dividerIndex: Int
+    ) -> NSRect {
+        mode == .preview ? proposedEffectiveRect : .zero
+    }
+
     func splitView(_ splitView: NSSplitView, canCollapseSubview subview: NSView) -> Bool {
         false
+    }
+
+    private func position(for mode: EditorViewMode, width: CGFloat) -> CGFloat {
+        switch mode {
+        case .coding:
+            return width
+        case .reading:
+            return 0
+        case .preview:
+            let stored = UserDefaults.standard.double(forKey: Self.fractionKey)
+            let fraction = (stored > 0.2 && stored < 0.8) ? stored : 0.5
+            let minPane = min(260, width / 2)
+            return min(max(width * CGFloat(fraction), minPane), width - minPane)
+        }
     }
 
     private func configure(_ host: FixedHostingView) {
@@ -173,9 +207,12 @@ final class FixedHostingView: NSHostingView<AnyView> {
 }
 
 final class HairlineSplitView: NSSplitView {
-    override var dividerThickness: CGFloat { 8 }
+    var showsDivider = true
+
+    override var dividerThickness: CGFloat { showsDivider ? 8 : 0 }
 
     override func drawDivider(in rect: NSRect) {
+        guard showsDivider else { return }
         NSColor.textBackgroundColor.setFill()
         rect.fill()
         let line = NSRect(x: floor(rect.midX), y: rect.minY, width: 1, height: rect.height)
