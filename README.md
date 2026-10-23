@@ -8,8 +8,8 @@ New documents are Markdown (`.md`). The app also opens and saves `.markdown` and
 
 ## What you see
 
-- A monospaced plain-text editor. On the Mac it is an `NSTextView`; on iOS it is a `UITextView`. Both use TextKit 2.
-- A Markdown preview beside the editor on the Mac and on iPad. The toolbar button (and View → Show/Hide Preview, ⇧⌘P) shows or hides it.
+- A proportional text editor in the system font (SF Pro, with PingFang SC for Chinese), about 16pt with comfortable line height. Markdown markers are tinted and headings are slightly larger. Settings → Monospaced editor font switches the editor to a fixed-width face. On the Mac the view is an `NSTextView`; on iOS it is a `UITextView`. Both use TextKit 2.
+- A Markdown preview beside the editor on the Mac and on iPad, starting at half the width. Drag the divider to resize it. The toolbar Preview button (and View → Show/Hide Preview, ⇧⌘P) shows or hides it.
 - On iPhone, an Edit / Preview control switches between the two. The text view stays mounted, so the cursor is still there when you come back.
 - Preview renders headings, emphasis, lists, task lists, links, images (as tags), tables, code, and blockquotes. It follows light and dark mode.
 
@@ -23,13 +23,13 @@ The preview is an HTML page in a `WKWebView`. Parsing is [swift-markdown](https:
 - `MarkdownFileDocument` is the `ReferenceFileDocument` the document scene saves. The text view keeps the buffer; SwiftUI is not given a new string on every keystroke.
 - `MarkdownParser` builds the syntax tree. `HTMLRenderer` only walks a tree. `MarkdownHTML` is the small public wrapper.
 
-The app target is shared SwiftUI. `XYZMacEditor` and `XYZIOSEditor` are the platform text views. They share `XYZEditor` / `XYZTextEditing`, which is where syntax highlighting, find and replace, and large-file updates can land later (`textLayoutManager` is already TextKit 2).
+The app target is shared SwiftUI. `XYZMacEditor` and `XYZIOSEditor` are the platform text views. They share `XYZEditor` / `XYZTextEditing`. The Mac editor applies light heading and marker styling in the text storage without putting those attributes in the saved file. Find and replace, and large-file updates, can still land on `textLayoutManager`.
 
 Typing undo uses the text view, pointed at the document scene's undo manager, so the system can tell the file is dirty and autosave it.
 
 ## Folders on Mac
 
-File → Open Folder… (⇧⌘O) opens a folder beside the single-document windows. That panel accepts only folders, shows hidden files, and its button says Open Folder. File → Open (⌘O) still opens Markdown and plain text; choosing a folder there opens the same workspace. You can also drop a folder on the Dock icon or on a workspace window. The sidebar lists every subdirectory and file, including hidden ones (`.gitignore`, `.github`, `.DS_Store`). ⇧⌘. hides those, the same shortcut Finder uses. Folders sort first, then names, without regard to case. Children load when a folder is expanded, off the main thread, and the list updates when files are added, removed, or renamed.
+File → Open Folder… (⇧⌘O) opens a folder beside the single-document windows. That panel accepts only folders, shows hidden files, and its button says Open Folder. File → Open (⌘O) still opens Markdown and plain text; choosing a folder there opens the same workspace. You can also drop a folder on the Dock icon or on a workspace window. The sidebar is a source list headed by the folder name. It lists every subdirectory and file, including hidden ones (`.gitignore`, `.github`, `.DS_Store`), which are drawn in the secondary label color. ⇧⌘. hides those, the same shortcut Finder uses. Folders sort first, then names, without regard to case. Children load when a folder is expanded, off the main thread, and the list updates when files are added, removed, or renamed. The window title is the open file, with the folder name as its subtitle.
 
 Markdown files (`.md`, `.markdown`) open in the editor and preview. Other text, including source files and dotfiles, opens in the editor with the preview hidden. Binary files and files over 5 MB show a short message and can be handed to the default app. Edits are written back with a coordinated save. If the file changes on disk while you have unsaved edits, XYZ asks before overwriting.
 

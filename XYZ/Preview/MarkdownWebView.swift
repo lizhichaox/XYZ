@@ -36,6 +36,10 @@ private struct MacMarkdownWebView: NSViewRepresentable {
         context.coordinator.update(webView: webView, html: html, theme: theme)
     }
 
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: WKWebView, context: Context) -> CGSize? {
+        CGSize(width: proposal.width ?? 640, height: proposal.height ?? 480)
+    }
+
     func makeCoordinator() -> PreviewWebCoordinator {
         PreviewWebCoordinator()
     }
@@ -56,6 +60,10 @@ private struct IOSMarkdownWebView: UIViewRepresentable {
         context.coordinator.update(webView: webView, html: html, theme: theme)
     }
 
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: WKWebView, context: Context) -> CGSize? {
+        CGSize(width: proposal.width ?? 640, height: proposal.height ?? 480)
+    }
+
     func makeCoordinator() -> PreviewWebCoordinator {
         PreviewWebCoordinator()
     }
@@ -70,14 +78,13 @@ private enum PreviewWebViewFactory {
         webView.allowsBackForwardNavigationGestures = false
         webView.allowsLinkPreview = true
         #if os(macOS)
-        // AppKit's isOpaque is read-only. A clear page background is what makes the preview transparent.
-        webView.underPageBackgroundColor = .clear
+        // AppKit's isOpaque is read-only. Match the editor page color, including overscroll.
+        webView.underPageBackgroundColor = .textBackgroundColor
         webView.setAccessibilityLabel("Markdown preview")
         #else
-        webView.isOpaque = false
-        webView.backgroundColor = .clear
-        webView.scrollView.backgroundColor = .clear
-        webView.scrollView.isOpaque = false
+        webView.isOpaque = true
+        webView.backgroundColor = .systemBackground
+        webView.scrollView.backgroundColor = .systemBackground
         #endif
         #if DEBUG
         webView.isInspectable = true
@@ -87,20 +94,26 @@ private enum PreviewWebViewFactory {
 }
 
 private final class PreviewWebCoordinator: NSObject, WKNavigationDelegate {
-    private let shellHTML = PreviewPage.shell(css: PreviewStyles.load())
+    private let css = PreviewStyles.load()
     private var didStartLoad = false
     private var isReady = false
     private var pendingHTML: String?
     private var appliedHTML: String?
     private var pendingTheme: String?
     private var appliedTheme: String?
+    private var reloadFallbackHTML: String?
 
     func update(webView: WKWebView, html: String, theme: String) {
         pendingHTML = html
         pendingTheme = theme
+        #if os(macOS)
+        webView.underPageBackgroundColor = .textBackgroundColor
+        #endif
         if !didStartLoad {
             didStartLoad = true
-            webView.loadHTMLString(shellHTML, baseURL: nil)
+            appliedHTML = html
+            appliedTheme = theme
+            webView.loadHTMLString(PreviewPage.shell(css: css, html: html, theme: theme), baseURL: nil)
             return
         }
         guard isReady else { return }
@@ -131,21 +144,21 @@ private final class PreviewWebCoordinator: NSObject, WKNavigationDelegate {
         guard isReady else { return }
         if let theme = pendingTheme, theme != appliedTheme {
             appliedTheme = theme
-            webView.callAsyncJavaScript(
-                "setTheme(theme)",
-                arguments: ["theme": theme],
-                in: nil,
-                in: .page
-            ) { _ in }
+            evaluate(webView, "setTheme(\(PreviewPage.javaScriptLiteral(theme)))", fallback: nil)
         }
         if let html = pendingHTML, html != appliedHTML {
             appliedHTML = html
-            webView.callAsyncJavaScript(
-                "setContent(html)",
-                arguments: ["html": html],
-                in: nil,
-                in: .page
-            ) { _ in }
+            evaluate(webView, "setContent(\(PreviewPage.javaScriptLiteral(html)))", fallback: html)
+        }
+    }
+
+    private func evaluate(_ webView: WKWebView, _ script: String, fallback: String?) {
+        webView.evaluateJavaScript(script) { _, error in
+            guard error != nil, let fallback, self.reloadFallbackHTML != fallback else { return }
+            self.reloadFallbackHTML = fallback
+            let theme = self.appliedTheme ?? "light"
+            self.isReady = false
+            webView.loadHTMLString(PreviewPage.shell(css: self.css, html: fallback, theme: theme), baseURL: nil)
         }
     }
 
@@ -177,10 +190,11 @@ private enum PreviewStyles {
 }
 
 private enum PreviewPage {
-    static func shell(css: String) -> String {
-        """
+    static func shell(css: String, html: String, theme: String) -> String {
+        let themeName = theme == "dark" ? "dark" : "light"
+        return """
         <!DOCTYPE html>
-        <html>
+        <html data-theme="\(themeName)">
         <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
@@ -189,7 +203,7 @@ private enum PreviewPage {
         </style>
         </head>
         <body>
-        <article id="content"></article>
+        <article id="content">\(html)</article>
         <script>
         function setContent(html) {
           var node = document.getElementById("content");
@@ -198,13 +212,22 @@ private enum PreviewPage {
         function setTheme(theme) {
           document.documentElement.setAttribute("data-theme", theme);
         }
-        (function () {
-          var dark = window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches;
-          setTheme(dark ? "dark" : "light");
-        })();
+        setTheme("\(themeName)");
         </script>
         </body>
         </html>
         """
+    }
+
+    static func javaScriptLiteral(_ string: String) -> String {
+        guard let data = try? JSONSerialization.data(withJSONObject: [string]),
+              var text = String(data: data, encoding: .utf8) else {
+            return "\"\""
+        }
+        if text.hasPrefix("["), text.hasSuffix("]") {
+            text.removeFirst()
+            text.removeLast()
+        }
+        return text
     }
 }

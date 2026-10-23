@@ -18,9 +18,16 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
+        // The visible title is SwiftUI's navigation title (file, with the folder as subtitle).
+        // A represented URL draws the folder name again and crowds the traffic lights.
         window.title = session.displayName
-        window.representedURL = session.rootURL
-        window.contentMinSize = NSSize(width: 720, height: 420)
+        window.representedURL = nil
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.titlebarSeparatorStyle = .none
+        window.toolbarStyle = .unified
+        window.styleMask.insert(.fullSizeContentView)
+        window.contentMinSize = NSSize(width: 880, height: 520)
         window.isReleasedWhenClosed = false
         window.setFrameAutosaveName("XYZWorkspace")
         super.init(window: window)

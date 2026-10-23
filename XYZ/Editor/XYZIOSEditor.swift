@@ -21,6 +21,7 @@ struct XYZIOSEditor: UIViewRepresentable {
     var isEditable: Bool
     var undoManager: UndoManager?
     var reloadToken: Int
+    var monospaced: Bool
     var onTextChange: (String) -> Void
 
     func makeUIView(context: Context) -> XYZIOSTextView {
@@ -54,11 +55,13 @@ struct XYZIOSEditor: UIViewRepresentable {
         textView.setContentHuggingPriority(.defaultLow, for: .horizontal)
         textView.setContentHuggingPriority(.defaultLow, for: .vertical)
         textView.accessibilityLabel = "Markdown editor"
-        applyTypingStyle(to: textView)
+        applyTypingStyle(to: textView, monospaced: monospaced, restyleStorage: false)
         textView.text = text
+        applyTypingStyle(to: textView, monospaced: monospaced, restyleStorage: true)
 
         context.coordinator.textView = textView
         context.coordinator.onTextChange = onTextChange
+        context.coordinator.monospaced = monospaced
         textView.delegate = context.coordinator
         textView.documentUndoManager = undoManager
         assert(textView.textLayoutManager != nil, "XYZEditor requires TextKit 2")
@@ -69,37 +72,68 @@ struct XYZIOSEditor: UIViewRepresentable {
         context.coordinator.onTextChange = onTextChange
         textView.isEditable = isEditable
         textView.documentUndoManager = undoManager
-        applyTypingStyle(to: textView)
+        let styleChanged = context.coordinator.monospaced != monospaced
+        if styleChanged {
+            context.coordinator.monospaced = monospaced
+        }
+        var replaced = false
         if context.coordinator.reloadToken != reloadToken {
             context.coordinator.reloadToken = reloadToken
             if (textView.text ?? "") != text {
                 context.coordinator.perform(.replaceContents(text))
+                replaced = true
             }
         }
+        applyTypingStyle(to: textView, monospaced: monospaced, restyleStorage: styleChanged || replaced)
     }
 
     func makeCoordinator() -> Coordinator {
         Coordinator()
     }
 
-    private func applyTypingStyle(to textView: UITextView) {
-        let style = XYZEditorStyle.markdown
-        let base = UIFont.monospacedSystemFont(ofSize: style.fontSize, weight: .regular)
+    private func applyTypingStyle(to textView: UITextView, monospaced: Bool, restyleStorage: Bool) {
+        let style = XYZEditorStyle(monospaced: monospaced)
+        let base = Self.face(style)
         let font = UIFontMetrics(forTextStyle: .body).scaledFont(for: base)
-        let paragraph = NSMutableParagraphStyle()
-        paragraph.lineSpacing = style.lineSpacing
+        let paragraph = style.paragraphStyle(naturalLineHeight: font.lineHeight)
         textView.font = font
+        textView.textContainerInset = UIEdgeInsets(
+            top: style.verticalInset,
+            left: style.horizontalInset,
+            bottom: style.verticalInset,
+            right: style.horizontalInset
+        )
         textView.typingAttributes = [
             .font: font,
             .foregroundColor: UIColor.label,
             .paragraphStyle: paragraph,
         ]
+        guard restyleStorage, let storage = textView.textStorage, storage.length > 0 else { return }
+        let range = NSRange(location: 0, length: storage.length)
+        storage.beginEditing()
+        storage.addAttribute(.font, value: font, range: range)
+        storage.addAttribute(.paragraphStyle, value: paragraph, range: range)
+        storage.endEditing()
+    }
+
+    /// System font for Latin, PingFang SC for Chinese.
+    private static func face(_ style: XYZEditorStyle) -> UIFont {
+        if style.monospaced {
+            return UIFont.monospacedSystemFont(ofSize: style.fontSize, weight: .regular)
+        }
+        let base = UIFont.systemFont(ofSize: style.fontSize, weight: .regular)
+        let fallback = UIFontDescriptor(fontAttributes: [.name: "PingFang SC"])
+        let descriptor = base.fontDescriptor.addingAttributes([
+            .cascadeList: [fallback],
+        ])
+        return UIFont(descriptor: descriptor, size: style.fontSize)
     }
 
     final class Coordinator: NSObject, UITextViewDelegate, XYZTextEditing {
         var textView: XYZIOSTextView?
         var onTextChange: (String) -> Void = { _ in }
         var reloadToken = 0
+        var monospaced = false
         private var isApplyingExternalText = false
 
         var text: String {

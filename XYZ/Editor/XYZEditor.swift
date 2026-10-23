@@ -6,14 +6,29 @@ import AppKit
 import UIKit
 #endif
 
-/// Visual defaults for the plain-text Markdown editor.
+/// Visual defaults for the Markdown editor.
+///
+/// The default face is the system font (SF Pro, with PingFang SC for Chinese).
+/// A monospaced face is available from Settings and stored in `monospacedKey`.
 struct XYZEditorStyle: Equatable {
-    var fontSize: CGFloat = 15
-    var horizontalInset: CGFloat = 20
-    var verticalInset: CGFloat = 16
-    var lineSpacing: CGFloat = 3
+    var fontSize: CGFloat = 16
+    /// Target line height relative to the font size. Soft wraps use this; hard returns also get `paragraphSpacing`.
+    var lineHeight: CGFloat = 1.58
+    var paragraphSpacing: CGFloat = 6
+    var horizontalInset: CGFloat = 32
+    var verticalInset: CGFloat = 24
+    var monospaced: Bool = false
 
+    static let monospacedKey = "xyz.editor.monospaced"
     static let markdown = XYZEditorStyle()
+
+    func paragraphStyle(naturalLineHeight: CGFloat) -> NSMutableParagraphStyle {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineSpacing = max(2, fontSize * lineHeight - naturalLineHeight)
+        paragraph.paragraphSpacing = paragraphSpacing
+        paragraph.lineBreakMode = .byWordWrapping
+        return paragraph
+    }
 }
 
 /// Commands the text view can perform.
@@ -49,6 +64,8 @@ struct XYZEditor: View {
     var reloadToken: Int = 0
     var onTextChange: (String) -> Void
 
+    @AppStorage(XYZEditorStyle.monospacedKey) private var monospaced = false
+
     var body: some View {
         #if os(macOS)
         XYZMacEditor(
@@ -56,6 +73,7 @@ struct XYZEditor: View {
             isEditable: isEditable,
             undoManager: undoManager,
             reloadToken: reloadToken,
+            monospaced: monospaced,
             onTextChange: onTextChange
         )
         #else
@@ -64,6 +82,7 @@ struct XYZEditor: View {
             isEditable: isEditable,
             undoManager: undoManager,
             reloadToken: reloadToken,
+            monospaced: monospaced,
             onTextChange: onTextChange
         )
         #endif

@@ -24,13 +24,20 @@ struct WorkspaceView: View {
 
     var body: some View {
         NavigationSplitView {
-            sidebar
-                .navigationSplitViewColumnWidth(min: 200, ideal: 260, max: 420)
+            WorkspaceSidebar(session: session)
+                .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 420)
         } detail: {
             WorkspaceDetail(session: session)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color.editorBackground.ignoresSafeArea())
         }
-        .frame(minWidth: 720, minHeight: 420)
-        .background(Color.editorBackground)
+        .navigationSplitViewStyle(.balanced)
+        .navigationTitle(titleText)
+        .modifier(WorkspaceSubtitle(text: subtitleText))
+        .toolbarRole(.editor)
+        .toolbarBackground(.visible, for: .windowToolbar)
+        .frame(minWidth: 880, minHeight: 520)
+        .background(WorkspaceWindowChrome(title: titleText))
         .workspaceFolderDrop()
         .focusedSceneValue(
             \.workspaceActions,
@@ -41,91 +48,88 @@ struct WorkspaceView: View {
         )
     }
 
-    private var sidebar: some View {
-        List(selection: $session.selectedPath) {
-            if session.children[""] == nil && session.rootError == nil {
-                ProgressView()
-                    .frame(maxWidth: .infinity, alignment: .center)
-                    .padding(.top, 12)
-            } else if let rootError = session.rootError {
-                Text(rootError)
-                    .foregroundStyle(.secondary)
-                    .padding(12)
-            } else {
-                WorkspaceOutline(session: session, parent: "")
-            }
+    private var titleText: String {
+        openFileName ?? session.displayName
+    }
+
+    private var subtitleText: String {
+        openFileName == nil ? "" : session.displayName
+    }
+
+    private var openFileName: String? {
+        if let path = session.selectedPath, let node = session.node(at: path), !node.isDirectory {
+            return node.name
         }
-        .listStyle(.sidebar)
-        .accessibilityLabel("Folder contents")
-        .onChange(of: session.selectedPath) { _, path in
-            guard let path, let node = session.node(at: path), !node.isDirectory else { return }
-            session.openFile(node)
+        if let path = session.buffer?.relativePath {
+            return (path as NSString).lastPathComponent
         }
+        return nil
     }
 }
 
-private struct WorkspaceOutline: View {
-    @ObservedObject var session: WorkspaceSession
-    var parent: String
+private struct WorkspaceSubtitle: ViewModifier {
+    var text: String
 
-    var body: some View {
-        ForEach(session.visibleChildren(of: parent)) { node in
-            if node.isDirectory {
-                DisclosureGroup(isExpanded: expansion(node)) {
-                    if session.isExpanded(node.relativePath) {
-                        directoryBody(node)
-                    }
-                } label: {
-                    WorkspaceRow(session: session, node: node)
-                }
-            } else {
-                WorkspaceRow(session: session, node: node)
-                    .tag(node.relativePath as String?)
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func directoryBody(_ node: WorkspaceNode) -> some View {
-        if session.children[node.relativePath] == nil && session.loadErrors[node.relativePath] == nil {
-            ProgressView()
-                .controlSize(.small)
-        } else if let message = session.loadErrors[node.relativePath] {
-            Text(message)
-                .foregroundStyle(.secondary)
+    func body(content: Content) -> some View {
+        if text.isEmpty {
+            content
         } else {
-            WorkspaceOutline(session: session, parent: node.relativePath)
+            content.navigationSubtitle(text)
         }
-    }
-
-    private func expansion(_ node: WorkspaceNode) -> Binding<Bool> {
-        Binding(
-            get: { session.isExpanded(node.relativePath) },
-            set: { session.setExpanded(node, $0) }
-        )
     }
 }
 
-private struct WorkspaceRow: View {
-    @ObservedObject var session: WorkspaceSession
-    var node: WorkspaceNode
+/// One title, owned by SwiftUI. AppKit's represented URL was drawing the folder name on top of the file name.
+private struct WorkspaceWindowChrome: NSViewRepresentable {
+    var title: String
 
-    var body: some View {
-        HStack(spacing: 6) {
-            Image(nsImage: WorkspaceIcons.image(for: session.url(for: node.relativePath)))
-            Text(node.name)
-                .lineLimit(1)
-                .truncationMode(.middle)
+    func makeNSView(context: Context) -> WorkspaceChromeView {
+        let view = WorkspaceChromeView()
+        view.title = title
+        return view
+    }
+
+    func updateNSView(_ view: WorkspaceChromeView, context: Context) {
+        view.title = title
+        view.apply()
+    }
+}
+
+final class WorkspaceChromeView: NSView {
+    var title = ""
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        setContentHuggingPriority(.fittingSizeCompression, for: .horizontal)
+        setContentHuggingPriority(.fittingSizeCompression, for: .vertical)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        apply()
+    }
+
+    func apply() {
+        guard let window else { return }
+        window.representedURL = nil
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.titlebarSeparatorStyle = .none
+        window.toolbarStyle = .unified
+        if !window.styleMask.contains(.fullSizeContentView) {
+            window.styleMask.insert(.fullSizeContentView)
         }
-        .contextMenu {
-            if !node.isDirectory {
-                Button("Open with Default App") {
-                    NSWorkspace.shared.open(session.url(for: node.relativePath))
-                }
-            }
-            Button("Reveal in Finder") {
-                NSWorkspace.shared.activateFileViewerSelecting([session.url(for: node.relativePath)])
-            }
+        if window.title != title {
+            window.title = title
         }
     }
 }
@@ -188,12 +192,7 @@ private struct WorkspaceFilePane: View {
         .toolbar {
             if buffer.kind == .markdown {
                 ToolbarItem(placement: .primaryAction) {
-                    Toggle(isOn: $showsPreview) {
-                        Label("Preview", systemImage: showsPreview ? "eye.fill" : "eye")
-                    }
-                    .toggleStyle(.button)
-                    .labelStyle(.iconOnly)
-                    .help(showsPreview ? "Hide preview" : "Show preview")
+                    PreviewToolbarButton(showsPreview: $showsPreview)
                 }
             }
         }
@@ -231,14 +230,11 @@ private struct WorkspaceFilePane: View {
     }
 
     private var markdownBody: some View {
-        HSplitView {
-            editor
-                .frame(minWidth: 280, maxWidth: .infinity, maxHeight: .infinity)
-            if showsPreview {
-                MarkdownPreview(bridge: bridge)
-                    .frame(minWidth: 280, maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
+        EditorPreviewSplit(showsPreview: showsPreview, editor: editor, preview: preview)
+    }
+
+    private var preview: some View {
+        MarkdownPreview(bridge: bridge)
     }
 
     private var editor: some View {
@@ -279,25 +275,6 @@ private struct PreviewFocusModifier: ViewModifier {
         } else {
             content
         }
-    }
-}
-
-enum WorkspaceIcons {
-    private static let cache: NSCache<NSURL, NSImage> = {
-        let cache = NSCache<NSURL, NSImage>()
-        cache.countLimit = 500
-        return cache
-    }()
-
-    static func image(for url: URL) -> NSImage {
-        let key = url as NSURL
-        if let cached = cache.object(forKey: key) {
-            return cached
-        }
-        let image = NSWorkspace.shared.icon(forFile: url.path)
-        image.size = NSSize(width: 16, height: 16)
-        cache.setObject(image, forKey: key)
-        return image
     }
 }
 

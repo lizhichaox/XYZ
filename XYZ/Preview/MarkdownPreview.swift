@@ -76,11 +76,24 @@ final class PreviewModel: ObservableObject {
         guard html != rendered else { return }
         html = rendered
     }
+
+    /// First paint. Called before the web view exists so the shell can include the HTML.
+    func adopt(_ text: String) {
+        guard text.utf8.count <= Self.synchronousLimit else { return }
+        publish(MarkdownHTML.render(text))
+    }
 }
 
 struct MarkdownPreview: View {
     var bridge: PreviewBridge
-    @StateObject private var model = PreviewModel()
+    @StateObject private var model: PreviewModel
+
+    init(bridge: PreviewBridge) {
+        self.bridge = bridge
+        let model = PreviewModel()
+        model.adopt(bridge.latestText)
+        _model = StateObject(wrappedValue: model)
+    }
 
     var body: some View {
         MarkdownWebView(html: model.html)

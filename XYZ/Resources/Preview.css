@@ -3,10 +3,11 @@
   --text: #1c1c1e;
   --muted: #636366;
   --link: #0b57d0;
-  --border: rgba(60, 60, 67, 0.2);
-  --code: rgba(120, 120, 128, 0.14);
+  --border: rgba(60, 60, 67, 0.18);
+  --code: rgba(120, 120, 128, 0.12);
   --quote: #aeaeb2;
   --mark: rgba(11, 87, 208, 0.22);
+  --canvas: transparent;
 }
 
 :root[data-theme="dark"] {
@@ -35,47 +36,67 @@
 
 html, body {
   margin: 0;
-  background: transparent;
+  background: var(--canvas);
   color: var(--text);
 }
 
 body {
-  font: 16px/1.55 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
-  padding: 20px 24px 48px;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", sans-serif;
+  font-size: 16px;
+  line-height: 1.65;
   overflow-wrap: anywhere;
+  -webkit-font-smoothing: antialiased;
+}
+
+article {
+  max-width: 40rem;
+  margin: 0 auto;
+  padding: clamp(24px, 4vw, 40px) clamp(22px, 4vw, 40px) 72px;
 }
 
 article > :first-child { margin-top: 0; }
+article > :last-child { margin-bottom: 0; }
 
 h1, h2, h3, h4, h5, h6 {
-  line-height: 1.25;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Hiragino Sans GB", sans-serif;
+  line-height: 1.28;
   font-weight: 650;
-  margin: 1.3em 0 0.4em;
+  letter-spacing: -0.012em;
+  margin: 1.45em 0 0.45em;
 }
 
-h1 { font-size: 1.8em; }
+h1 { font-size: 1.85em; letter-spacing: -0.02em; }
 h2 { font-size: 1.45em; }
-h3 { font-size: 1.2em; }
-h4, h5, h6 { font-size: 1em; }
+h3 { font-size: 1.22em; }
+h4, h5, h6 { font-size: 1.02em; }
 
-p { margin: 0.7em 0; }
+p { margin: 0.85em 0; }
 
-a { color: var(--link); }
+a {
+  color: var(--link);
+  text-underline-offset: 2px;
+}
+
+strong { font-weight: 650; }
+
+code, kbd {
+  font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "PingFang SC", monospace;
+  font-size: 0.9em;
+}
 
 code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.9em;
   background: var(--code);
-  padding: 0.1em 0.35em;
-  border-radius: 4px;
+  padding: 0.12em 0.38em;
+  border-radius: 5px;
 }
 
 pre {
   background: var(--code);
-  padding: 12px 14px;
+  padding: 14px 16px;
   overflow: auto;
-  border-radius: 8px;
-  margin: 0.9em 0;
+  border-radius: 10px;
+  margin: 1em 0;
+  line-height: 1.5;
 }
 
 pre code {
@@ -86,27 +107,27 @@ pre code {
 }
 
 blockquote {
-  margin: 0.9em 0;
-  padding: 0.1em 0 0.1em 1em;
+  margin: 1em 0;
+  padding: 0.15em 0 0.15em 1em;
   border-left: 3px solid var(--quote);
   color: var(--muted);
 }
 
 ul, ol {
-  margin: 0.6em 0;
-  padding-left: 1.4em;
+  margin: 0.7em 0;
+  padding-left: 1.45em;
 }
 
-li { margin: 0.2em 0; }
-li > p { margin: 0.2em 0; }
+li { margin: 0.28em 0; }
+li > p { margin: 0.25em 0; }
 
 li.task {
   list-style: none;
-  margin-left: -1.15em;
+  margin-left: -1.2em;
 }
 
 li.task > input {
-  margin: 0 0.45em 0 0;
+  margin: 0 0.5em 0.1em 0;
   vertical-align: middle;
 }
 
@@ -115,19 +136,22 @@ li.task > p { display: inline; }
 hr {
   border: 0;
   border-top: 1px solid var(--border);
-  margin: 1.6em 0;
+  margin: 1.8em 0;
 }
 
 table {
   border-collapse: collapse;
   width: 100%;
-  margin: 1em 0;
+  margin: 1.1em 0;
+  font-size: 0.96em;
+  line-height: 1.5;
 }
 
 th, td {
   border: 1px solid var(--border);
-  padding: 0.4em 0.65em;
+  padding: 0.5em 0.7em;
   vertical-align: top;
+  text-align: left;
 }
 
 th {

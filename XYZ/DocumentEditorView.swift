@@ -5,6 +5,24 @@ import XYZCore
 import UIKit
 #endif
 
+struct PreviewToolbarButton: View {
+    @Binding var showsPreview: Bool
+
+    var body: some View {
+        Button {
+            showsPreview.toggle()
+        } label: {
+            Label("Preview", systemImage: showsPreview ? "eye.fill" : "eye")
+                .labelStyle(.titleAndIcon)
+                #if !os(macOS)
+                .labelStyle(.iconOnly)
+                #endif
+        }
+        .help(showsPreview ? "Hide preview" : "Show preview")
+        .accessibilityLabel(showsPreview ? "Hide preview" : "Show preview")
+    }
+}
+
 struct ShowsPreviewKey: FocusedValueKey {
     typealias Value = Binding<Bool>
 }
@@ -77,14 +95,7 @@ struct DocumentEditorView: View {
 
     #if os(macOS)
     private var macBody: some View {
-        HSplitView {
-            editor
-                .frame(minWidth: 280, maxWidth: .infinity, maxHeight: .infinity)
-            if showsPreview {
-                preview
-                    .frame(minWidth: 280, maxWidth: .infinity, maxHeight: .infinity)
-            }
-        }
+        EditorPreviewSplit(showsPreview: showsPreview, editor: editor, preview: preview)
     }
     #endif
 
@@ -153,13 +164,7 @@ struct DocumentEditorView: View {
     private var toolbarContent: some ToolbarContent {
         #if os(macOS)
         ToolbarItem(placement: .primaryAction) {
-            Toggle(isOn: $showsPreview) {
-                Label("Preview", systemImage: showsPreview ? "eye.fill" : "eye")
-            }
-            .toggleStyle(.button)
-            .labelStyle(.iconOnly)
-            .help(showsPreview ? "Hide preview" : "Show preview")
-            .accessibilityLabel(showsPreview ? "Hide preview" : "Show preview")
+            PreviewToolbarButton(showsPreview: $showsPreview)
         }
         #else
         if !isCompactPhone {
