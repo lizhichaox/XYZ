@@ -1,10 +1,13 @@
 #if os(iOS)
 import SwiftUI
 import UIKit
+import XYZCore
 
 /// TextKit 2 plain-text view. Subclass is the place for future shortcuts and find/replace.
 final class XYZIOSTextView: UITextView {
     weak var documentUndoManager: UndoManager?
+    var allowsMarkup = true
+    var isApplyingMarkupEdit = false
 
     override var undoManager: UndoManager? {
         documentUndoManager ?? super.undoManager
@@ -53,6 +56,58 @@ final class XYZIOSTextView: UITextView {
         return EditorScrollAnchor(fraction: fraction, probe: EditorScrollAnchor.probe(from: ns.substring(with: range)))
     }
 
+    override var keyCommands: [UIKeyCommand]? {
+        let existing = super.keyCommands ?? []
+        guard allowsMarkup else { return existing }
+        let bold = UIKeyCommand(input: "b", modifierFlags: .command, action: #selector(xyzToggleBold(_:)))
+        let italic = UIKeyCommand(input: "i", modifierFlags: .command, action: #selector(xyzToggleItalic(_:)))
+        let outdent = UIKeyCommand(input: "\t", modifierFlags: .shift, action: #selector(xyzOutdent(_:)))
+        bold.wantsPriorityOverSystemBehavior = true
+        italic.wantsPriorityOverSystemBehavior = true
+        return existing + [bold, italic, outdent]
+    }
+
+    override func insertText(_ text: String) {
+        if text == "\t", applyMarkupEdit(SourceEditing.indent(in: self.text ?? "", selection: sourceSelection())) {
+            return
+        }
+        super.insertText(text)
+    }
+
+    @objc func xyzToggleBold(_ sender: Any?) {
+        _ = applyMarkupEdit(SourceEditing.toggleBold(in: text ?? "", selection: sourceSelection()))
+    }
+
+    @objc func xyzToggleItalic(_ sender: Any?) {
+        _ = applyMarkupEdit(SourceEditing.toggleItalic(in: text ?? "", selection: sourceSelection()))
+    }
+
+    @objc func xyzOutdent(_ sender: Any?) {
+        _ = applyMarkupEdit(SourceEditing.outdent(in: text ?? "", selection: sourceSelection()))
+    }
+
+    func sourceSelection() -> SourceRange {
+        let range = selectedRange
+        return SourceRange(location: range.location, length: range.length)
+    }
+
+    @discardableResult
+    func applyMarkupEdit(_ edit: SourceReplacement?) -> Bool {
+        guard isEditable, allowsMarkup, markedTextRange == nil, !isApplyingMarkupEdit, let edit else { return false }
+        let start = position(from: beginningOfDocument, offset: edit.range.location) ?? beginningOfDocument
+        let end = position(from: start, offset: edit.range.length) ?? start
+        guard let range = textRange(from: start, to: end) else { return false }
+        isApplyingMarkupEdit = true
+        defer { isApplyingMarkupEdit = false }
+        replace(range, withText: edit.text)
+        let caret = position(from: beginningOfDocument, offset: edit.selection.location) ?? endOfDocument
+        let caretEnd = position(from: caret, offset: edit.selection.length) ?? caret
+        if let selected = textRange(from: caret, to: caretEnd) {
+            selectedTextRange = selected
+        }
+        return true
+    }
+
     func reveal(_ anchor: EditorScrollAnchor) {
         let location = anchor.utf16Location(in: text ?? "")
         let start = position(from: beginningOfDocument, offset: location) ?? beginningOfDocument
@@ -69,6 +124,7 @@ struct XYZIOSEditor: UIViewRepresentable {
     var reloadToken: Int
     var monospaced: Bool
     var scrollLink: EditorScrollLink
+    var markup: Bool
     var onTextChange: (String) -> Void
 
     func makeUIView(context: Context) -> XYZIOSTextView {
@@ -106,6 +162,7 @@ struct XYZIOSEditor: UIViewRepresentable {
         textView.text = text
         applyTypingStyle(to: textView, monospaced: monospaced, restyleStorage: true)
 
+        textView.allowsMarkup = markup
         context.coordinator.textView = textView
         context.coordinator.onTextChange = onTextChange
         context.coordinator.monospaced = monospaced
@@ -119,6 +176,7 @@ struct XYZIOSEditor: UIViewRepresentable {
         context.coordinator.onTextChange = onTextChange
         context.coordinator.scrollLink = scrollLink
         textView.isEditable = isEditable
+        textView.allowsMarkup = markup
         textView.documentUndoManager = undoManager
         scrollLink.capture = { [weak textView] in
             textView?.scrollAnchor() ?? EditorScrollAnchor(fraction: 0, probe: "")
@@ -218,6 +276,18 @@ struct XYZIOSEditor: UIViewRepresentable {
         func textViewDidChange(_ textView: UITextView) {
             guard !isApplyingExternalText else { return }
             onTextChange(textView.text ?? "")
+        }
+
+        func textView(_ textView: UITextView, shouldChangeTextIn range: NSRange, replacementText text: String) -> Bool {
+            guard !isApplyingExternalText else { return true }
+            guard let view = textView as? XYZIOSTextView else { return true }
+            guard text == "\n", range.length == 0, view.markedTextRange == nil else { return true }
+            let selection = SourceRange(location: range.location, length: range.length)
+            guard let edit = SourceEditing.newline(in: view.text ?? "", selection: selection) else { return true }
+            DispatchQueue.main.async { [weak view] in
+                _ = view?.applyMarkupEdit(edit)
+            }
+            return false
         }
     }
 }

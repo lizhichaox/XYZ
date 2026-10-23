@@ -91,6 +91,7 @@ struct DocumentEditorView: View {
             isEditable: isEditable,
             undoManager: undoManager,
             scrollLink: scrollLink,
+            markup: TextMarkup.allows(fileExtension: fileURL?.pathExtension),
             onTextChange: { newText in
                 document.storeEditorText(newText)
                 bridge.send(newText)

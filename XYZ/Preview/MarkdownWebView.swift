@@ -1,6 +1,7 @@
 import os
 import SwiftUI
 import WebKit
+import XYZCore
 
 #if os(macOS)
 import AppKit

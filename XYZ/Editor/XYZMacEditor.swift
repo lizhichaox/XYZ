@@ -1,11 +1,13 @@
 #if os(macOS)
 import AppKit
 import SwiftUI
+import XYZCore
 
 /// TextKit 2 editor. Attributes are display-only: the saved value is still `string`.
 final class XYZMacTextView: NSTextView {
     weak var documentUndoManager: UndoManager?
     var onAppearanceChange: (() -> Void)?
+    var allowsMarkup = true
 
     override var undoManager: UndoManager? {
         documentUndoManager ?? super.undoManager
@@ -29,6 +31,51 @@ final class XYZMacTextView: NSTextView {
             return true
         }
         return super.performKeyEquivalent(with: event)
+    }
+
+    override func insertNewline(_ sender: Any?) {
+        guard applyMarkupEdit(SourceEditing.newline(in: string, selection: sourceSelection())) else {
+            super.insertNewline(sender)
+            return
+        }
+    }
+
+    override func insertTab(_ sender: Any?) {
+        guard applyMarkupEdit(SourceEditing.indent(in: string, selection: sourceSelection())) else {
+            super.insertTab(sender)
+            return
+        }
+    }
+
+    override func insertBacktab(_ sender: Any?) {
+        guard applyMarkupEdit(SourceEditing.outdent(in: string, selection: sourceSelection())) else {
+            super.insertBacktab(sender)
+            return
+        }
+    }
+
+    override func toggleBoldface(_ sender: Any?) {
+        _ = applyMarkupEdit(SourceEditing.toggleBold(in: string, selection: sourceSelection()))
+    }
+
+    override func toggleItalics(_ sender: Any?) {
+        _ = applyMarkupEdit(SourceEditing.toggleItalic(in: string, selection: sourceSelection()))
+    }
+
+    private func sourceSelection() -> SourceRange {
+        let range = selectedRange()
+        return SourceRange(location: range.location, length: range.length)
+    }
+
+    @discardableResult
+    private func applyMarkupEdit(_ edit: SourceReplacement?) -> Bool {
+        guard isEditable, allowsMarkup, !hasMarkedText(), let edit else { return false }
+        insertText(edit.text, replacementRange: NSRange(location: edit.range.location, length: edit.range.length))
+        let length = (string as NSString).length
+        let location = min(max(0, edit.selection.location), length)
+        let selectionLength = min(max(0, edit.selection.length), length - location)
+        setSelectedRange(NSRange(location: location, length: selectionLength))
+        return true
     }
 
     override func layout() {
@@ -81,6 +128,7 @@ struct XYZMacEditor: NSViewRepresentable {
     var reloadToken: Int
     var monospaced: Bool
     var scrollLink: EditorScrollLink
+    var markup: Bool
     var onTextChange: (String) -> Void
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -117,6 +165,7 @@ struct XYZMacEditor: NSViewRepresentable {
         context.coordinator.textView = textView
         context.coordinator.onTextChange = onTextChange
         context.coordinator.monospaced = monospaced
+        textView.allowsMarkup = markup
         textView.delegate = context.coordinator
         textView.documentUndoManager = undoManager
         textView.onAppearanceChange = { [weak coordinator = context.coordinator] in
@@ -154,6 +203,7 @@ struct XYZMacEditor: NSViewRepresentable {
         context.coordinator.onTextChange = onTextChange
         context.coordinator.scrollLink = scrollLink
         textView.isEditable = isEditable
+        textView.allowsMarkup = markup
         textView.documentUndoManager = undoManager
         scrollLink.capture = { [weak textView] in
             textView?.scrollAnchor() ?? EditorScrollAnchor(fraction: 0, probe: "")

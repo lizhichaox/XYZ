@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.0.2
+
+- Reading is set in the system font with PingFang SC, a line height of 1.75, looser paragraphs, and quieter headings, quotes, rules, tables, and code.
+- Source uses one line box, about 1.7 times the font size, for both wrapped lines and hard returns.
+- In Markdown, Return continues a list, Tab and Shift-Tab indent it, and ⌘B / ⌘I toggle bold and italic. Plain text is unchanged.
+- An empty folder window names ⌘P and ⌘⇧F. The command palette field uses the standard search-field height.
+
 ## 0.0.1
 
 First release.

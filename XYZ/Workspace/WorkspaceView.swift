@@ -166,11 +166,11 @@ private struct WorkspaceDetail: View {
             }
             Group {
                 if session.buffer == nil {
-                    ContentUnavailableView(
-                        "No File Open",
-                        systemImage: "doc.text",
-                        description: Text("Choose a file in the sidebar.")
-                    )
+                    ContentUnavailableView {
+                        Label("No File Open", systemImage: "doc.text")
+                    } description: {
+                        Text("Choose a file in the sidebar.\n⌘P opens one. ⌘⇧F filters the list.")
+                    }
                 } else if showsReading {
                     preview
                 } else if showsEditor {
@@ -250,6 +250,7 @@ private struct WorkspaceDetail: View {
             undoManager: undoManager,
             reloadToken: session.buffer?.editorToken ?? 0,
             scrollLink: session.scrollLink,
+            markup: session.buffer?.kind == .markdown,
             onTextChange: { newText in
                 session.buffer?.userEdited(newText)
                 session.previewBridge.send(newText)

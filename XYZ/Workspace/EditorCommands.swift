@@ -480,7 +480,7 @@ enum AboutWindow {
         let version = NSTextField(labelWithString: versionLine())
         version.alignment = .center
         version.font = .systemFont(ofSize: 13)
-        version.textColor = .labelColor
+        version.textColor = .secondaryLabelColor
         version.translatesAutoresizingMaskIntoConstraints = false
 
         let credit = NSTextView()
@@ -514,8 +514,8 @@ enum AboutWindow {
     }
 
     private static func versionLine() -> String {
-        let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.1"
-        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "1"
+        let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.2"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "2"
         return "\(short) (\(build))"
     }
 
@@ -666,7 +666,10 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
         let search = NSSearchField()
         search.placeholderString = "Go to file, or > for commands"
         search.delegate = self
+        search.controlSize = .regular
         search.focusRingType = .none
+        search.setContentHuggingPriority(.required, for: .vertical)
+        search.setContentCompressionResistancePriority(.required, for: .vertical)
         search.translatesAutoresizingMaskIntoConstraints = false
         search.setAccessibilityLabel("Command Palette")
         self.search = search
@@ -713,7 +716,6 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
             search.topAnchor.constraint(equalTo: stack.topAnchor, constant: 12),
             search.leadingAnchor.constraint(equalTo: stack.leadingAnchor, constant: 12),
             search.trailingAnchor.constraint(equalTo: stack.trailingAnchor, constant: -12),
-            search.heightAnchor.constraint(equalToConstant: 28),
             scroll.topAnchor.constraint(equalTo: search.bottomAnchor, constant: 8),
             scroll.leadingAnchor.constraint(equalTo: stack.leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: stack.trailingAnchor),

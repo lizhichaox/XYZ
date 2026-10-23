@@ -1,4 +1,5 @@
 import SwiftUI
+import XYZCore
 
 #if os(macOS)
 import AppKit
@@ -12,11 +13,11 @@ import UIKit
 /// A monospaced face is available from Settings and stored in `monospacedKey`.
 struct XYZEditorStyle: Equatable {
     var fontSize: CGFloat = 16
-    /// Target line height relative to the font size. Soft wraps use this; hard returns also get `paragraphSpacing`.
-    var lineHeight: CGFloat = 1.6
-    var paragraphSpacing: CGFloat = 2
+    /// Line box height relative to the font size. Markdown source stores a hard return
+    /// on every line, so this is a minimum line height rather than spacing between wraps.
+    var lineHeight: CGFloat = 1.7
     var horizontalInset: CGFloat = 24
-    var verticalInset: CGFloat = 28
+    var verticalInset: CGFloat = 32
     var monospaced: Bool = false
 
     /// Side padding is 5% of the pane, clamped to 24...64 points. The text uses the remaining width.
@@ -29,9 +30,12 @@ struct XYZEditorStyle: Equatable {
 
     func paragraphStyle(naturalLineHeight: CGFloat) -> NSMutableParagraphStyle {
         let paragraph = NSMutableParagraphStyle()
-        paragraph.lineSpacing = max(2, fontSize * lineHeight - naturalLineHeight)
-        paragraph.paragraphSpacing = paragraphSpacing
+        let target = max(naturalLineHeight, (fontSize * lineHeight).rounded(.up))
+        paragraph.minimumLineHeight = target
+        paragraph.lineSpacing = 0
+        paragraph.paragraphSpacing = 0
         paragraph.lineBreakMode = .byWordWrapping
+        paragraph.hyphenationFactor = 0
         return paragraph
     }
 }
@@ -86,6 +90,8 @@ struct XYZEditor: View {
     /// Bump this to replace the buffer from outside the text view, such as a disk reload.
     var reloadToken: Int = 0
     var scrollLink: EditorScrollLink
+    /// Markdown list continuation and ⌘B / ⌘I. Plain text leaves those keys alone.
+    var markup: Bool = true
     var onTextChange: (String) -> Void
 
     @AppStorage(XYZEditorStyle.monospacedKey) private var monospaced = false
@@ -99,6 +105,7 @@ struct XYZEditor: View {
             reloadToken: reloadToken,
             monospaced: monospaced,
             scrollLink: scrollLink,
+            markup: markup,
             onTextChange: onTextChange
         )
         #else
@@ -109,6 +116,7 @@ struct XYZEditor: View {
             reloadToken: reloadToken,
             monospaced: monospaced,
             scrollLink: scrollLink,
+            markup: markup,
             onTextChange: onTextChange
         )
         #endif
