@@ -245,8 +245,7 @@ enum EditorMenuSupport {
         for item in menu.items {
             let flags = item.keyEquivalentModifierMask.intersection(.deviceIndependentFlagsMask)
             let key = item.keyEquivalent.lowercased()
-            if item.title == "Use Selection for Find"
-                || item.action == #selector(NSTextView.useSelectionForFind(_:)) {
+            if isUseSelectionForFind(item) {
                 item.keyEquivalent = "e"
                 item.keyEquivalentModifierMask = [.command, .option]
             } else if item.title == "Print…" || item.title == "Print" {
@@ -262,6 +261,23 @@ enum EditorMenuSupport {
                 remapConflictingShortcuts(in: submenu)
             }
         }
+    }
+
+    /// Edit → Use Selection for Find. The menu action is the shared find selector;
+    /// the tag says which find command it is. Matching every find item would steal ⌘F.
+    private static func isUseSelectionForFind(_ item: NSMenuItem) -> Bool {
+        if item.title == "Use Selection for Find" {
+            return true
+        }
+        if item.action == #selector(NSResponder.performTextFinderAction(_:)),
+           item.tag == NSTextFinder.Action.setSearchString.rawValue {
+            return true
+        }
+        if item.action == #selector(NSResponder.performFindPanelAction(_:)),
+           item.tag == Int(NSFindPanelAction.setFindString.rawValue) {
+            return true
+        }
+        return false
     }
 
     private static func ensureViewItems(in menu: NSMenu) {
@@ -457,7 +473,7 @@ enum AboutWindow {
         self.panel = panel
         panel.center()
         panel.makeKeyAndOrderFront(nil)
-        NSApp.activate(ignoringOtherApps: true)
+        NSApp.activate()
     }
 
     private static func make() -> AboutPanel {
@@ -557,7 +573,7 @@ private final class AboutPanel: NSPanel {
 }
 
 private final class AboutLinkHandler: NSObject, NSTextViewDelegate {
-    func textView(_ textView: NSTextView, clickedOn link: Any, at charIndex: Int) -> Bool {
+    func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
         guard let url = link as? URL else { return false }
         NSWorkspace.shared.open(url)
         return true

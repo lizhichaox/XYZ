@@ -263,7 +263,7 @@ private struct WorkspaceDetail: View {
 
 /// Forwards View-menu and palette actions to the open folder.
 @MainActor
-final class WorkspaceCommandBridge: EditorCommandTarget {
+final class WorkspaceCommandBridge: ObservableObject, EditorCommandTarget {
     private weak var session: WorkspaceSession?
     private var columnVisibility: Binding<NavigationSplitViewVisibility> = .constant(.all)
 

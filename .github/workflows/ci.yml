@@ -52,10 +52,14 @@ jobs:
           swift --version
 
       - name: Test XYZCore
+        id: test
         run: swift test --package-path XYZCore
 
       - name: Build macOS
+        id: macos
+        if: ${{ !cancelled() }}
         run: |
+          set -euo pipefail
           xcodebuild \
             -project XYZ.xcodeproj \
             -scheme XYZ \
@@ -68,6 +72,7 @@ jobs:
             build
 
       - name: Launch macOS app
+        if: steps.macos.conclusion == 'success'
         run: |
           set -euo pipefail
           APP="$(find "$PWD/build/macos/Build/Products" -name 'XYZ.app' -type d | head -n 1)"
@@ -92,6 +97,7 @@ jobs:
           wait "$PID" || true
 
       - name: Check Open Folder menu
+        if: steps.macos.conclusion == 'success'
         run: |
           set -euo pipefail
           APP="$(find "$PWD/build/macos/Build/Products" -name 'XYZ.app' -type d | head -n 1)"
@@ -115,7 +121,9 @@ jobs:
           exit 1
 
       - name: Build iOS Simulator
+        if: ${{ !cancelled() }}
         run: |
+          set -euo pipefail
           xcodebuild \
             -project XYZ.xcodeproj \
             -scheme XYZ \

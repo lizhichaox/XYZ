@@ -269,7 +269,7 @@ final class DocumentCommandBridge: ObservableObject, EditorCommandTarget {
     }
 
     func reloadFile() {
-        NSApp.sendAction(#selector(NSDocument.revert(_:)), to: nil, from: nil)
+        NSApp.sendAction(#selector(NSDocument.revertToSaved(_:)), to: nil, from: nil)
     }
 }
 #endif
