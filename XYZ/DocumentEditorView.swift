@@ -111,49 +111,40 @@ private struct GlassModeControl: View {
     var reduceMotion: Bool
 
     var body: some View {
-        GlassEffectContainer(spacing: 0) {
-            HStack(spacing: 0) {
-                ForEach(EditorViewMode.allCases) { item in
-                    segment(item)
-                }
+        // One glass shape. A container around that single effect measures it
+        // again in the same frame and logs glassEffect() updating twice.
+        HStack(spacing: 0) {
+            ForEach(EditorViewMode.allCases) { item in
+                segment(item)
             }
-            .padding(2)
-            .glassEffect(.regular, in: Capsule())
         }
+        .padding(2)
+        .glassEffect(.regular, in: Capsule())
         .accessibilityElement(children: .contain)
         .accessibilityLabel("View mode")
     }
 
     private func segment(_ item: EditorViewMode) -> some View {
-        Button {
+        let selected = mode == item
+        return Button {
             onSelect(item)
         } label: {
-            segmentImage(item)
+            Image(systemName: ViewModeSymbol.name(item))
+                .font(.system(size: 13, weight: .medium))
+                .symbolRenderingMode(.monochrome)
+                .symbolEffect(.bounce, value: reduceMotion ? false : selected)
                 .frame(width: 34, height: 26)
                 .background {
-                    if mode == item {
-                        Capsule().fill(Color.accentColor.opacity(0.18))
-                    }
+                    Capsule()
+                        .fill(Color.accentColor.opacity(0.18))
+                        .opacity(selected ? 1 : 0)
                 }
         }
         .buttonStyle(.plain)
-        .foregroundStyle(mode == item ? Color.accentColor : Color.primary)
+        .foregroundStyle(selected ? Color.accentColor : Color.primary)
         .help(ViewModeSymbol.help(item))
         .accessibilityLabel(item.title)
-        .accessibilityAddTraits(mode == item ? .isSelected : [])
-    }
-
-    @ViewBuilder
-    private func segmentImage(_ item: EditorViewMode) -> some View {
-        let symbol = Image(systemName: ViewModeSymbol.name(item))
-            .font(.system(size: 13, weight: .medium))
-            .symbolRenderingMode(.monochrome)
-            .contentTransition(.symbolEffect(.replace))
-        if reduceMotion {
-            symbol
-        } else {
-            symbol.symbolEffect(.bounce, value: mode == item)
-        }
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
 }
 

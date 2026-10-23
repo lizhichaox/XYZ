@@ -610,7 +610,14 @@ fileprivate final class SidebarColumnView: NSView {
         scroll.automaticallyAdjustsContentInsets = true
         scroll.documentView = outline
         if let glassHost {
+            glassHost.translatesAutoresizingMaskIntoConstraints = false
             addSubview(glassHost)
+            NSLayoutConstraint.activate([
+                glassHost.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+                glassHost.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+                glassHost.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: 8),
+                glassHost.heightAnchor.constraint(equalToConstant: 28),
+            ])
         } else {
             addSubview(search)
         }
@@ -633,12 +640,7 @@ fileprivate final class SidebarColumnView: NSView {
             width: max(0, bounds.width - margin * 2),
             height: height
         )
-        if let glassHost {
-            glassHost.frame = field
-            if #available(macOS 26, *), let glass = glassHost as? NSGlassEffectView {
-                glass.cornerRadius = field.height / 2
-            }
-        } else {
+        if glassHost == nil {
             search.frame = field
         }
         let used = topInset + height + 6
