@@ -27,6 +27,14 @@ The app target is shared SwiftUI. `XYZMacEditor` and `XYZIOSEditor` are the plat
 
 Typing undo uses the text view, pointed at the document scene's undo manager, so the system can tell the file is dirty and autosave it.
 
+## Folders on Mac
+
+File → Open Folder… (⇧⌘O) opens a folder beside the single-document windows. You can also drop a folder on the Dock icon or on a window. The sidebar lists every subdirectory and file, including hidden ones (`.gitignore`, `.github`, `.DS_Store`). ⇧⌘. hides those, the same shortcut Finder uses. Folders sort first, then names, without regard to case. Children load when a folder is expanded, off the main thread, and the list updates when files are added, removed, or renamed.
+
+Markdown files (`.md`, `.markdown`) open in the editor and preview. Other text, including source files and dotfiles, opens in the editor with the preview hidden. Binary files and files over 5 MB show a short message and can be handed to the default app. Edits are written back with a coordinated save. If the file changes on disk while you have unsaved edits, XYZ asks before overwriting.
+
+The Mac sandbox already has user-selected read-write and app-scoped bookmark entitlements. Opening a folder stores a security-scoped bookmark in your user defaults (not in the repo) so recent folders can reopen next launch. iPhone and iPad still use the document browser only; the tree model lives in `XYZCore` so a later iOS folder view can reuse it.
+
 ## Build and run
 
 You need Xcode with the macOS 14 and iOS 17 SDKs (the CI image is the current `macos-latest` runner). Open the project and run the **XYZ** scheme on My Mac or an iOS Simulator:

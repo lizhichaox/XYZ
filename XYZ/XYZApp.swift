@@ -3,6 +3,16 @@ import XYZCore
 
 @main
 struct XYZApp: App {
+    #if os(macOS)
+    @NSApplicationDelegateAdaptor(XYZAppDelegate.self) private var appDelegate
+    #endif
+
+    init() {
+        #if os(macOS)
+        XYZDocumentController.installIfNeeded()
+        #endif
+    }
+
     var body: some Scene {
         DocumentGroup(newDocument: { MarkdownFileDocument() }) { configuration in
             DocumentEditorView(
@@ -15,6 +25,9 @@ struct XYZApp: App {
         #endif
         .commands {
             PreviewCommands()
+            #if os(macOS)
+            WorkspaceCommands()
+            #endif
         }
     }
 }

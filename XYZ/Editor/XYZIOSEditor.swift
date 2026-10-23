@@ -20,6 +20,7 @@ struct XYZIOSEditor: UIViewRepresentable {
     var text: String
     var isEditable: Bool
     var undoManager: UndoManager?
+    var reloadToken: Int
     var onTextChange: (String) -> Void
 
     func makeUIView(context: Context) -> XYZIOSTextView {
@@ -69,6 +70,12 @@ struct XYZIOSEditor: UIViewRepresentable {
         textView.isEditable = isEditable
         textView.documentUndoManager = undoManager
         applyTypingStyle(to: textView)
+        if context.coordinator.reloadToken != reloadToken {
+            context.coordinator.reloadToken = reloadToken
+            if (textView.text ?? "") != text {
+                context.coordinator.perform(.replaceContents(text))
+            }
+        }
     }
 
     func makeCoordinator() -> Coordinator {
@@ -92,6 +99,7 @@ struct XYZIOSEditor: UIViewRepresentable {
     final class Coordinator: NSObject, UITextViewDelegate, XYZTextEditing {
         var textView: XYZIOSTextView?
         var onTextChange: (String) -> Void = { _ in }
+        var reloadToken = 0
         private var isApplyingExternalText = false
 
         var text: String {

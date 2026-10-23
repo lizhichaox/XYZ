@@ -45,6 +45,8 @@ struct XYZEditor: View {
     var text: String
     var isEditable: Bool
     var undoManager: UndoManager?
+    /// Bump this to replace the buffer from outside the text view, such as a disk reload.
+    var reloadToken: Int = 0
     var onTextChange: (String) -> Void
 
     var body: some View {
@@ -53,6 +55,7 @@ struct XYZEditor: View {
             text: text,
             isEditable: isEditable,
             undoManager: undoManager,
+            reloadToken: reloadToken,
             onTextChange: onTextChange
         )
         #else
@@ -60,6 +63,7 @@ struct XYZEditor: View {
             text: text,
             isEditable: isEditable,
             undoManager: undoManager,
+            reloadToken: reloadToken,
             onTextChange: onTextChange
         )
         #endif

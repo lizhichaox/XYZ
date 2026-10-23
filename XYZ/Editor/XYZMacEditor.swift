@@ -15,6 +15,7 @@ struct XYZMacEditor: NSViewRepresentable {
     var text: String
     var isEditable: Bool
     var undoManager: UndoManager?
+    var reloadToken: Int
     var onTextChange: (String) -> Void
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -89,6 +90,12 @@ struct XYZMacEditor: NSViewRepresentable {
         context.coordinator.onTextChange = onTextChange
         textView.isEditable = isEditable
         textView.documentUndoManager = undoManager
+        if context.coordinator.reloadToken != reloadToken {
+            context.coordinator.reloadToken = reloadToken
+            if textView.string != text {
+                context.coordinator.perform(.replaceContents(text))
+            }
+        }
     }
 
     func makeCoordinator() -> Coordinator {
@@ -98,6 +105,7 @@ struct XYZMacEditor: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate, XYZTextEditing {
         var textView: XYZMacTextView?
         var onTextChange: (String) -> Void = { _ in }
+        var reloadToken = 0
         private var isApplyingExternalText = false
 
         var text: String {

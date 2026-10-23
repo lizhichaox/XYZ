@@ -17,6 +17,10 @@
 		8C0000000000000000000008 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000008 /* Assets.xcassets */; };
 		8C0000000000000000000009 /* Preview.css in Resources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000009 /* Preview.css */; };
 		8C000000000000000000000A /* XYZCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8A0000000000000000000014 /* XYZCore */; };
+		8C0000000000000000000011 /* WorkspaceFileAccess.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000011 /* WorkspaceFileAccess.swift */; };
+		8C0000000000000000000012 /* WorkspaceSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000012 /* WorkspaceSession.swift */; };
+		8C0000000000000000000013 /* WorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000013 /* WorkspaceView.swift */; };
+		8C0000000000000000000014 /* WorkspaceWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000014 /* WorkspaceWindowController.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -35,6 +39,11 @@
 		8B000000000000000000000C /* XYZ-iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "XYZ-iOS.entitlements"; sourceTree = "<group>"; };
 		8B000000000000000000000D /* Base.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Base.xcconfig; sourceTree = "<group>"; };
 		8B000000000000000000000E /* Local.xcconfig.example */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Local.xcconfig.example; sourceTree = "<group>"; };
+		8B000000000000000000000F /* Info-macOS.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "Info-macOS.plist"; sourceTree = "<group>"; };
+		8B0000000000000000000011 /* WorkspaceFileAccess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceFileAccess.swift; sourceTree = "<group>"; };
+		8B0000000000000000000012 /* WorkspaceSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSession.swift; sourceTree = "<group>"; };
+		8B0000000000000000000013 /* WorkspaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceView.swift; sourceTree = "<group>"; };
+		8B0000000000000000000014 /* WorkspaceWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceWindowController.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -66,7 +75,9 @@
 				8A000000000000000000000A /* Editor */,
 				8A000000000000000000000B /* Preview */,
 				8A000000000000000000000C /* Resources */,
+				8A0000000000000000000016 /* Workspace */,
 				8B000000000000000000000A /* Info.plist */,
+				8B000000000000000000000F /* Info-macOS.plist */,
 				8B000000000000000000000B /* XYZ-macOS.entitlements */,
 				8B000000000000000000000C /* XYZ-iOS.entitlements */,
 			);
@@ -107,6 +118,17 @@
 				8B000000000000000000000E /* Local.xcconfig.example */,
 			);
 			path = Config;
+			sourceTree = "<group>";
+		};
+		8A0000000000000000000016 /* Workspace */ = {
+			isa = PBXGroup;
+			children = (
+				8B0000000000000000000011 /* WorkspaceFileAccess.swift */,
+				8B0000000000000000000012 /* WorkspaceSession.swift */,
+				8B0000000000000000000013 /* WorkspaceView.swift */,
+				8B0000000000000000000014 /* WorkspaceWindowController.swift */,
+			);
+			path = Workspace;
 			sourceTree = "<group>";
 		};
 		8A000000000000000000000C /* Resources */ = {
@@ -201,6 +223,10 @@
 				8C0000000000000000000005 /* XYZIOSEditor.swift in Sources */,
 				8C0000000000000000000006 /* MarkdownPreview.swift in Sources */,
 				8C0000000000000000000007 /* MarkdownWebView.swift in Sources */,
+				8C0000000000000000000011 /* WorkspaceFileAccess.swift in Sources */,
+				8C0000000000000000000012 /* WorkspaceSession.swift in Sources */,
+				8C0000000000000000000013 /* WorkspaceView.swift in Sources */,
+				8C0000000000000000000014 /* WorkspaceWindowController.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -315,6 +341,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = XYZ/Info.plist;
+				"INFOPLIST_FILE[sdk=macosx*]" = "XYZ/Info-macOS.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = XYZ;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
@@ -361,6 +388,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = XYZ/Info.plist;
+				"INFOPLIST_FILE[sdk=macosx*]" = "XYZ/Info-macOS.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = XYZ;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
