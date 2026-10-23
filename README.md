@@ -115,3 +115,5 @@ A build made with `CODE_SIGNING_ALLOWED=NO` does not embed these entitlements, s
 XYZ is released under the [MIT License](LICENSE). Copyright (c) 2026 lizhichaox.
 
 Parsing uses [swift-markdown](https://github.com/swiftlang/swift-markdown), which is licensed under the Apache License 2.0.
+
+The app icon wordmark is set in Inter (SIL Open Font License 1.1) and converted to outlines. The source vectors are in `Design/Icon/`.
