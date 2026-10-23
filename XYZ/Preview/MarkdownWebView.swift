@@ -57,23 +57,231 @@ private struct MacMarkdownWebView: NSViewRepresentable {
     var host: PreviewWebHost
     var scrollLink: EditorScrollLink
 
-    func makeNSView(context: Context) -> WKWebView {
-        let webView = claim(host.webView)
-        host.coordinator.update(webView: webView, html: html, theme: theme, scrollLink: scrollLink)
-        return webView
+    func makeNSView(context: Context) -> ReadingSurface {
+        let surface = ReadingSurface()
+        if let webView = claim(host.webView) as? XYZPreviewWebView {
+            surface.install(webView)
+            host.coordinator.update(webView: webView, html: html, theme: theme, scrollLink: scrollLink)
+        }
+        return surface
     }
 
-    func updateNSView(_ webView: WKWebView, context: Context) {
+    func updateNSView(_ surface: ReadingSurface, context: Context) {
+        guard let webView = host.webView as? XYZPreviewWebView else { return }
+        surface.install(webView)
         host.coordinator.update(webView: webView, html: html, theme: theme, scrollLink: scrollLink)
     }
 
-    func sizeThatFits(_ proposal: ProposedViewSize, nsView: WKWebView, context: Context) -> CGSize? {
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: ReadingSurface, context: Context) -> CGSize? {
         CGSize(width: proposal.width ?? 640, height: proposal.height ?? 480)
     }
 
     func makeCoordinator() -> PreviewWebCoordinator {
         host.coordinator
     }
+}
+
+/// ⌘F in Reading. The field is the system search field; WebKit moves the highlight.
+final class XYZPreviewWebView: WKWebView {
+    weak var surface: ReadingSurface?
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if EditorCommands.shared.handleKeyEquivalent(event) {
+            return true
+        }
+        if let action = ReadingFindKeys.action(for: event) {
+            surface?.perform(action)
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    /// Edit → Find. `performTextFinderAction` is on `NSResponder` (macOS 10.7).
+    override func performTextFinderAction(_ sender: Any?) {
+        let tag = (sender as? NSMenuItem)?.tag ?? NSTextFinder.Action.showFindInterface.rawValue
+        guard let action = NSTextFinder.Action(rawValue: tag) else {
+            super.performTextFinderAction(sender)
+            return
+        }
+        switch action {
+        case .showFindInterface, .nextMatch, .previousMatch:
+            surface?.perform(action)
+        default:
+            super.performTextFinderAction(sender)
+        }
+    }
+}
+
+private enum ReadingFindKeys {
+    static func action(for event: NSEvent) -> NSTextFinder.Action? {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
+        if flags == .command, key == "f" { return .showFindInterface }
+        if flags == .command, key == "g" { return .nextMatch }
+        if flags == [.command, .shift], key == "g" { return .previousMatch }
+        return nil
+    }
+}
+
+final class ReadingSurface: NSView, NSSearchFieldDelegate {
+    private let findHost = NSView()
+    private let findField = NSSearchField()
+    private var webView: XYZPreviewWebView?
+    private var collapsed: NSLayoutConstraint?
+    private var fieldTop: NSLayoutConstraint!
+    private var fieldBottom: NSLayoutConstraint!
+    private var backwards = false
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        findHost.translatesAutoresizingMaskIntoConstraints = false
+        findField.translatesAutoresizingMaskIntoConstraints = false
+        findField.placeholderString = "Find"
+        findField.focusRingType = .none
+        findField.controlSize = .regular
+        findField.delegate = self
+        findField.setAccessibilityLabel("Find in note")
+        findField.setContentHuggingPriority(.required, for: .vertical)
+        findField.setContentCompressionResistancePriority(.required, for: .vertical)
+        findHost.setContentCompressionResistancePriority(.required, for: .vertical)
+        findHost.addSubview(findField)
+        addSubview(findHost)
+        let collapsed = findHost.heightAnchor.constraint(equalToConstant: 0)
+        self.collapsed = collapsed
+        fieldTop = findField.topAnchor.constraint(equalTo: findHost.topAnchor, constant: 8)
+        fieldBottom = findField.bottomAnchor.constraint(equalTo: findHost.bottomAnchor, constant: -8)
+        fieldTop.priority = NSLayoutConstraint.Priority(rawValue: 750)
+        fieldBottom.priority = NSLayoutConstraint.Priority(rawValue: 750)
+        NSLayoutConstraint.activate([
+            findHost.topAnchor.constraint(equalTo: topAnchor),
+            findHost.leadingAnchor.constraint(equalTo: leadingAnchor),
+            findHost.trailingAnchor.constraint(equalTo: trailingAnchor),
+            collapsed,
+            fieldTop,
+            fieldBottom,
+            findField.leadingAnchor.constraint(equalTo: findHost.leadingAnchor, constant: 12),
+            findField.trailingAnchor.constraint(equalTo: findHost.trailingAnchor, constant: -12),
+        ])
+        findHost.isHidden = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    func install(_ webView: XYZPreviewWebView) {
+        webView.surface = self
+        guard self.webView !== webView || webView.superview !== self else { return }
+        self.webView?.removeFromSuperview()
+        self.webView = webView
+        webView.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(webView)
+        NSLayoutConstraint.activate([
+            webView.topAnchor.constraint(equalTo: findHost.bottomAnchor),
+            webView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            webView.trailingAnchor.constraint(equalTo: trailingAnchor),
+            webView.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+    }
+
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if EditorCommands.shared.handleKeyEquivalent(event) {
+            return true
+        }
+        if let action = ReadingFindKeys.action(for: event) {
+            perform(action)
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
+    func perform(_ action: NSTextFinder.Action) {
+        if action == .previousMatch {
+            backwards = true
+            reveal(run: true, fromStart: false)
+        } else if action == .nextMatch {
+            backwards = false
+            reveal(run: true, fromStart: false)
+        } else if action == .showFindInterface {
+            backwards = false
+            reveal(run: !findField.stringValue.isEmpty, fromStart: true)
+        }
+    }
+
+    func controlTextDidChange(_ obj: Notification) {
+        backwards = false
+        runFind(fromStart: true)
+    }
+
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
+            hideFind()
+            return true
+        }
+        if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+            backwards = false
+            runFind(fromStart: false)
+            return true
+        }
+        return false
+    }
+
+    private func reveal(run: Bool, fromStart: Bool) {
+        setFindVisible(true)
+        window?.makeFirstResponder(findField)
+        let length = (findField.stringValue as NSString).length
+        findField.currentEditor()?.selectedRange = NSRange(location: 0, length: length)
+        if run { runFind(fromStart: fromStart) }
+    }
+
+    private func hideFind() {
+        setFindVisible(false)
+        window?.makeFirstResponder(webView)
+    }
+
+    private func setFindVisible(_ visible: Bool) {
+        findHost.isHidden = !visible
+        collapsed?.isActive = !visible
+        let priority: NSLayoutConstraint.Priority = visible ? .required : NSLayoutConstraint.Priority(rawValue: 750)
+        fieldTop.priority = priority
+        fieldBottom.priority = priority
+    }
+
+    /// `WKWebView.find(_:configuration:completionHandler:)` is public on macOS 11.
+    /// A changed query starts at the top of the note; next and previous keep the current match.
+    private func runFind(fromStart: Bool) {
+        let query = findField.stringValue
+        guard !query.isEmpty, let webView else { return }
+        let configuration = WKFindConfiguration()
+        configuration.backwards = backwards
+        configuration.wraps = true
+        configuration.caseSensitive = false
+        let restart = fromStart && !backwards
+        backwards = false
+        if restart {
+            webView.evaluateJavaScript(Self.rewindScript) { _, _ in
+                DispatchQueue.main.async {
+                    webView.find(query, configuration: configuration) { _ in }
+                }
+            }
+        } else {
+            webView.find(query, configuration: configuration) { _ in }
+        }
+    }
+
+    private static let rewindScript = """
+    (function(){
+      var selection = window.getSelection();
+      if (selection) selection.removeAllRanges();
+      var body = document.body;
+      if (!body || !selection) return;
+      var range = document.createRange();
+      range.setStart(body, 0);
+      range.collapse(true);
+      selection.addRange(range);
+    })()
+    """
 }
 #else
 private struct IOSMarkdownWebView: UIViewRepresentable {
@@ -113,7 +321,11 @@ private enum PreviewWebViewFactory {
     static func make() -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        #if os(macOS)
+        let webView = XYZPreviewWebView(frame: .zero, configuration: configuration)
+        #else
         let webView = WKWebView(frame: .zero, configuration: configuration)
+        #endif
         webView.allowsBackForwardNavigationGestures = false
         webView.allowsLinkPreview = true
         #if os(macOS)

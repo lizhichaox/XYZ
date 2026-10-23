@@ -2,6 +2,10 @@
 
 ## 0.0.2
 
+- The folder sidebar is a source list: monochrome symbols by file type, tighter rows, and left/right to move through folders. Opening a file expands its folders and scrolls to it. Move to Trash uses the system Trash.
+- The window title is the open file. The subtitle is the folder. The proxy icon is that file.
+- A large note restyles the edited lines instead of the whole buffer. Reading waits a little longer before updating a large note.
+- ⌘F uses the system find bar in Source. In Reading it finds in the rendered note.
 - Reading is set in the system font with PingFang SC, a line height of 1.75, looser paragraphs, and quieter headings, quotes, rules, tables, and code.
 - Source uses one line box, about 1.7 times the font size, for both wrapped lines and hard returns.
 - In Markdown, Return continues a list, Tab and Shift-Tab indent it, and ⌘B / ⌘I toggle bold and italic. Plain text is unchanged.

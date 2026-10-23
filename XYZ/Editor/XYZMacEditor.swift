@@ -161,6 +161,8 @@ struct XYZMacEditor: NSViewRepresentable {
         textView.isAutomaticSpellingCorrectionEnabled = false
         textView.isContinuousSpellCheckingEnabled = true
         textView.isGrammarCheckingEnabled = false
+        textView.usesFindBar = true
+        textView.isIncrementalSearchingEnabled = true
         textView.drawsBackground = true
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
@@ -181,7 +183,7 @@ struct XYZMacEditor: NSViewRepresentable {
         textView.delegate = context.coordinator
         textView.documentUndoManager = undoManager
         textView.onAppearanceChange = { [weak coordinator = context.coordinator] in
-            coordinator?.restyle()
+            coordinator?.restyle(edited: nil)
         }
 
         let scrollView = NSScrollView()
@@ -201,7 +203,7 @@ struct XYZMacEditor: NSViewRepresentable {
         scrollView.documentView = textView
         applyChrome(textView: textView, scrollView: scrollView, monospaced: monospaced)
         textView.string = text
-        context.coordinator.restyle()
+        context.coordinator.restyle(edited: nil)
         textView.textContainer?.containerSize = NSSize(
             width: scrollView.contentSize.width,
             height: CGFloat.greatestFiniteMagnitude
@@ -235,10 +237,10 @@ struct XYZMacEditor: NSViewRepresentable {
             if textView.string != text {
                 context.coordinator.perform(.replaceContents(text))
             } else if styleChanged {
-                context.coordinator.restyle()
+                context.coordinator.restyle(edited: nil)
             }
         } else if styleChanged {
-            context.coordinator.restyle()
+            context.coordinator.restyle(edited: nil)
         }
     }
 
@@ -277,6 +279,8 @@ struct XYZMacEditor: NSViewRepresentable {
         var monospaced = false
         private var isApplyingExternalText = false
         private var isRestyling = false
+        private var editedRange: NSRange?
+        private var laterRestyle: DispatchWorkItem?
 
         var text: String {
             textView?.string ?? ""
@@ -292,10 +296,21 @@ struct XYZMacEditor: NSViewRepresentable {
             case .replaceContents(let replacement):
                 isApplyingExternalText = true
                 textView.string = replacement
-                restyle()
+                laterRestyle?.cancel()
+                restyle(edited: nil)
                 isApplyingExternalText = false
                 onTextChange(replacement)
             }
+        }
+
+        func textView(
+            _ textView: NSTextView,
+            shouldChangeTextIn affectedCharRange: NSRange,
+            replacementString: String?
+        ) -> Bool {
+            let added = (replacementString as NSString?)?.length ?? 0
+            editedRange = NSRange(location: affectedCharRange.location, length: max(added, affectedCharRange.length, 1))
+            return true
         }
 
         func textDidChange(_ notification: Notification) {
@@ -303,22 +318,35 @@ struct XYZMacEditor: NSViewRepresentable {
             guard let textView = notification.object as? NSTextView else { return }
             // Marked Chinese (and other IME) text is still being composed. Restyling it drops the composition.
             if !textView.hasMarkedText() {
-                restyle()
+                let length = (textView.string as NSString).length
+                let edited = editedRange
+                editedRange = nil
+                restyle(edited: edited)
+                if length > EditorTypography.immediateLimit, length <= EditorTypography.stylingLimit {
+                    laterRestyle?.cancel()
+                    let item = DispatchWorkItem { [weak self] in
+                        self?.restyle(edited: nil)
+                    }
+                    laterRestyle = item
+                    DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(280), execute: item)
+                }
             }
             onTextChange(textView.string)
         }
 
-        func restyle() {
+        func restyle(edited: NSRange?) {
             guard let textView, !isRestyling, !textView.hasMarkedText() else { return }
             isRestyling = true
             defer { isRestyling = false }
-            EditorTypography.apply(to: textView, monospaced: monospaced)
+            EditorTypography.apply(to: textView, monospaced: monospaced, edited: edited)
         }
     }
 }
 
 enum EditorTypography {
     static let stylingLimit = 250_000
+    /// Below this size, each keystroke restyles the whole note. Above it, only the edited lines.
+    static let immediateLimit = 80_000
 
     static func baseFont(_ style: XYZEditorStyle) -> NSFont {
         if style.monospaced {
@@ -368,22 +396,24 @@ enum EditorTypography {
         return NSFont(descriptor: descriptor, size: size) ?? base
     }
 
-    static func apply(to textView: NSTextView, monospaced: Bool) {
+    static func apply(to textView: NSTextView, monospaced: Bool, edited: NSRange?) {
         guard let storage = textView.textStorage else { return }
         let style = XYZEditorStyle(monospaced: monospaced)
         let font = baseFont(style)
         let paragraph = style.paragraphStyle(naturalLineHeight: naturalLineHeight(font))
-        let full = NSRange(location: 0, length: storage.length)
+        let ns = storage.string as NSString
+        let full = NSRange(location: 0, length: ns.length)
+        let span = full.length > immediateLimit ? lineSpan(ns, around: edited) : full
         textView.undoManager?.disableUndoRegistration()
         storage.beginEditing()
-        if full.length > 0 {
+        if span.length > 0, span.location >= 0, NSMaxRange(span) <= ns.length {
             storage.setAttributes([
                 .font: font,
                 .foregroundColor: NSColor.labelColor,
                 .paragraphStyle: paragraph,
-            ], range: full)
+            ], range: span)
             if full.length <= stylingLimit {
-                styleMarkup(storage, style: style)
+                styleMarkup(storage, style: style, within: span)
             }
         }
         storage.endEditing()
@@ -393,17 +423,28 @@ enum EditorTypography {
             .foregroundColor: NSColor.labelColor,
             .paragraphStyle: paragraph,
         ]
-        if let manager = textView.textLayoutManager {
+        if full.length <= immediateLimit, let manager = textView.textLayoutManager {
             manager.ensureLayout(for: manager.documentRange)
         }
     }
 
-    private static func styleMarkup(_ storage: NSTextStorage, style: XYZEditorStyle) {
+    private static func lineSpan(_ ns: NSString, around edited: NSRange?) -> NSRange {
+        let full = NSRange(location: 0, length: ns.length)
+        guard let edited, ns.length > 0 else { return full }
+        let startLoc = min(max(0, edited.location), ns.length - 1)
+        let endLoc = min(max(startLoc, NSMaxRange(edited) - 1), ns.length - 1)
+        let start = ns.lineRange(for: NSRange(location: startLoc, length: 0))
+        let end = ns.lineRange(for: NSRange(location: endLoc, length: 0))
+        return NSUnionRange(start, end)
+    }
+
+    private static func styleMarkup(_ storage: NSTextStorage, style: XYZEditorStyle, within span: NSRange) {
         let ns = storage.string as NSString
         let syntax = NSColor.tertiaryLabelColor
-        var inFence = false
-        var location = 0
-        while location < ns.length {
+        var inFence = fenceIsOpen(ns, before: span.location)
+        var location = span.location
+        let limit = min(NSMaxRange(span), ns.length)
+        while location < limit {
             let lineRange = ns.lineRange(for: NSRange(location: location, length: 0))
             let content = contentRange(ns, lineRange)
             if content.range.length > 0 {
@@ -418,9 +459,25 @@ enum EditorTypography {
                 )
             }
             let next = NSMaxRange(lineRange)
-            if next <= location { break }
+            if next <= location || next >= limit { break }
             location = next
         }
+    }
+
+    private static func fenceIsOpen(_ ns: NSString, before location: Int) -> Bool {
+        var cursor = 0
+        var open = false
+        while cursor < location, cursor < ns.length {
+            let line = ns.lineRange(for: NSRange(location: cursor, length: 0))
+            let content = contentRange(ns, line)
+            if isFence(content.text) {
+                open.toggle()
+            }
+            let next = NSMaxRange(line)
+            if next <= cursor { break }
+            cursor = next
+        }
+        return open
     }
 
     private static func styleLine(

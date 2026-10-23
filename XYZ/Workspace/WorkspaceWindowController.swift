@@ -18,12 +18,10 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
             backing: .buffered,
             defer: false
         )
-        // The visible title is SwiftUI's navigation title (file, with the folder as subtitle).
-        // A represented URL draws the folder name again and crowds the traffic lights.
+        // Title is the open file (the folder name until a file is open). The proxy icon
+        // stays nil here so a folder URL is not drawn on top of that name.
         window.title = session.displayName
-        window.representedURL = nil
-        window.titleVisibility = .hidden
-        WorkspaceChrome.apply(to: window, title: session.displayName)
+        WorkspaceChrome.apply(to: window, title: session.displayName, subtitle: "", representedFile: nil)
         window.styleMask.insert(.fullSizeContentView)
         window.contentMinSize = NSSize(width: 880, height: 520)
         window.isReleasedWhenClosed = false

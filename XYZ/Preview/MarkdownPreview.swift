@@ -53,7 +53,8 @@ final class PreviewModel: ObservableObject {
         }
         task = Task { [weak self] in
             if !immediate {
-                try? await Task.sleep(for: .milliseconds(220))
+                let wait = text.utf8.count > 120_000 ? 420 : 220
+                try? await Task.sleep(for: .milliseconds(wait))
                 guard !Task.isCancelled else { return }
             }
             guard let self else { return }

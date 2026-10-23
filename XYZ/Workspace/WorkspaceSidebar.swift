@@ -16,9 +16,9 @@ struct WorkspaceSidebar: NSViewRepresentable {
         outline.style = .sourceList
         outline.selectionHighlightStyle = .sourceList
         outline.floatsGroupRows = false
-        outline.indentationPerLevel = 15
-        outline.rowHeight = 24
-        outline.intercellSpacing = NSSize(width: 0, height: 1)
+        outline.indentationPerLevel = 16
+        outline.rowHeight = 22
+        outline.intercellSpacing = NSSize(width: 0, height: 0)
         outline.allowsMultipleSelection = false
         outline.allowsEmptySelection = true
         outline.allowsColumnReordering = false
@@ -208,8 +208,8 @@ struct WorkspaceSidebar: NSViewRepresentable {
         }
 
         func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
-            if item is SidebarSection || item is SidebarMessage { return 22 }
-            return 24
+            if item is SidebarSection || item is SidebarMessage { return 20 }
+            return 22
         }
 
         func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
@@ -747,35 +747,45 @@ fileprivate final class SidebarOutlineView: NSOutlineView {
 
     override func keyDown(with event: NSEvent) {
         switch event.keyCode {
-        case 36, 49, 76:
+        case 36, 76:
             onActivate?()
+        case 123:
+            if !nudge(expand: false) { super.keyDown(with: event) }
+        case 124:
+            if !nudge(expand: true) { super.keyDown(with: event) }
         default:
             super.keyDown(with: event)
         }
     }
 
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        let rowRange = rows(in: dirtyRect)
-        guard rowRange.location != NSNotFound, rowRange.length > 0 else { return }
-        let strong = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
-        let color = NSColor.separatorColor.withAlphaComponent(strong ? 0.95 : 0.4)
-        color.setStroke()
-        let path = NSBezierPath()
-        path.lineWidth = 1
-        let last = rowRange.location + rowRange.length
-        for row in rowRange.location..<last {
-            guard let item = item(atRow: row) else { continue }
-            let level = level(forItem: item)
-            guard level > 0 else { continue }
-            let rect = rect(ofRow: row)
-            for ancestor in 1...level {
-                let x = floor(CGFloat(ancestor) * indentationPerLevel + 8) + 0.5
-                path.move(to: NSPoint(x: x, y: rect.minY))
-                path.line(to: NSPoint(x: x, y: rect.maxY))
+    /// Right opens a folder or steps into it. Left closes it, or moves to the parent.
+    private func nudge(expand: Bool) -> Bool {
+        let row = selectedRow
+        guard row >= 0, let item = item(atRow: row) else { return false }
+        if expand {
+            guard let node = item as? SidebarNode, node.isDirectory else { return false }
+            if isItemExpanded(node) {
+                guard numberOfChildren(ofItem: node) > 0 else { return true }
+                let child = child(0, ofItem: node)
+                let childRow = self.row(forItem: child)
+                guard childRow >= 0 else { return true }
+                selectRowIndexes(IndexSet(integer: childRow), byExtendingSelection: false)
+                scrollRowToVisible(childRow)
+            } else {
+                self.expandItem(node)
             }
+            return true
         }
-        path.stroke()
+        if let node = item as? SidebarNode, node.isDirectory, isItemExpanded(node) {
+            collapseItem(node)
+            return true
+        }
+        guard let parent = parent(forItem: item) else { return false }
+        let parentRow = self.row(forItem: parent)
+        guard parentRow >= 0 else { return false }
+        selectRowIndexes(IndexSet(integer: parentRow), byExtendingSelection: false)
+        scrollRowToVisible(parentRow)
+        return true
     }
 }
 
@@ -798,7 +808,7 @@ fileprivate final class SidebarRowCell: NSTableCellView {
         icon.translatesAutoresizingMaskIntoConstraints = false
         label.translatesAutoresizingMaskIntoConstraints = false
         icon.imageScaling = .scaleProportionallyDown
-        let config = NSImage.SymbolConfiguration(pointSize: 13, weight: .medium)
+        let config = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
         icon.symbolConfiguration = config
         icon.contentTintColor = .secondaryLabelColor
         label.lineBreakMode = .byTruncatingTail
@@ -829,54 +839,89 @@ fileprivate final class SidebarRowCell: NSTableCellView {
         nil
     }
 
+    private var rowNode: SidebarNode?
+    private var rowExpanded = false
+    private var rowHit: SidebarHit?
+
+    override var backgroundStyle: NSView.BackgroundStyle {
+        didSet { refreshColors() }
+    }
+
     fileprivate func apply(_ node: SidebarNode, expanded: Bool) {
+        rowNode = node
+        rowExpanded = expanded
+        rowHit = nil
         fullName = node.name
         toolTip = node.name
-        let symbol = WorkspaceFileSymbolChoice.symbol(
-            name: node.name,
-            isDirectory: node.isDirectory,
-            isExpanded: expanded
-        )
-        icon.image = Self.image(symbol)
-        let strong = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
-        icon.contentTintColor = node.isHidden ? .tertiaryLabelColor : (strong ? .labelColor : .secondaryLabelColor)
-        let base: NSColor = node.isHidden ? .secondaryLabelColor : .labelColor
-        label.attributedStringValue = Self.nameText(
-            node.name,
-            base: base,
-            highlights: node.highlights,
-            dimExtension: true
-        )
         label.lineBreakMode = .byTruncatingTail
         label.isEditable = false
         label.isBezeled = false
         label.drawsBackground = false
+        refreshColors()
     }
 
     fileprivate func applyHit(_ hit: SidebarHit) {
+        rowNode = nil
+        rowHit = hit
         let name = (hit.relativePath as NSString).lastPathComponent
         fullName = name
         toolTip = "\(hit.relativePath) — line \(hit.hit.lineNumber)"
+        label.lineBreakMode = .byTruncatingTail
+        refreshColors()
+    }
+
+    private func refreshColors() {
+        let selected = backgroundStyle == .emphasized
+        if let node = rowNode {
+            let symbol = WorkspaceFileSymbolChoice.symbol(
+                name: node.name,
+                isDirectory: node.isDirectory,
+                isExpanded: rowExpanded
+            )
+            icon.image = Self.image(symbol)
+            let base: NSColor
+            let quiet: NSColor
+            if selected {
+                base = .alternateSelectedControlTextColor
+                quiet = .alternateSelectedControlTextColor
+                icon.contentTintColor = .alternateSelectedControlTextColor
+            } else {
+                base = node.isHidden ? .secondaryLabelColor : .labelColor
+                quiet = .tertiaryLabelColor
+                icon.contentTintColor = node.isHidden ? .tertiaryLabelColor : .secondaryLabelColor
+            }
+            label.attributedStringValue = Self.nameText(
+                node.name,
+                base: base,
+                quiet: quiet,
+                highlights: node.highlights,
+                dimExtension: !selected
+            )
+            return
+        }
+        guard let hit = rowHit else { return }
+        let name = (hit.relativePath as NSString).lastPathComponent
         let symbol = WorkspaceFileSymbolChoice.symbol(name: name, isDirectory: false, isExpanded: false)
         icon.image = Self.image(symbol)
-        icon.contentTintColor = .tertiaryLabelColor
+        let primary: NSColor = selected ? .alternateSelectedControlTextColor : .labelColor
+        let quiet: NSColor = selected ? .alternateSelectedControlTextColor : .tertiaryLabelColor
+        icon.contentTintColor = quiet
         let combined = hit.hit.excerpt.isEmpty ? name : name + "  " + hit.hit.excerpt
         let text = NSMutableAttributedString(string: combined)
         let font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
         let full = NSRange(location: 0, length: (combined as NSString).length)
-        text.addAttributes([
-            .font: font,
-            .foregroundColor: NSColor.labelColor,
-        ], range: full)
+        text.addAttributes([.font: font, .foregroundColor: primary], range: full)
         if !hit.hit.excerpt.isEmpty {
-            let excerptRange = NSRange(location: (name as NSString).length, length: (combined as NSString).length - (name as NSString).length)
+            let excerptRange = NSRange(
+                location: (name as NSString).length,
+                length: (combined as NSString).length - (name as NSString).length
+            )
             text.addAttributes([
-                .foregroundColor: NSColor.tertiaryLabelColor,
+                .foregroundColor: quiet,
                 .font: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize),
             ], range: excerptRange)
         }
         label.attributedStringValue = text
-        label.lineBreakMode = .byTruncatingTail
     }
 
     func beginEditing(delegate: NSTextFieldDelegate) {
@@ -895,11 +940,14 @@ fileprivate final class SidebarRowCell: NSTableCellView {
     private static func image(_ symbol: WorkspaceFileSymbol) -> NSImage? {
         let name: String
         switch symbol {
-        case .folder: name = "folder"
-        case .folderOpen: name = "folder.fill"
+        case .folder, .folderOpen: name = "folder"
         case .markdown: name = "doc.text"
         case .text: name = "doc.plaintext"
         case .gear: name = "gearshape"
+        case .code: name = "chevron.left.forwardslash.chevron.right"
+        case .image: name = "photo"
+        case .data: name = "curlybraces"
+        case .archive: name = "doc.zipper"
         case .document: name = "doc"
         }
         let image = NSImage(systemSymbolName: name, accessibilityDescription: nil)
@@ -910,6 +958,7 @@ fileprivate final class SidebarRowCell: NSTableCellView {
     private static func nameText(
         _ name: String,
         base: NSColor,
+        quiet: NSColor,
         highlights: [WorkspaceNameSpan],
         dimExtension: Bool
     ) -> NSAttributedString {
@@ -920,7 +969,7 @@ fileprivate final class SidebarRowCell: NSTableCellView {
         if dimExtension, let span = WorkspaceFileSymbolChoice.extensionSpan(in: name) {
             let range = NSRange(location: span.location, length: span.length)
             if NSMaxRange(range) <= full.length {
-                text.addAttribute(.foregroundColor, value: NSColor.tertiaryLabelColor, range: range)
+                text.addAttribute(.foregroundColor, value: quiet, range: range)
             }
         }
         let emphasis = NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)

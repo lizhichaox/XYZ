@@ -35,11 +35,13 @@ struct WorkspaceView: View {
                 .background(Color.editorBackground.ignoresSafeArea())
         }
         .navigationSplitViewStyle(.balanced)
-        .navigationTitle(titleText)
-        .modifier(WorkspaceSubtitle(text: subtitleText))
         .toolbarRole(.editor)
         .frame(minWidth: 880, minHeight: 520)
-        .background(WorkspaceWindowChrome(title: titleText))
+        .background(WorkspaceWindowChrome(
+            title: titleText,
+            subtitle: subtitleText,
+            representedFile: session.buffer?.url
+        ))
         .background(
             EditorCommandAnchor(target: commands) {
                 commands.attach(session: session, columnVisibility: $columnVisibility)
@@ -75,36 +77,32 @@ struct WorkspaceView: View {
     }
 }
 
-private struct WorkspaceSubtitle: ViewModifier {
-    var text: String
-
-    func body(content: Content) -> some View {
-        if text.isEmpty {
-            content
-        } else {
-            content.navigationSubtitle(text)
-        }
-    }
-}
-
-/// One title, owned by SwiftUI. AppKit's represented URL was drawing the folder name on top of the file name.
+/// The window title is the open file. The subtitle is the folder. The proxy icon is that file, never the folder.
 private struct WorkspaceWindowChrome: NSViewRepresentable {
     var title: String
+    var subtitle: String
+    var representedFile: URL?
 
     func makeNSView(context: Context) -> WorkspaceChromeView {
         let view = WorkspaceChromeView()
         view.title = title
+        view.subtitle = subtitle
+        view.representedFile = representedFile
         return view
     }
 
     func updateNSView(_ view: WorkspaceChromeView, context: Context) {
         view.title = title
+        view.subtitle = subtitle
+        view.representedFile = representedFile
         view.apply()
     }
 }
 
 final class WorkspaceChromeView: NSView {
     var title = ""
+    var subtitle = ""
+    var representedFile: URL?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -126,16 +124,38 @@ final class WorkspaceChromeView: NSView {
         apply()
     }
 
+    override func layout() {
+        super.layout()
+        // NavigationSplitView writes the title during layout. Put the file name back
+        // when it does, without touching the title bar when the values already match.
+        syncTitle()
+    }
+
     func apply() {
         guard let window else { return }
-        WorkspaceChrome.apply(to: window, title: title)
+        WorkspaceChrome.apply(to: window, title: title, subtitle: subtitle, representedFile: representedFile)
+    }
+
+    private func syncTitle() {
+        guard let window else { return }
+        if window.titleVisibility != .visible {
+            window.titleVisibility = .visible
+        }
+        if window.title != title {
+            window.title = title
+        }
+        if window.subtitle != subtitle {
+            window.subtitle = subtitle
+        }
+        if window.representedURL != representedFile {
+            window.representedURL = representedFile
+        }
     }
 }
 
 enum WorkspaceChrome {
-    static func apply(to window: NSWindow, title: String) {
-        window.representedURL = nil
-        window.titleVisibility = .hidden
+    static func apply(to window: NSWindow, title: String, subtitle: String, representedFile: URL?) {
+        window.titleVisibility = .visible
         if #available(macOS 26, *) {
             window.titlebarAppearsTransparent = false
             window.titlebarSeparatorStyle = .automatic
@@ -151,6 +171,12 @@ enum WorkspaceChrome {
         window.backgroundColor = .textBackgroundColor
         if window.title != title {
             window.title = title
+        }
+        if window.subtitle != subtitle {
+            window.subtitle = subtitle
+        }
+        if window.representedURL != representedFile {
+            window.representedURL = representedFile
         }
     }
 }

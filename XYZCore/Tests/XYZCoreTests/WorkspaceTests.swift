@@ -7,6 +7,10 @@ final class WorkspaceTreeTests: XCTestCase {
         XCTAssertEqual(WorkspacePaths.child(parent: ".github", name: "workflows"), ".github/workflows")
         XCTAssertEqual(WorkspacePaths.parent(of: ".github/workflows"), ".github")
         XCTAssertEqual(WorkspacePaths.parent(of: "README.md"), "")
+        XCTAssertEqual(WorkspacePaths.ancestors(of: "Notes/2026/May.md"), ["Notes", "Notes/2026"])
+        XCTAssertEqual(WorkspacePaths.ancestors(of: "README.md"), [])
+        XCTAssertEqual(WorkspacePaths.ancestors(of: ""), [])
+        XCTAssertEqual(WorkspacePaths.ancestors(of: "a/b/c"), ["a", "a/b"])
     }
 
     func testHiddenNamesIncludeDotfiles() {
@@ -142,7 +146,13 @@ final class WorkspaceSearchTests: XCTestCase {
         XCTAssertEqual(WorkspaceFileSymbolChoice.symbol(name: "Notes", isDirectory: true, isExpanded: true), .folderOpen)
         XCTAssertEqual(WorkspaceFileSymbolChoice.symbol(name: "Note.md", isDirectory: false, isExpanded: false), .markdown)
         XCTAssertEqual(WorkspaceFileSymbolChoice.symbol(name: ".gitignore", isDirectory: false, isExpanded: false), .gear)
-        XCTAssertEqual(WorkspaceFileSymbolChoice.symbol(name: "App.swift", isDirectory: false, isExpanded: false), .document)
+        XCTAssertEqual(WorkspaceFileSymbolChoice.symbol(name: "App.swift", isDirectory: false, isExpanded: false), .code)
+        XCTAssertEqual(WorkspaceFileSymbolChoice.symbol(name: "photo.png", isDirectory: false, isExpanded: false), .image)
+        XCTAssertEqual(WorkspaceFileSymbolChoice.symbol(name: "package.json", isDirectory: false, isExpanded: false), .data)
+        XCTAssertEqual(WorkspaceFileSymbolChoice.symbol(name: "Build.zip", isDirectory: false, isExpanded: false), .archive)
+        XCTAssertEqual(WorkspaceFileSymbolChoice.symbol(name: "Notes.pdf", isDirectory: false, isExpanded: false), .document)
+        XCTAssertEqual(WorkspaceFileSymbolChoice.symbol(name: "README.MD", isDirectory: false, isExpanded: false), .markdown)
+        XCTAssertEqual(WorkspaceFileSymbolChoice.symbol(name: "Icon.PNG", isDirectory: false, isExpanded: false), .image)
         let span = WorkspaceFileSymbolChoice.extensionSpan(in: "Note.md")
         XCTAssertEqual(span, WorkspaceNameSpan(location: 4, length: 3))
         XCTAssertNil(WorkspaceFileSymbolChoice.extensionSpan(in: "App.swift"))

@@ -30,6 +30,17 @@ public enum WorkspacePaths {
         return String(relativePath[..<index])
     }
 
+    /// Folder paths from the workspace root down to the parent of `relativePath`.
+    public static func ancestors(of relativePath: String) -> [String] {
+        var chain: [String] = []
+        var current = parent(of: relativePath)
+        while !current.isEmpty {
+            chain.append(current)
+            current = parent(of: current)
+        }
+        return chain.reversed()
+    }
+
     /// Dotfiles, and names the platform already marked hidden.
     public static func isHidden(name: String, resourceHidden: Bool) -> Bool {
         name.hasPrefix(".") || resourceHidden

@@ -147,6 +147,10 @@ public enum WorkspaceFileSymbol: String, Equatable, Sendable {
     case markdown
     case text
     case gear
+    case code
+    case image
+    case data
+    case archive
     case document
 }
 
@@ -163,6 +167,15 @@ public enum WorkspaceFileSymbolChoice {
             return .markdown
         case "txt", "text":
             return .text
+        case "png", "jpg", "jpeg", "gif", "webp", "heic", "tif", "tiff", "svg", "icns":
+            return .image
+        case "json", "yaml", "yml", "toml", "plist":
+            return .data
+        case "zip", "gz", "tgz", "tar", "dmg":
+            return .archive
+        case "swift", "m", "mm", "c", "h", "cpp", "hpp", "rs", "go", "py", "rb", "js", "jsx", "ts", "tsx",
+             "css", "scss", "html", "xml", "sh", "kt", "java":
+            return .code
         default:
             return .document
         }

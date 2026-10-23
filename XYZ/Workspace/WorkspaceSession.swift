@@ -98,6 +98,23 @@ final class WorkspaceSession: ObservableObject {
         expanded.contains(path)
     }
 
+    /// Expand every folder above a file so the outline can select and scroll to it.
+    func revealAncestors(of relativePath: String) {
+        let chain = WorkspacePaths.ancestors(of: relativePath)
+        guard !chain.isEmpty else { return }
+        var next = expanded
+        for ancestor in chain {
+            next.insert(ancestor)
+            if children[ancestor] == nil {
+                load(parent: ancestor)
+            }
+            watchDirectory(ancestor)
+        }
+        guard next != expanded else { return }
+        expanded = next
+        rememberExpansion()
+    }
+
     func setExpanded(_ node: WorkspaceNode, _ isExpanded: Bool) {
         guard node.isDirectory else { return }
         if isExpanded {
@@ -277,6 +294,7 @@ final class WorkspaceSession: ObservableObject {
 
     func openFile(_ node: WorkspaceNode) {
         guard !node.isDirectory else { return }
+        revealAncestors(of: node.relativePath)
         guard buffer?.relativePath != node.relativePath else {
             selectedPath = node.relativePath
             return
