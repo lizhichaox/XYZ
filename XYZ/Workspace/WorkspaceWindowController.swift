@@ -149,47 +149,12 @@ enum WorkspaceFolderDrop {
     }
 }
 
-/// Sends folders to the workspace window instead of the single-document flow.
-final class XYZDocumentController: NSDocumentController {
-    private static var didInstall = false
-
-    static func installIfNeeded() {
-        // Must run before anything touches NSDocumentController.shared.
-        // Reading .shared here would create the default controller and this subclass could not replace it.
-        guard !didInstall else { return }
-        didInstall = true
-        _ = XYZDocumentController()
-    }
-
-    override func openDocument(
-        withContentsOf url: URL,
-        display displayDocument: Bool,
-        completionHandler: @escaping (NSDocument?, Bool, Error?) -> Void
-    ) {
-        if WorkspaceFolders.isDirectory(url) {
-            let bookmark = try? WorkspaceBookmarks.make(for: url)
-            DispatchQueue.main.async {
-                MainActor.assumeIsolated {
-                    WorkspaceWindowController.open(url: url, bookmark: bookmark)
-                }
-            }
-            completionHandler(nil, false, nil)
-            return
-        }
-        super.openDocument(withContentsOf: url, display: displayDocument, completionHandler: completionHandler)
-    }
-}
-
+/// Folder opens and quit cleanup.
+///
+/// This is not an NSDocumentController. SwiftUI's DocumentGroup installs
+/// PlatformDocumentController in applicationWillFinishLaunching, and a
+/// controller created earlier crashes that setup.
 final class XYZAppDelegate: NSObject, NSApplicationDelegate {
-    override init() {
-        super.init()
-        XYZDocumentController.installIfNeeded()
-    }
-
-    func applicationWillFinishLaunching(_ notification: Notification) {
-        XYZDocumentController.installIfNeeded()
-    }
-
     func applicationDidFinishLaunching(_ notification: Notification) {
         MainActor.assumeIsolated {
             WorkspaceWindowController.restore()

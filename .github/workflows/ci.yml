@@ -30,10 +30,35 @@ jobs:
             -scheme XYZ \
             -destination 'platform=macOS' \
             -configuration Debug \
+            -derivedDataPath build/macos \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY=- \
             build
+
+      - name: Launch macOS app
+        run: |
+          set -euo pipefail
+          APP="$(find "$PWD/build/macos/Build/Products" -name 'XYZ.app' -type d | head -n 1)"
+          test -n "$APP"
+          test -d "$APP"
+          # The unsigned CI build carries iCloud entitlements. Ad-hoc sign
+          # without them so the process can start. The launch crash is in
+          # DocumentGroup setup, before any file access.
+          codesign --force --deep --sign - "$APP"
+          LOG="$PWD/build/macos/launch.log"
+          "$APP/Contents/MacOS/XYZ" -ApplePersistenceIgnoreState YES >"$LOG" 2>&1 &
+          PID=$!
+          for _ in 1 2 3 4 5 6 7 8; do
+            if ! kill -0 "$PID" 2>/dev/null; then
+              echo "XYZ exited during launch"
+              cat "$LOG" || true
+              exit 1
+            fi
+            sleep 1
+          done
+          kill "$PID"
+          wait "$PID" || true
 
       - name: Build iOS Simulator
         run: |
