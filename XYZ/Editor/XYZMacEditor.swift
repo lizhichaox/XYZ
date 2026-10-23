@@ -34,7 +34,7 @@ final class XYZMacTextView: NSTextView {
     override func layout() {
         super.layout()
         guard let width = enclosingScrollView?.contentSize.width, width > 1 else { return }
-        let side = max(XYZEditorStyle.markdown.horizontalInset, floor((width - XYZEditorStyle.measure) / 2))
+        let side = XYZEditorStyle.sideInset(for: width)
         let next = NSSize(width: side, height: XYZEditorStyle.markdown.verticalInset)
         if textContainerInset != next {
             textContainerInset = next
@@ -99,6 +99,8 @@ struct XYZMacEditor: NSViewRepresentable {
         scrollView.automaticallyAdjustsContentInsets = false
         scrollView.contentInsets = NSEdgeInsets()
         scrollView.scrollerInsets = NSEdgeInsets()
+        scrollView.verticalScrollElasticity = .none
+        scrollView.horizontalScrollElasticity = .none
         scrollView.contentView.automaticallyAdjustsContentInsets = false
         scrollView.contentView.contentInsets = NSEdgeInsets()
         scrollView.contentView.drawsBackground = true

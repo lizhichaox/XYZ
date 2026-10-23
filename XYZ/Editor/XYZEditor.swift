@@ -15,11 +15,14 @@ struct XYZEditorStyle: Equatable {
     /// Target line height relative to the font size. Soft wraps use this; hard returns also get `paragraphSpacing`.
     var lineHeight: CGFloat = 1.6
     var paragraphSpacing: CGFloat = 2
-    var horizontalInset: CGFloat = 32
+    var horizontalInset: CGFloat = 24
     var verticalInset: CGFloat = 28
-    /// Centered measure. Side inset grows once the pane is wider than this.
-    static let measure: CGFloat = 700
     var monospaced: Bool = false
+
+    /// Side padding is 5% of the pane, clamped to 24...64 points. The text uses the remaining width.
+    static func sideInset(for paneWidth: CGFloat) -> CGFloat {
+        min(64, max(24, floor(paneWidth * 0.05)))
+    }
 
     static let monospacedKey = "xyz.editor.monospaced"
     static let markdown = XYZEditorStyle()

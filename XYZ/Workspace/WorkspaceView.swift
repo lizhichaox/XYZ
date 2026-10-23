@@ -148,6 +148,7 @@ enum WorkspaceChrome {
         if !window.styleMask.contains(.fullSizeContentView) {
             window.styleMask.insert(.fullSizeContentView)
         }
+        window.backgroundColor = .textBackgroundColor
         if window.title != title {
             window.title = title
         }

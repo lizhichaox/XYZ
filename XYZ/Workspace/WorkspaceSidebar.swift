@@ -10,7 +10,7 @@ struct WorkspaceSidebar: NSViewRepresentable {
     func makeNSView(context: Context) -> NSView {
         let reduceTransparency = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
         let usesGlass = Self.glassSearch(reduceTransparency: reduceTransparency)
-        let column = SidebarColumnView(usesGlass: usesGlass)
+        let column = SidebarColumnView()
         let outline = column.outline
         outline.headerView = nil
         outline.style = .sourceList
@@ -578,30 +578,20 @@ fileprivate final class SidebarColumnView: NSView {
     let search: SidebarSearchField
     let scroll = NSScrollView()
     let outline = SidebarOutlineView()
-    private let glassHost: NSView?
 
-    init(usesGlass: Bool) {
+    override init(frame frameRect: NSRect) {
         let search = SidebarSearchField()
         self.search = search
-        if usesGlass, #available(macOS 26, *) {
-            search.translatesAutoresizingMaskIntoConstraints = false
-            search.isBordered = false
-            search.drawsBackground = false
-            let glass = NSGlassEffectView()
-            glass.cornerRadius = 14
-            glass.style = .regular
-            glass.contentView = search
-            glassHost = glass
-        } else {
-            glassHost = nil
-        }
-        super.init(frame: .zero)
+        super.init(frame: frameRect)
+        search.translatesAutoresizingMaskIntoConstraints = false
         search.placeholderString = "Filter"
         search.sendsSearchStringImmediately = true
-        search.controlSize = .small
+        search.controlSize = .regular
         search.focusRingType = .none
-        search.font = .systemFont(ofSize: NSFont.smallSystemFontSize)
         search.setAccessibilityLabel("Filter files")
+        search.setContentHuggingPriority(.required, for: .vertical)
+        search.setContentCompressionResistancePriority(.required, for: .vertical)
+        scroll.translatesAutoresizingMaskIntoConstraints = false
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
         scroll.hasHorizontalScroller = false
@@ -609,42 +599,22 @@ fileprivate final class SidebarColumnView: NSView {
         scroll.borderType = .noBorder
         scroll.automaticallyAdjustsContentInsets = true
         scroll.documentView = outline
-        if let glassHost {
-            glassHost.translatesAutoresizingMaskIntoConstraints = false
-            addSubview(glassHost)
-            NSLayoutConstraint.activate([
-                glassHost.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-                glassHost.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
-                glassHost.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: 8),
-                glassHost.heightAnchor.constraint(equalToConstant: 28),
-            ])
-        } else {
-            addSubview(search)
-        }
+        addSubview(search)
         addSubview(scroll)
+        NSLayoutConstraint.activate([
+            search.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            search.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            search.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: 8),
+            scroll.topAnchor.constraint(equalTo: search.bottomAnchor, constant: 6),
+            scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
+            scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
+            scroll.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         nil
-    }
-
-    override func layout() {
-        super.layout()
-        let topInset = safeAreaInsets.top + 8
-        let margin: CGFloat = 10
-        let height: CGFloat = 28
-        let field = NSRect(
-            x: margin,
-            y: bounds.height - topInset - height,
-            width: max(0, bounds.width - margin * 2),
-            height: height
-        )
-        if glassHost == nil {
-            search.frame = field
-        }
-        let used = topInset + height + 6
-        scroll.frame = NSRect(x: 0, y: 0, width: bounds.width, height: max(0, bounds.height - used))
     }
 }
 

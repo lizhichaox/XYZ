@@ -8,7 +8,7 @@ New documents are Markdown (`.md`). The app also opens and saves `.markdown` and
 
 ## What you see
 
-- A proportional text editor in the system font (SF Pro, with PingFang SC for Chinese), about 16pt with comfortable line height. The column stays near 700 points wide and centered. Markdown markers are tinted and headings are slightly larger. Settings → Monospaced editor font switches the editor to a fixed-width face. On the Mac the view is an `NSTextView`; on iOS it is a `UITextView`. Both use TextKit 2.
+- A proportional text editor in the system font (SF Pro, with PingFang SC for Chinese), about 16pt with comfortable line height. The text uses the width of the pane, with side padding that stays between 24 and 64 points. Markdown markers are tinted and headings are slightly larger. Settings → Monospaced editor font switches the editor to a fixed-width face. On the Mac the view is an `NSTextView`; on iOS it is a `UITextView`. Both use TextKit 2.
 - Three ways to read a Markdown note: Coding (source only), Preview (source and rendered note), and Reading (rendered note only). Switch them from the View menu. The divider in Preview can be dragged; the other two modes animate that divider and do not change the window frame. Choosing another file does not animate the layout. The choice is remembered for each folder window, and for a document window while it is open. The reading and editing surface has no buttons of its own, including the toolbar above it. The sidebar toggle stays on the sidebar side.
 - On iPhone and iPad the same three modes are in the View menu. A compact iPhone stacks the source above the preview. A regular width layout puts them side by side.
 - Preview renders headings, emphasis, lists, task lists, links, images (as tags), tables, code, and blockquotes. It follows light and dark mode.
@@ -26,7 +26,7 @@ The View menu lists Coding, Preview, and Reading. Two shortcuts follow the apps 
 
 ⌘P is Quick Open. A field at the top of the window lists files in the open folder, recent files first, with fuzzy highlighting. A leading `>` lists commands (view modes, sidebar, new file, new folder, Open Folder, Reveal in Finder, Copy Path, Reload, About XYZ) and shows each shortcut on the right. ↑ and ↓, or ⌃P and ⌃N, move the selection. Return runs it. ⌘Return opens a file in a new window. Esc or a click outside dismisses the palette. It is not a button on the note.
 
-On macOS 26 and later the sidebar filter and the command palette use Liquid Glass when Reduce Transparency and Increase Contrast are off. Reduce Motion turns off the divider animation. Earlier systems keep a sidebar material and a material palette.
+The sidebar filter is a native search field. On macOS 26 and later the command palette uses Liquid Glass when Reduce Transparency and Increase Contrast are off. Reduce Motion turns off the divider animation. Earlier systems keep a sidebar material and a material palette.
 
 ## Layout
 

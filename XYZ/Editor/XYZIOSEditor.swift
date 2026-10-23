@@ -19,7 +19,7 @@ final class XYZIOSTextView: UITextView {
         super.layoutSubviews()
         let width = bounds.width
         guard width > 1 else { return }
-        let side = max(XYZEditorStyle.markdown.horizontalInset, floor((width - XYZEditorStyle.measure) / 2))
+        let side = XYZEditorStyle.sideInset(for: width)
         let next = UIEdgeInsets(
             top: XYZEditorStyle.markdown.verticalInset,
             left: side,
@@ -113,11 +113,13 @@ struct XYZIOSEditor: UIViewRepresentable {
         let font = UIFontMetrics(forTextStyle: .body).scaledFont(for: base)
         let paragraph = style.paragraphStyle(naturalLineHeight: font.lineHeight)
         textView.font = font
+        let width = textView.bounds.width
+        let side = width > 1 ? XYZEditorStyle.sideInset(for: width) : style.horizontalInset
         textView.textContainerInset = UIEdgeInsets(
             top: style.verticalInset,
-            left: style.horizontalInset,
+            left: side,
             bottom: style.verticalInset,
-            right: style.horizontalInset
+            right: side
         )
         textView.typingAttributes = [
             .font: font,

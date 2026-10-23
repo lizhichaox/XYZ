@@ -124,9 +124,18 @@ final class EditorPreviewSplitContainer: NSView, NSSplitViewDelegate {
         }
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        window?.backgroundColor = .textBackgroundColor
+    }
+
     override func layout() {
         super.layout()
-        layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
+        window?.backgroundColor = .textBackgroundColor
+        let page = NSColor.textBackgroundColor.cgColor
+        layer?.backgroundColor = page
+        editorHost.layer?.backgroundColor = page
+        previewHost.layer?.backgroundColor = page
         guard bounds.width > 1, split.arrangedSubviews.count == 2 else { return }
         if mode != .preview {
             let target = position(for: mode, width: bounds.width)
@@ -199,6 +208,8 @@ final class EditorPreviewSplitContainer: NSView, NSSplitViewDelegate {
     }
 
     private func configure(_ host: FixedHostingView) {
+        host.wantsLayer = true
+        host.layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
         host.sizingOptions = []
         host.setContentHuggingPriority(.init(1), for: .horizontal)
         host.setContentHuggingPriority(.init(1), for: .vertical)

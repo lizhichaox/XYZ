@@ -113,14 +113,9 @@ private enum PreviewWebViewFactory {
         webView.allowsBackForwardNavigationGestures = false
         webView.allowsLinkPreview = true
         #if os(macOS)
-        // AppKit's isOpaque is read-only. Match the editor page color, including overscroll.
-        webView.underPageBackgroundColor = .textBackgroundColor
         webView.setAccessibilityLabel("Markdown preview")
-        #else
-        webView.isOpaque = true
-        webView.backgroundColor = .systemBackground
-        webView.scrollView.backgroundColor = .systemBackground
         #endif
+        PreviewWebChrome.apply(to: webView)
         #if DEBUG
         webView.isInspectable = true
         #endif
@@ -141,9 +136,7 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate {
     func update(webView: WKWebView, html: String, theme: String) {
         pendingHTML = html
         pendingTheme = theme
-        #if os(macOS)
-        webView.underPageBackgroundColor = .textBackgroundColor
-        #endif
+        PreviewWebChrome.apply(to: webView)
         if !didStartLoad {
             loadShell(webView, html: html, theme: theme)
             return
@@ -154,6 +147,7 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         isReady = true
+        PreviewWebChrome.apply(to: webView)
         PreviewLog.logger.notice("navigation finished")
         push(to: webView)
     }
@@ -251,6 +245,85 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate {
     }
 }
 
+private enum PreviewWebChrome {
+    static func apply(to webView: WKWebView) {
+        #if os(macOS)
+        webView.setValue(false, forKey: "drawsBackground")
+        webView.underPageBackgroundColor = .textBackgroundColor
+        webView.layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
+        silence(webView)
+        #else
+        let color = UIColor.systemBackground
+        webView.isOpaque = true
+        webView.backgroundColor = color
+        webView.scrollView.backgroundColor = color
+        webView.scrollView.bounces = false
+        webView.scrollView.alwaysBounceVertical = false
+        webView.scrollView.alwaysBounceHorizontal = false
+        #endif
+    }
+
+    static func canvasCSS() -> String {
+        let light = hex(dark: false)
+        let dark = hex(dark: true)
+        return """
+        :root { --canvas: \(light); }
+        :root[data-theme="dark"] { --canvas: \(dark); }
+        @media (prefers-color-scheme: dark) {
+          :root:not([data-theme="light"]) { --canvas: \(dark); }
+        }
+        """
+    }
+
+    #if os(macOS)
+    private static func silence(_ view: NSView) {
+        if let scroll = view as? NSScrollView {
+            scroll.verticalScrollElasticity = .none
+            scroll.horizontalScrollElasticity = .none
+            scroll.drawsBackground = true
+            scroll.backgroundColor = .textBackgroundColor
+            scroll.contentView.drawsBackground = true
+            scroll.contentView.backgroundColor = .textBackgroundColor
+        }
+        for child in view.subviews {
+            silence(child)
+        }
+    }
+
+    private static func hex(dark: Bool) -> String {
+        let appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        var color = NSColor.textBackgroundColor
+        if let appearance {
+            appearance.performAsCurrentDrawingAppearance {
+                color = NSColor.textBackgroundColor.usingColorSpace(.sRGB) ?? color
+            }
+        }
+        return hex(color, fallback: dark ? "#1e1e1e" : "#ffffff")
+    }
+
+    private static func hex(_ color: NSColor, fallback: String) -> String {
+        guard let rgb = color.usingColorSpace(.sRGB) else { return fallback }
+        let red = Int((rgb.redComponent * 255).rounded())
+        let green = Int((rgb.greenComponent * 255).rounded())
+        let blue = Int((rgb.blueComponent * 255).rounded())
+        return String(format: "#%02x%02x%02x", red, green, blue)
+    }
+    #else
+    private static func hex(dark: Bool) -> String {
+        let style: UIUserInterfaceStyle = dark ? .dark : .light
+        let color = UIColor.systemBackground.resolvedColor(with: UITraitCollection(userInterfaceStyle: style))
+        var red: CGFloat = 1
+        var green: CGFloat = 1
+        var blue: CGFloat = 1
+        var alpha: CGFloat = 1
+        guard color.getRed(&red, green: &green, blue: &blue, alpha: &alpha) else {
+            return dark ? "#000000" : "#ffffff"
+        }
+        return String(format: "#%02x%02x%02x", Int((red * 255).rounded()), Int((green * 255).rounded()), Int((blue * 255).rounded()))
+    }
+    #endif
+}
+
 private enum PreviewStyles {
     static func load() -> String {
         if let url = Bundle.main.url(forResource: "Preview", withExtension: "css"),
@@ -258,7 +331,7 @@ private enum PreviewStyles {
            !css.isEmpty {
             return css
         }
-        return "body { font: 16px -apple-system, sans-serif; margin: 0; padding: 20px; }"
+        return "html, body { margin: 0; min-height: 100%; background-color: #fff; overscroll-behavior: none; } body { font: 16px -apple-system, sans-serif; padding: 20px; }"
     }
 }
 
@@ -273,6 +346,7 @@ private enum PreviewPage {
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
         <style>
         \(css)
+        \(PreviewWebChrome.canvasCSS())
         </style>
         </head>
         <body>
