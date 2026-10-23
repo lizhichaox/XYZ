@@ -108,7 +108,8 @@ struct XYZIOSEditor: UIViewRepresentable {
             .foregroundColor: UIColor.label,
             .paragraphStyle: paragraph,
         ]
-        guard restyleStorage, let storage = textView.textStorage, storage.length > 0 else { return }
+        let storage = textView.textStorage
+        guard restyleStorage, storage.length > 0 else { return }
         let range = NSRange(location: 0, length: storage.length)
         storage.beginEditing()
         storage.addAttribute(.font, value: font, range: range)
