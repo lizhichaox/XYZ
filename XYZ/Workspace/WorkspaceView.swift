@@ -164,22 +164,18 @@ private struct WorkspaceDetail: View {
             if let status = banner {
                 bannerView(status)
             }
-            ZStack {
-                EditorPreviewSplit(
-                    mode: layoutMode,
-                    fileID: session.buffer?.relativePath ?? "",
-                    editor: editor,
-                    preview: preview
-                )
-                .opacity(showsEditor ? 1 : 0)
-                .allowsHitTesting(showsEditor)
+            Group {
                 if session.buffer == nil {
                     ContentUnavailableView(
                         "No File Open",
                         systemImage: "doc.text",
                         description: Text("Choose a file in the sidebar.")
                     )
-                } else if let buffer = session.buffer, !showsEditor {
+                } else if showsReading {
+                    preview
+                } else if showsEditor {
+                    editor
+                } else if let buffer = session.buffer {
                     placeholder(for: buffer)
                         .background(Color.editorBackground)
                 }
@@ -197,8 +193,8 @@ private struct WorkspaceDetail: View {
         return kind == .markdown || kind == .plainText
     }
 
-    private var layoutMode: EditorViewMode {
-        session.buffer?.kind == .markdown ? session.viewMode : .coding
+    private var showsReading: Bool {
+        session.buffer?.kind == .markdown && session.viewMode == .reading
     }
 
     private func placeholder(for buffer: WorkspaceFileBuffer) -> some View {
@@ -244,7 +240,7 @@ private struct WorkspaceDetail: View {
     }
 
     private var preview: some View {
-        MarkdownPreview(bridge: session.previewBridge, host: session.previewHost)
+        MarkdownPreview(bridge: session.previewBridge, host: session.previewHost, scrollLink: session.scrollLink)
     }
 
     private var editor: some View {
@@ -253,6 +249,7 @@ private struct WorkspaceDetail: View {
             isEditable: showsEditor,
             undoManager: undoManager,
             reloadToken: session.buffer?.editorToken ?? 0,
+            scrollLink: session.scrollLink,
             onTextChange: { newText in
                 session.buffer?.userEdited(newText)
                 session.previewBridge.send(newText)
@@ -273,7 +270,7 @@ final class WorkspaceCommandBridge: ObservableObject, EditorCommandTarget {
         self.columnVisibility = columnVisibility
     }
 
-    var editorViewMode: EditorViewMode { session?.viewMode ?? .preview }
+    var editorViewMode: EditorViewMode { session?.viewMode ?? .source }
     var showsHiddenFiles: Bool { session?.showsHiddenFiles ?? true }
     var supportsWorkspaceFiles: Bool { session != nil }
 
@@ -281,12 +278,8 @@ final class WorkspaceCommandBridge: ObservableObject, EditorCommandTarget {
         session?.selectViewMode(mode, source: source)
     }
 
-    func editorToggleReading(source: String) {
-        session?.toggleReadingView(source: source)
-    }
-
-    func editorToggleSource(source: String) {
-        session?.toggleSourceMode(source: source)
+    func editorToggle(source: String) {
+        session?.toggleViewMode(source: source)
     }
 
     func paletteFiles() -> [PaletteFile] {

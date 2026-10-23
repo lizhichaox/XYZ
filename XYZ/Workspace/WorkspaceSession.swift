@@ -36,9 +36,9 @@ final class WorkspaceSession: ObservableObject {
     /// One preview for the life of this window. File switches push new text.
     let previewBridge = PreviewBridge(text: "")
     let previewHost = PreviewWebHost()
+    let scrollLink = EditorScrollLink()
     private(set) var recentPaths: [String] = []
 
-    private var editingMode: EditorViewMode
     private let monitor = DirectoryMonitor()
     private var accessStarted = false
     private var didStart = false
@@ -54,9 +54,7 @@ final class WorkspaceSession: ObservableObject {
         self.bookmark = bookmark
         self.displayName = rootURL.lastPathComponent
         let saved = UserDefaults.standard.string(forKey: Self.viewModeKey(for: rootURL))
-        let mode = EditorViewMode(rawValue: saved ?? "") ?? .preview
-        self.viewMode = mode
-        self.editingMode = mode == .reading ? .preview : mode
+        self.viewMode = EditorViewMode.restored(saved)
         self.recentPaths = UserDefaults.standard.stringArray(forKey: Self.recentsKey(for: rootURL)) ?? []
     }
 
@@ -123,8 +121,8 @@ final class WorkspaceSession: ObservableObject {
 
     func selectViewMode(_ mode: EditorViewMode, source: String) {
         let previous = viewMode
-        if mode != .reading {
-            editingMode = mode
+        if previous != mode {
+            scrollLink.noteToggle(to: mode)
         }
         viewMode = mode
         UserDefaults.standard.set(mode.rawValue, forKey: Self.viewModeKey(for: rootURL))
@@ -133,19 +131,9 @@ final class WorkspaceSession: ObservableObject {
         }
     }
 
-    func toggleReadingView(source: String) {
-        let previous = viewMode
-        let next = EditorViewMode.toggleReading(current: viewMode, editing: editingMode)
-        editingMode = next.editing
-        viewMode = next.mode
-        UserDefaults.standard.set(viewMode.rawValue, forKey: Self.viewModeKey(for: rootURL))
-        if previous != viewMode {
-            ViewModeLog.changed(from: previous.rawValue, to: viewMode.rawValue, source: source)
-        }
-    }
-
-    func toggleSourceMode(source: String) {
-        selectViewMode(EditorViewMode.toggleSource(current: viewMode), source: source)
+    func toggleViewMode(source: String) {
+        guard buffer == nil || buffer?.kind == .markdown else { return }
+        selectViewMode(viewMode.toggled(), source: source)
     }
 
     func focusSearch() {

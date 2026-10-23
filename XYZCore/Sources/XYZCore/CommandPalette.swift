@@ -92,20 +92,13 @@ public struct PaletteCommand: Equatable, Sendable, Identifiable {
     }
 
     public static let builtIn: [PaletteCommand] = [
-        PaletteCommand(id: "view.coding", title: "Coding", keywords: ["mode", "source"]),
-        PaletteCommand(id: "view.preview", title: "Preview", keywords: ["mode"]),
+        PaletteCommand(id: "view.source", title: "Source", keywords: ["mode", "edit", "coding"]),
         PaletteCommand(id: "view.reading", title: "Reading", keywords: ["mode"]),
         PaletteCommand(
-            id: "view.toggleReading",
-            title: "Toggle Reading View",
-            shortcut: "⌘E",
-            keywords: ["reading", "mode"]
-        ),
-        PaletteCommand(
             id: "view.toggleSource",
-            title: "Source Code Mode",
+            title: "Toggle Source and Reading",
             shortcut: "⌘/",
-            keywords: ["coding", "preview", "source"]
+            keywords: ["reading", "source", "coding", "edit"]
         ),
         PaletteCommand(id: "workspace.toggleSidebar", title: "Toggle Sidebar", keywords: ["sidebar"]),
         PaletteCommand(

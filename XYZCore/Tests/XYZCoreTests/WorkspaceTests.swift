@@ -194,26 +194,48 @@ final class WorkspaceSearchTests: XCTestCase {
 }
 
 final class EditorViewModeTests: XCTestCase {
-    func testReadingToggleReturnsToTheEditingModeYouLeft() {
-        let toReading = EditorViewMode.toggleReading(current: .preview, editing: .preview)
-        XCTAssertEqual(toReading.mode, .reading)
-        XCTAssertEqual(toReading.editing, .preview)
-        let back = EditorViewMode.toggleReading(current: toReading.mode, editing: toReading.editing)
-        XCTAssertEqual(back.mode, .preview)
-
-        let fromCoding = EditorViewMode.toggleReading(current: .coding, editing: .preview)
-        XCTAssertEqual(fromCoding.mode, .reading)
-        XCTAssertEqual(fromCoding.editing, .coding)
-        XCTAssertEqual(
-            EditorViewMode.toggleReading(current: .reading, editing: .coding).mode,
-            .coding
-        )
+    func testRestoredModeKeepsReadingAndDropsPreview() {
+        XCTAssertEqual(EditorViewMode.restored("reading"), .reading)
+        XCTAssertEqual(EditorViewMode.restored("source"), .source)
+        XCTAssertEqual(EditorViewMode.restored("coding"), .source)
+        XCTAssertEqual(EditorViewMode.restored("preview"), .source)
+        XCTAssertEqual(EditorViewMode.restored(nil), .source)
+        XCTAssertEqual(EditorViewMode.restored(""), .source)
     }
 
-    func testSourceToggleMatchesTypora() {
-        XCTAssertEqual(EditorViewMode.toggleSource(current: .preview), .coding)
-        XCTAssertEqual(EditorViewMode.toggleSource(current: .coding), .preview)
-        XCTAssertEqual(EditorViewMode.toggleSource(current: .reading), .coding)
+    func testToggleSwitchesSourceAndReading() {
+        XCTAssertEqual(EditorViewMode.source.toggled(), .reading)
+        XCTAssertEqual(EditorViewMode.reading.toggled(), .source)
+        XCTAssertEqual(EditorViewMode.reading.toggled().toggled(), .reading)
+    }
+
+    func testDecodedPreviewBecomesSource() throws {
+        let preview = try JSONDecoder().decode(EditorViewMode.self, from: Data("\"preview\"".utf8))
+        let reading = try JSONDecoder().decode(EditorViewMode.self, from: Data("\"reading\"".utf8))
+        XCTAssertEqual(preview, .source)
+        XCTAssertEqual(reading, .reading)
+    }
+}
+
+final class EditorScrollAnchorTests: XCTestCase {
+    func testProbeWinsNearTheFraction() {
+        let text = "Intro\n\n# Later heading\nbody\nLater heading again\n"
+        let anchor = EditorScrollAnchor(fraction: 0.9, probe: "Later heading")
+        XCTAssertEqual(anchor.lineIndex(in: text), 4)
+        let early = EditorScrollAnchor(fraction: 0.1, probe: "Later heading")
+        XCTAssertEqual(early.lineIndex(in: text), 2)
+    }
+
+    func testFractionPicksTheLineWhenTheProbeIsMissing() {
+        let text = "one\ntwo\nthree\nfour\n"
+        let anchor = EditorScrollAnchor(fraction: 1, probe: "missing")
+        XCTAssertEqual(anchor.lineIndex(in: text), 3)
+        XCTAssertEqual(EditorScrollAnchor(fraction: 0, probe: "").lineIndex(in: text), 0)
+    }
+
+    func testProbeDropsAHeadingMarker() {
+        XCTAssertEqual(EditorScrollAnchor.probe(from: "# Notes for today"), "Notes for today")
+        XCTAssertEqual(EditorScrollAnchor.probe(from: "- item"), "item")
     }
 }
 

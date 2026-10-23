@@ -87,18 +87,20 @@ final class PreviewModel: ObservableObject {
 struct MarkdownPreview: View {
     var bridge: PreviewBridge
     var host: PreviewWebHost
+    var scrollLink: EditorScrollLink
     @StateObject private var model: PreviewModel
 
-    init(bridge: PreviewBridge, host: PreviewWebHost) {
+    init(bridge: PreviewBridge, host: PreviewWebHost, scrollLink: EditorScrollLink) {
         self.bridge = bridge
         self.host = host
+        self.scrollLink = scrollLink
         let model = PreviewModel()
         model.adopt(bridge.latestText)
         _model = StateObject(wrappedValue: model)
     }
 
     var body: some View {
-        MarkdownWebView(html: model.html, host: host)
+        MarkdownWebView(html: model.html, host: host, scrollLink: scrollLink)
             .background(Color.editorBackground)
             .accessibilityLabel("Markdown preview")
             .onAppear {

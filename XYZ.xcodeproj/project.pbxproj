@@ -23,7 +23,6 @@
 		8C0000000000000000000014 /* WorkspaceWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000014 /* WorkspaceWindowController.swift */; };
 		8C0000000000000000000015 /* FolderOpening.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000015 /* FolderOpening.swift */; };
 		8C0000000000000000000016 /* WorkspaceLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000016 /* WorkspaceLog.swift */; };
-		8C0000000000000000000017 /* EditorSplit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000017 /* EditorSplit.swift */; };
 		8C0000000000000000000018 /* WorkspaceSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000018 /* WorkspaceSidebar.swift */; };
 		8C0000000000000000000019 /* EditorCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000019 /* EditorCommands.swift */; };
 /* End PBXBuildFile section */
@@ -51,7 +50,6 @@
 		8B0000000000000000000014 /* WorkspaceWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceWindowController.swift; sourceTree = "<group>"; };
 		8B0000000000000000000015 /* FolderOpening.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderOpening.swift; sourceTree = "<group>"; };
 		8B0000000000000000000016 /* WorkspaceLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceLog.swift; sourceTree = "<group>"; };
-		8B0000000000000000000017 /* EditorSplit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorSplit.swift; sourceTree = "<group>"; };
 		8B0000000000000000000018 /* WorkspaceSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebar.swift; sourceTree = "<group>"; };
 		8B0000000000000000000019 /* EditorCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorCommands.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -106,7 +104,6 @@
 			isa = PBXGroup;
 			children = (
 				8B0000000000000000000003 /* XYZEditor.swift */,
-				8B0000000000000000000017 /* EditorSplit.swift */,
 				8B0000000000000000000004 /* XYZMacEditor.swift */,
 				8B0000000000000000000005 /* XYZIOSEditor.swift */,
 			);
@@ -244,7 +241,6 @@
 				8C0000000000000000000014 /* WorkspaceWindowController.swift in Sources */,
 				8C0000000000000000000015 /* FolderOpening.swift in Sources */,
 				8C0000000000000000000016 /* WorkspaceLog.swift in Sources */,
-				8C0000000000000000000017 /* EditorSplit.swift in Sources */,
 				8C0000000000000000000018 /* WorkspaceSidebar.swift in Sources */,
 				8C0000000000000000000019 /* EditorCommands.swift in Sources */,
 			);

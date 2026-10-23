@@ -56,6 +56,24 @@ protocol XYZTextEditing: AnyObject {
     func perform(_ command: XYZEditorCommand)
 }
 
+/// Holds the scroll position to restore after Source and Reading trade places.
+@MainActor
+final class EditorScrollLink {
+    var capture: () -> EditorScrollAnchor = { EditorScrollAnchor(fraction: 0, probe: "") }
+    private var pending: (anchor: EditorScrollAnchor, destination: EditorViewMode)?
+
+    func noteToggle(to destination: EditorViewMode) {
+        pending = (capture(), destination)
+    }
+
+    func take(for destination: EditorViewMode) -> EditorScrollAnchor? {
+        guard pending?.destination == destination else { return nil }
+        let anchor = pending?.anchor
+        pending = nil
+        return anchor
+    }
+}
+
 /// Plain-text Markdown editor.
 ///
 /// `text` is the buffer to show when the platform view is created. Later keystrokes stay in
@@ -67,6 +85,7 @@ struct XYZEditor: View {
     var undoManager: UndoManager?
     /// Bump this to replace the buffer from outside the text view, such as a disk reload.
     var reloadToken: Int = 0
+    var scrollLink: EditorScrollLink
     var onTextChange: (String) -> Void
 
     @AppStorage(XYZEditorStyle.monospacedKey) private var monospaced = false
@@ -79,6 +98,7 @@ struct XYZEditor: View {
             undoManager: undoManager,
             reloadToken: reloadToken,
             monospaced: monospaced,
+            scrollLink: scrollLink,
             onTextChange: onTextChange
         )
         #else
@@ -88,6 +108,7 @@ struct XYZEditor: View {
             undoManager: undoManager,
             reloadToken: reloadToken,
             monospaced: monospaced,
+            scrollLink: scrollLink,
             onTextChange: onTextChange
         )
         #endif

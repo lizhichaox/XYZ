@@ -37,13 +37,14 @@ final class PreviewWebHost {
 struct MarkdownWebView: View {
     var html: String
     var host: PreviewWebHost
+    var scrollLink: EditorScrollLink
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         #if os(macOS)
-        MacMarkdownWebView(html: html, theme: colorScheme == .dark ? "dark" : "light", host: host)
+        MacMarkdownWebView(html: html, theme: colorScheme == .dark ? "dark" : "light", host: host, scrollLink: scrollLink)
         #else
-        IOSMarkdownWebView(html: html, theme: colorScheme == .dark ? "dark" : "light", host: host)
+        IOSMarkdownWebView(html: html, theme: colorScheme == .dark ? "dark" : "light", host: host, scrollLink: scrollLink)
         #endif
     }
 }
@@ -53,15 +54,16 @@ private struct MacMarkdownWebView: NSViewRepresentable {
     var html: String
     var theme: String
     var host: PreviewWebHost
+    var scrollLink: EditorScrollLink
 
     func makeNSView(context: Context) -> WKWebView {
         let webView = claim(host.webView)
-        host.coordinator.update(webView: webView, html: html, theme: theme)
+        host.coordinator.update(webView: webView, html: html, theme: theme, scrollLink: scrollLink)
         return webView
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
-        host.coordinator.update(webView: webView, html: html, theme: theme)
+        host.coordinator.update(webView: webView, html: html, theme: theme, scrollLink: scrollLink)
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: WKWebView, context: Context) -> CGSize? {
@@ -77,15 +79,16 @@ private struct IOSMarkdownWebView: UIViewRepresentable {
     var html: String
     var theme: String
     var host: PreviewWebHost
+    var scrollLink: EditorScrollLink
 
     func makeUIView(context: Context) -> WKWebView {
         let webView = claim(host.webView)
-        host.coordinator.update(webView: webView, html: html, theme: theme)
+        host.coordinator.update(webView: webView, html: html, theme: theme, scrollLink: scrollLink)
         return webView
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
-        host.coordinator.update(webView: webView, html: html, theme: theme)
+        host.coordinator.update(webView: webView, html: html, theme: theme, scrollLink: scrollLink)
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: WKWebView, context: Context) -> CGSize? {
@@ -132,10 +135,13 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate {
     private var pendingTheme: String?
     private var appliedTheme: String?
     private var didLogScriptFailure = false
+    private var scrollLink: EditorScrollLink?
 
-    func update(webView: WKWebView, html: String, theme: String) {
+    func update(webView: WKWebView, html: String, theme: String, scrollLink: EditorScrollLink) {
         pendingHTML = html
         pendingTheme = theme
+        self.scrollLink = scrollLink
+        scrollLink.capture = { PreviewWebChrome.anchor(in: webView) }
         PreviewWebChrome.apply(to: webView)
         if !didStartLoad {
             loadShell(webView, html: html, theme: theme)
@@ -200,14 +206,21 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate {
 
     private func push(to webView: WKWebView) {
         guard isReady else { return }
+        var script = ""
         if let theme = pendingTheme, theme != appliedTheme {
             appliedTheme = theme
-            evaluate(webView, "setTheme(\(PreviewPage.javaScriptLiteral(theme)))")
+            script += "setTheme(\(PreviewPage.javaScriptLiteral(theme)));"
         }
         if let html = pendingHTML, html != appliedHTML {
             appliedHTML = html
-            evaluate(webView, "setContent(\(PreviewPage.javaScriptLiteral(html)))")
+            script += "setContent(\(PreviewPage.javaScriptLiteral(html)));"
         }
+        if let anchor = scrollLink?.take(for: .reading) {
+            let fraction = min(1, max(0, anchor.fraction))
+            script += "xyzReveal(\(fraction), \(PreviewPage.javaScriptLiteral(anchor.probe)));"
+        }
+        guard !script.isEmpty else { return }
+        evaluate(webView, script)
     }
 
     private func evaluate(_ webView: WKWebView, _ script: String) {
@@ -262,6 +275,32 @@ private enum PreviewWebChrome {
         webView.scrollView.alwaysBounceHorizontal = false
         #endif
     }
+
+    static func anchor(in webView: WKWebView) -> EditorScrollAnchor {
+        #if os(macOS)
+        guard let scroll = scrollView(in: webView), let document = scroll.documentView else {
+            return EditorScrollAnchor(fraction: 0, probe: "")
+        }
+        let span = max(document.frame.height - scroll.contentView.bounds.height, 1)
+        let fraction = min(1, max(0, Double(scroll.contentView.bounds.origin.y / span)))
+        return EditorScrollAnchor(fraction: fraction, probe: "")
+        #else
+        let scroll = webView.scrollView
+        let span = max(scroll.contentSize.height - scroll.bounds.height, 1)
+        let fraction = min(1, max(0, Double(scroll.contentOffset.y / span)))
+        return EditorScrollAnchor(fraction: fraction, probe: "")
+        #endif
+    }
+
+    #if os(macOS)
+    private static func scrollView(in view: NSView) -> NSScrollView? {
+        if let scroll = view as? NSScrollView { return scroll }
+        for child in view.subviews {
+            if let found = scrollView(in: child) { return found }
+        }
+        return nil
+    }
+    #endif
 
     static func canvasCSS() -> String {
         let light = hex(dark: false)
@@ -358,6 +397,30 @@ private enum PreviewPage {
         }
         function setTheme(theme) {
           document.documentElement.setAttribute("data-theme", theme);
+        }
+        function xyzReveal(fraction, probe) {
+          var nodes = document.querySelectorAll("h1,h2,h3,h4,h5,h6,p,li,pre");
+          var max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+          var target = max * fraction;
+          if (probe) {
+            var best = null;
+            var bestDistance = 1e15;
+            for (var i = 0; i < nodes.length; i++) {
+              var text = (nodes[i].innerText || "").replace(/^\\s+|\\s+$/g, "");
+              if (!text || text.indexOf(probe) === -1) continue;
+              var top = nodes[i].getBoundingClientRect().top + window.scrollY;
+              var distance = Math.abs(top - target);
+              if (distance < bestDistance) {
+                best = nodes[i];
+                bestDistance = distance;
+              }
+            }
+            if (best) {
+              best.scrollIntoView({block: "start"});
+              return;
+            }
+          }
+          window.scrollTo(0, target);
         }
         setTheme("\(themeName)");
         </script>

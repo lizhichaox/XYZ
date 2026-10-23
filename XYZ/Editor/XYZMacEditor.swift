@@ -40,6 +40,38 @@ final class XYZMacTextView: NSTextView {
             textContainerInset = next
         }
     }
+
+    func scrollAnchor() -> EditorScrollAnchor {
+        guard let scroll = enclosingScrollView else {
+            return EditorScrollAnchor(fraction: 0, probe: "")
+        }
+        let visible = scroll.contentView.bounds
+        let span = max(bounds.height - visible.height, 1)
+        let fraction = min(1, max(0, visible.origin.y / span))
+        let point = convert(NSPoint(x: visible.midX, y: visible.minY + 4), from: scroll.contentView)
+        let index = characterIndexForInsertion(at: point)
+        let ns = string as NSString
+        guard index != NSNotFound, index >= 0, ns.length > 0 else {
+            return EditorScrollAnchor(fraction: fraction, probe: "")
+        }
+        let safe = min(index, ns.length - 1)
+        let range = ns.lineRange(for: NSRange(location: safe, length: 0))
+        var content = range
+        if content.length > 0 {
+            let last = ns.character(at: NSMaxRange(content) - 1)
+            if last == 0x0A || last == 0x0D {
+                content.length -= 1
+            }
+        }
+        let probe = EditorScrollAnchor.probe(from: ns.substring(with: content))
+        return EditorScrollAnchor(fraction: fraction, probe: probe)
+    }
+
+    func reveal(_ anchor: EditorScrollAnchor) {
+        let length = (string as NSString).length
+        let location = min(max(0, anchor.utf16Location(in: string)), length)
+        scrollRangeToVisible(NSRange(location: location, length: 0))
+    }
 }
 
 struct XYZMacEditor: NSViewRepresentable {
@@ -48,6 +80,7 @@ struct XYZMacEditor: NSViewRepresentable {
     var undoManager: UndoManager?
     var reloadToken: Int
     var monospaced: Bool
+    var scrollLink: EditorScrollLink
     var onTextChange: (String) -> Void
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -119,8 +152,17 @@ struct XYZMacEditor: NSViewRepresentable {
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? XYZMacTextView else { return }
         context.coordinator.onTextChange = onTextChange
+        context.coordinator.scrollLink = scrollLink
         textView.isEditable = isEditable
         textView.documentUndoManager = undoManager
+        scrollLink.capture = { [weak textView] in
+            textView?.scrollAnchor() ?? EditorScrollAnchor(fraction: 0, probe: "")
+        }
+        if let anchor = scrollLink.take(for: .source) {
+            DispatchQueue.main.async { [weak textView] in
+                textView?.reveal(anchor)
+            }
+        }
         let styleChanged = context.coordinator.monospaced != monospaced
         if styleChanged {
             context.coordinator.monospaced = monospaced
@@ -168,6 +210,7 @@ struct XYZMacEditor: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate, XYZTextEditing {
         var textView: XYZMacTextView?
         var onTextChange: (String) -> Void = { _ in }
+        var scrollLink: EditorScrollLink?
         var reloadToken = 0
         var monospaced = false
         private var isApplyingExternalText = false

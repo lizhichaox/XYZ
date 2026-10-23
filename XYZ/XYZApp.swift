@@ -59,17 +59,11 @@ struct ViewModeCommands: Commands {
 
     var body: some Commands {
         CommandGroup(after: .sidebar) {
-            modeToggle("Coding", .coding)
-            modeToggle("Preview", .preview)
+            modeToggle("Source", .source)
             modeToggle("Reading", .reading)
             Divider()
-            Button("Toggle Reading View") {
-                actions?.toggleReading()
-            }
-            .keyboardShortcut("e", modifiers: .command)
-            .disabled(actions == nil)
             Button("Source Code Mode") {
-                actions?.toggleSource()
+                actions?.toggle()
             }
             .keyboardShortcut("/", modifiers: .command)
             .disabled(actions == nil)

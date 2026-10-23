@@ -9,24 +9,19 @@ New documents are Markdown (`.md`). The app also opens and saves `.markdown` and
 ## What you see
 
 - A proportional text editor in the system font (SF Pro, with PingFang SC for Chinese), about 16pt with comfortable line height. The text uses the width of the pane, with side padding that stays between 24 and 64 points. Markdown markers are tinted and headings are slightly larger. Settings → Monospaced editor font switches the editor to a fixed-width face. On the Mac the view is an `NSTextView`; on iOS it is a `UITextView`. Both use TextKit 2.
-- Three ways to read a Markdown note: Coding (source only), Preview (source and rendered note), and Reading (rendered note only). Switch them from the View menu. The divider in Preview can be dragged; the other two modes animate that divider and do not change the window frame. Choosing another file does not animate the layout. The choice is remembered for each folder window, and for a document window while it is open. The reading and editing surface has no buttons of its own, including the toolbar above it. The sidebar toggle stays on the sidebar side.
-- On iPhone and iPad the same three modes are in the View menu. A compact iPhone stacks the source above the preview. A regular width layout puts them side by side.
-- Preview renders headings, emphasis, lists, task lists, links, images (as tags), tables, code, and blockquotes. It follows light and dark mode.
+- A Markdown note is either Source (the editor) or Reading (the rendered note). The content area shows one of them. The choice is remembered for each folder window, and for a document window while it is open. A newly opened file uses Reading only when that window was last in Reading. The reading and editing surface has no buttons of its own, including the toolbar above it. The sidebar toggle stays on the sidebar side.
+- On iPhone and iPad the same two modes are in the View menu.
+- Reading renders headings, emphasis, lists, task lists, links, images (as tags), tables, code, and blockquotes. It follows light and dark mode.
 
-The preview is an HTML page in one `WKWebView` per window. A folder window keeps that view and only replaces the note text when you select another file. Parsing is [swift-markdown](https://github.com/swiftlang/swift-markdown) (cmark-gfm: tables, strikethrough, task lists). A separate walker turns that syntax tree into HTML. Typing waits about 220ms, then the page body is replaced in place. The shell is loaded once; a script error does not load it again. Raw HTML in the file is shown as text, and `javascript:` / `data:` URLs are not turned into links. The Mac sandbox has the network client entitlement so the web content process can start. The renderer still does not request remote images. The iOS entitlements do not add that key.
+Reading is an HTML page in one `WKWebView` per window. The view stays with the window and is shown again the next time that window is in Reading. A folder window replaces the note text when you select another file. Parsing is [swift-markdown](https://github.com/swiftlang/swift-markdown) (cmark-gfm: tables, strikethrough, task lists). A separate walker turns that syntax tree into HTML. Typing waits about 220ms, then the page body is replaced in place. The shell is loaded once; a script error does not load it again. Raw HTML in the file is shown as text, and `javascript:` / `data:` URLs are not turned into links. The Mac sandbox has the network client entitlement so the web content process can start. The renderer still does not request remote images. The iOS entitlements do not add that key.
 
 ## View modes
 
-The View menu lists Coding, Preview, and Reading. Two shortcuts follow the apps people already use, and they are not a three-way cycle:
-
-- ⌘E is Toggle Reading View, as in [Obsidian's editing views](https://obsidian.md/help/edit-and-read). It switches between Reading and the editing mode you last used (Preview, unless you were in Coding).
-- ⌘/ is Source Code Mode, as in [Typora's shortcut list](https://support.typora.io/Shortcut-Keys/). It switches Coding and Preview. From Reading it enters Coding.
-
-⌘1 through ⌘9 are left unbound so window tabs can use them. Find in the open note stays ⌘F. ⌘E is delivered through the AppKit menu so it works in a folder window as well as a document window. Edit → Use Selection for Find moves to ⌘⌥E so it does not take ⌘E. XYZ has no print command; Print is ⌘⇧⌥P, and ⌘P opens the command palette.
+The View menu lists Source and Reading. ⌘/ is Source Code Mode, as in [Typora's shortcut list](https://support.typora.io/Shortcut-Keys/). It switches Source and Reading. ⌘E is Edit → Use Selection for Find. ⌘1 through ⌘9 are left unbound so window tabs can use them. Find in the open note stays ⌘F. XYZ has no print command; Print is ⌘⇧⌥P, and ⌘P opens the command palette.
 
 ⌘P is Quick Open. A field at the top of the window lists files in the open folder, recent files first, with fuzzy highlighting. A leading `>` lists commands (view modes, sidebar, new file, new folder, Open Folder, Reveal in Finder, Copy Path, Reload, About XYZ) and shows each shortcut on the right. ↑ and ↓, or ⌃P and ⌃N, move the selection. Return runs it. ⌘Return opens a file in a new window. Esc or a click outside dismisses the palette. It is not a button on the note.
 
-The sidebar filter is a native search field. On macOS 26 and later the command palette uses Liquid Glass when Reduce Transparency and Increase Contrast are off. Reduce Motion turns off the divider animation. Earlier systems keep a sidebar material and a material palette.
+The sidebar filter is a native search field. On macOS 26 and later the command palette uses Liquid Glass when Reduce Transparency and Increase Contrast are off. Earlier systems keep a sidebar material and a material palette.
 
 ## Layout
 

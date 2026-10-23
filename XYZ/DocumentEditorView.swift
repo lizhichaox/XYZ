@@ -10,8 +10,7 @@ import UIKit
 struct EditorViewActions {
     var mode: EditorViewMode
     var select: (EditorViewMode) -> Void
-    var toggleReading: () -> Void
-    var toggleSource: () -> Void
+    var toggle: () -> Void
 }
 
 private struct EditorViewActionsKey: FocusedValueKey {
@@ -33,12 +32,8 @@ struct DocumentEditorView: View {
 
     @Environment(\.undoManager) private var undoManager
     #if os(iOS)
-    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    #endif
-    #if os(iOS)
-    @State private var viewMode: EditorViewMode
-    @State private var editingMode: EditorViewMode
+    @State private var viewMode: EditorViewMode = .source
     #endif
     @State private var bridge: PreviewBridge
     @State private var webHost: PreviewWebHost
@@ -54,11 +49,6 @@ struct DocumentEditorView: View {
         _webHost = State(initialValue: PreviewWebHost())
         #if os(macOS)
         _commands = StateObject(wrappedValue: DocumentCommandBridge())
-        #endif
-        #if os(iOS)
-        let start: EditorViewMode = UIDevice.current.userInterfaceIdiom == .phone ? .coding : .preview
-        _viewMode = State(initialValue: start)
-        _editingMode = State(initialValue: start == .reading ? .preview : start)
         #endif
     }
 
@@ -89,8 +79,7 @@ struct DocumentEditorView: View {
             EditorViewActions(
                 mode: viewMode,
                 select: { select($0, source: "menu") },
-                toggleReading: { toggleReading(source: "menu") },
-                toggleSource: { toggleSource(source: "menu") }
+                toggle: { toggle(source: "menu") }
             )
         )
         #endif
@@ -101,6 +90,7 @@ struct DocumentEditorView: View {
             text: document.text,
             isEditable: isEditable,
             undoManager: undoManager,
+            scrollLink: scrollLink,
             onTextChange: { newText in
                 document.storeEditorText(newText)
                 bridge.send(newText)
@@ -110,92 +100,56 @@ struct DocumentEditorView: View {
     }
 
     private var preview: some View {
-        MarkdownPreview(bridge: bridge, host: webHost)
+        MarkdownPreview(bridge: bridge, host: webHost, scrollLink: scrollLink)
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private var singleSurface: some View {
+        if viewMode == .reading {
+            preview
+        } else {
+            editor
+        }
     }
 
     #if os(macOS)
     private var macBody: some View {
-        EditorPreviewSplit(mode: viewMode, editor: editor, preview: preview)
+        singleSurface
     }
+
+    private var scrollLink: EditorScrollLink { commands.scrollLink }
     #endif
 
     #if os(iOS)
-    private var isCompactPhone: Bool {
-        horizontalSizeClass == .compact
-    }
-
     private var iosBody: some View {
-        Group {
-            if isCompactPhone {
-                phoneBody
-            } else {
-                padBody
+        singleSurface
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: viewMode)
+            .onChange(of: viewMode) { _, mode in
+                guard mode == .reading else { return }
+                UIApplication.shared.sendAction(
+                    #selector(UIResponder.resignFirstResponder),
+                    to: nil,
+                    from: nil,
+                    for: nil
+                )
             }
-        }
-        .animation(reduceMotion ? nil : .easeInOut(duration: 0.22), value: viewMode)
-        .onChange(of: viewMode) { _, mode in
-            guard mode == .reading else { return }
-            UIApplication.shared.sendAction(
-                #selector(UIResponder.resignFirstResponder),
-                to: nil,
-                from: nil,
-                for: nil
-            )
-        }
     }
 
-    @ViewBuilder
-    private var phoneBody: some View {
-        switch viewMode {
-        case .coding:
-            editor
-        case .reading:
-            preview
-        case .preview:
-            VStack(spacing: 0) {
-                editor
-                Divider()
-                preview
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var padBody: some View {
-        switch viewMode {
-        case .coding:
-            editor
-        case .reading:
-            preview
-        case .preview:
-            HStack(spacing: 0) {
-                editor
-                Divider()
-                preview
-            }
-        }
-    }
+    @State private var iosScrollLink = EditorScrollLink()
+    private var scrollLink: EditorScrollLink { iosScrollLink }
     #endif
 
     #if os(iOS)
     private func select(_ mode: EditorViewMode, source: String) {
-        if mode != .reading {
-            editingMode = mode
+        if viewMode != mode {
+            iosScrollLink.noteToggle(to: mode)
         }
         viewMode = mode
     }
 
-    private func toggleReading(source: String) {
-        let next = EditorViewMode.toggleReading(current: viewMode, editing: editingMode)
-        editingMode = next.editing
-        viewMode = next.mode
-    }
-
-    private func toggleSource(source: String) {
-        let next = EditorViewMode.toggleSource(current: viewMode)
-        editingMode = next
-        viewMode = next
+    private func toggle(source: String) {
+        select(viewMode.toggled(), source: source)
     }
     #endif
 }
@@ -203,8 +157,8 @@ struct DocumentEditorView: View {
 #if os(macOS)
 @MainActor
 final class DocumentCommandBridge: ObservableObject, EditorCommandTarget {
-    @Published private(set) var mode: EditorViewMode = .preview
-    private var editingMode: EditorViewMode = .preview
+    @Published private(set) var mode: EditorViewMode = .source
+    let scrollLink = EditorScrollLink()
     var fileURL: URL?
 
     var editorViewMode: EditorViewMode { mode }
@@ -213,8 +167,8 @@ final class DocumentCommandBridge: ObservableObject, EditorCommandTarget {
 
     func editorSelect(_ mode: EditorViewMode, source: String) {
         let previous = self.mode
-        if mode != .reading {
-            editingMode = mode
+        if previous != mode {
+            scrollLink.noteToggle(to: mode)
         }
         self.mode = mode
         if previous != mode {
@@ -222,24 +176,8 @@ final class DocumentCommandBridge: ObservableObject, EditorCommandTarget {
         }
     }
 
-    func editorToggleReading(source: String) {
-        let previous = mode
-        let next = EditorViewMode.toggleReading(current: mode, editing: editingMode)
-        editingMode = next.editing
-        mode = next.mode
-        if previous != mode {
-            ViewModeLog.changed(from: previous.rawValue, to: mode.rawValue, source: source)
-        }
-    }
-
-    func editorToggleSource(source: String) {
-        let previous = mode
-        let next = EditorViewMode.toggleSource(current: mode)
-        editingMode = next
-        mode = next
-        if previous != mode {
-            ViewModeLog.changed(from: previous.rawValue, to: mode.rawValue, source: source)
-        }
+    func editorToggle(source: String) {
+        editorSelect(mode.toggled(), source: source)
     }
 
     func paletteFiles() -> [PaletteFile] {

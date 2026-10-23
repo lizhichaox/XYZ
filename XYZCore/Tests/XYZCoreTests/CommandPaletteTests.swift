@@ -51,12 +51,13 @@ final class CommandPaletteTests: XCTestCase {
             return false
         })
 
-        let coding = CommandPalette.rows(rawQuery: ">cod", files: files, registry: registry)
+        let coding = CommandPalette.rows(rawQuery: ">sou", files: files, registry: registry)
         let ids = coding.compactMap { row -> String? in
             if case .command(let command, _) = row { return command.id }
             return nil
         }
-        XCTAssertTrue(ids.contains("view.coding"))
+        XCTAssertTrue(ids.contains("view.source"))
+        XCTAssertFalse(ids.contains("view.preview"))
         XCTAssertFalse(ids.contains("file.new"))
 
         let reading = CommandPalette.rows(rawQuery: "> reading", files: [], registry: registry)
@@ -65,7 +66,8 @@ final class CommandPaletteTests: XCTestCase {
             return nil
         }
         XCTAssertTrue(readingIDs.contains("view.reading"))
-        XCTAssertTrue(readingIDs.contains("view.toggleReading"))
+        XCTAssertTrue(readingIDs.contains("view.toggleSource"))
+        XCTAssertFalse(readingIDs.contains("view.toggleReading"))
     }
 
     func testRegistryAcceptsPluginCommands() {
@@ -95,10 +97,11 @@ final class CommandPaletteTests: XCTestCase {
 
     func testBuiltInCommandsExposeShortcuts() {
         let byID = Dictionary(uniqueKeysWithValues: PaletteCommand.builtIn.map { ($0.id, $0) })
-        XCTAssertEqual(byID["view.toggleReading"]?.shortcut, "⌘E")
+        XCTAssertNil(byID["view.toggleReading"])
+        XCTAssertNil(byID["view.preview"])
         XCTAssertEqual(byID["view.toggleSource"]?.shortcut, "⌘/")
         XCTAssertEqual(byID["workspace.focusFilter"]?.shortcut, "⇧⌘F")
         XCTAssertEqual(byID["folder.open"]?.shortcut, "⇧⌘O")
-        XCTAssertEqual(byID["view.coding"]?.shortcut, "")
+        XCTAssertEqual(byID["view.source"]?.shortcut, "")
     }
 }

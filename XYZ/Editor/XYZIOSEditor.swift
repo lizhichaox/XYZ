@@ -30,6 +30,36 @@ final class XYZIOSTextView: UITextView {
             textContainerInset = next
         }
     }
+
+    func scrollAnchor() -> EditorScrollAnchor {
+        let span = max(contentSize.height - bounds.height, 1)
+        let fraction = min(1, max(0, contentOffset.y / span))
+        let point = CGPoint(x: textContainerInset.left + 8, y: contentOffset.y + textContainerInset.top + 4)
+        guard let position = closestPosition(to: point), let text else {
+            return EditorScrollAnchor(fraction: fraction, probe: "")
+        }
+        let ns = text as NSString
+        guard ns.length > 0 else {
+            return EditorScrollAnchor(fraction: fraction, probe: "")
+        }
+        let index = min(max(0, offset(from: beginningOfDocument, to: position)), ns.length - 1)
+        var range = ns.lineRange(for: NSRange(location: index, length: 0))
+        if range.length > 0 {
+            let last = ns.character(at: NSMaxRange(range) - 1)
+            if last == 0x0A || last == 0x0D {
+                range.length -= 1
+            }
+        }
+        return EditorScrollAnchor(fraction: fraction, probe: EditorScrollAnchor.probe(from: ns.substring(with: range)))
+    }
+
+    func reveal(_ anchor: EditorScrollAnchor) {
+        let location = anchor.utf16Location(in: text ?? "")
+        let start = position(from: beginningOfDocument, offset: location) ?? beginningOfDocument
+        scrollRangeToVisible(NSRange(location: location, length: 0))
+        let rect = caretRect(for: start)
+        scrollRectToVisible(CGRect(x: 0, y: max(0, rect.minY - textContainerInset.top), width: 1, height: bounds.height))
+    }
 }
 
 struct XYZIOSEditor: UIViewRepresentable {
@@ -38,6 +68,7 @@ struct XYZIOSEditor: UIViewRepresentable {
     var undoManager: UndoManager?
     var reloadToken: Int
     var monospaced: Bool
+    var scrollLink: EditorScrollLink
     var onTextChange: (String) -> Void
 
     func makeUIView(context: Context) -> XYZIOSTextView {
@@ -86,8 +117,17 @@ struct XYZIOSEditor: UIViewRepresentable {
 
     func updateUIView(_ textView: XYZIOSTextView, context: Context) {
         context.coordinator.onTextChange = onTextChange
+        context.coordinator.scrollLink = scrollLink
         textView.isEditable = isEditable
         textView.documentUndoManager = undoManager
+        scrollLink.capture = { [weak textView] in
+            textView?.scrollAnchor() ?? EditorScrollAnchor(fraction: 0, probe: "")
+        }
+        if let anchor = scrollLink.take(for: .source) {
+            DispatchQueue.main.async { [weak textView] in
+                textView?.reveal(anchor)
+            }
+        }
         let styleChanged = context.coordinator.monospaced != monospaced
         if styleChanged {
             context.coordinator.monospaced = monospaced
@@ -151,6 +191,7 @@ struct XYZIOSEditor: UIViewRepresentable {
     final class Coordinator: NSObject, UITextViewDelegate, XYZTextEditing {
         var textView: XYZIOSTextView?
         var onTextChange: (String) -> Void = { _ in }
+        var scrollLink: EditorScrollLink?
         var reloadToken = 0
         var monospaced = false
         private var isApplyingExternalText = false

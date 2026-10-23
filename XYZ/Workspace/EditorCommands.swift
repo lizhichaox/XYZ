@@ -38,8 +38,7 @@ protocol EditorCommandTarget: AnyObject {
     var showsHiddenFiles: Bool { get }
     var supportsWorkspaceFiles: Bool { get }
     func editorSelect(_ mode: EditorViewMode, source: String)
-    func editorToggleReading(source: String)
-    func editorToggleSource(source: String)
+    func editorToggle(source: String)
     func paletteFiles() -> [PaletteFile]
     func paletteOpen(fileID: String, newWindow: Bool)
     func toggleSidebar()
@@ -79,11 +78,6 @@ final class EditorCommands: NSObject {
     func handleKeyEquivalent(_ event: NSEvent) -> Bool {
         let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
         let key = event.charactersIgnoringModifiers ?? ""
-        if flags == .command && key.lowercased() == "e" {
-            guard target != nil else { return false }
-            toggleReading(nil)
-            return true
-        }
         if flags == .command && key == "/" {
             guard target != nil else { return false }
             toggleSource(nil)
@@ -109,16 +103,12 @@ final class EditorCommands: NSObject {
     func run(_ id: String) {
         if target?.performCustomCommand(id) == true { return }
         switch id {
-        case "view.coding":
-            target?.editorSelect(.coding, source: "menu")
-        case "view.preview":
-            target?.editorSelect(.preview, source: "menu")
+        case "view.source", "view.coding":
+            target?.editorSelect(.source, source: "menu")
         case "view.reading":
             target?.editorSelect(.reading, source: "menu")
-        case "view.toggleReading":
-            target?.editorToggleReading(source: "menu")
-        case "view.toggleSource":
-            target?.editorToggleSource(source: "menu")
+        case "view.toggleSource", "view.toggleReading":
+            target?.editorToggle(source: "menu")
         case "workspace.toggleSidebar":
             target?.toggleSidebar()
         case "workspace.focusFilter":
@@ -148,20 +138,12 @@ final class EditorCommands: NSObject {
         palette.show(target: target)
     }
 
-    @objc func toggleReading(_ sender: Any?) {
-        target?.editorToggleReading(source: invocationSource())
-    }
-
     @objc func toggleSource(_ sender: Any?) {
-        target?.editorToggleSource(source: invocationSource())
+        target?.editorToggle(source: invocationSource())
     }
 
-    @objc func selectCoding(_ sender: Any?) {
-        target?.editorSelect(.coding, source: invocationSource())
-    }
-
-    @objc func selectPreview(_ sender: Any?) {
-        target?.editorSelect(.preview, source: invocationSource())
+    @objc func selectSource(_ sender: Any?) {
+        target?.editorSelect(.source, source: invocationSource())
     }
 
     @objc func selectReading(_ sender: Any?) {
@@ -178,16 +160,13 @@ final class EditorCommands: NSObject {
 
     @objc func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
         switch menuItem.identifier?.rawValue {
-        case "xyz.mode.coding":
-            menuItem.state = target?.editorViewMode == .coding ? .on : .off
-            return target != nil
-        case "xyz.mode.preview":
-            menuItem.state = target?.editorViewMode == .preview ? .on : .off
+        case "xyz.mode.source":
+            menuItem.state = target?.editorViewMode == .source ? .on : .off
             return target != nil
         case "xyz.mode.reading":
             menuItem.state = target?.editorViewMode == .reading ? .on : .off
             return target != nil
-        case "xyz.mode.toggleReading", "xyz.mode.toggleSource":
+        case "xyz.mode.toggleSource":
             return target != nil
         case "xyz.workspace.filter":
             return target?.supportsWorkspaceFiles == true
@@ -247,7 +226,7 @@ enum EditorMenuSupport {
             let key = item.keyEquivalent.lowercased()
             if isUseSelectionForFind(item) {
                 item.keyEquivalent = "e"
-                item.keyEquivalentModifierMask = [.command, .option]
+                item.keyEquivalentModifierMask = .command
             } else if item.title == "Print…" || item.title == "Print" {
                 item.keyEquivalent = "p"
                 item.keyEquivalentModifierMask = [.command, .shift, .option]
@@ -263,8 +242,7 @@ enum EditorMenuSupport {
         }
     }
 
-    /// Edit → Use Selection for Find. The menu action is the shared find selector;
-    /// the tag says which find command it is. Matching every find item would steal ⌘F.
+    /// Edit → Use Selection for Find stays ⌘E. The tag distinguishes it from Find (⌘F).
     /// `performTextFinderAction` is on NSResponder. `performFindPanelAction` is on NSTextView.
     private static func isUseSelectionForFind(_ item: NSMenuItem) -> Bool {
         if item.title == "Use Selection for Find" {
@@ -282,20 +260,23 @@ enum EditorMenuSupport {
     }
 
     private static func ensureViewItems(in menu: NSMenu) {
+        for identifier in ["xyz.mode.coding", "xyz.mode.preview", "xyz.mode.toggleReading"] {
+            if let item = menu.items.first(where: { $0.identifier?.rawValue == identifier }) {
+                menu.removeItem(item)
+            }
+        }
         let specs: [(String, String, String, NSEvent.ModifierFlags, Selector)] = [
             ("xyz.commandPalette", "Command Palette…", "p", .command, #selector(EditorCommands.showPalette(_:))),
-            ("xyz.mode.coding", "Coding", "", [], #selector(EditorCommands.selectCoding(_:))),
-            ("xyz.mode.preview", "Preview", "", [], #selector(EditorCommands.selectPreview(_:))),
+            ("xyz.mode.source", "Source", "", [], #selector(EditorCommands.selectSource(_:))),
             ("xyz.mode.reading", "Reading", "", [], #selector(EditorCommands.selectReading(_:))),
-            ("xyz.mode.toggleReading", "Toggle Reading View", "e", .command, #selector(EditorCommands.toggleReading(_:))),
             ("xyz.mode.toggleSource", "Source Code Mode", "/", .command, #selector(EditorCommands.toggleSource(_:))),
         ]
         var previous: NSMenuItem?
         for spec in specs {
-            if spec.0 == "xyz.mode.coding" {
+            if spec.0 == "xyz.mode.source" {
                 previous = divider(after: previous, in: menu, identifier: "xyz.mode.divider")
             }
-            if spec.0 == "xyz.mode.toggleReading" {
+            if spec.0 == "xyz.mode.toggleSource" {
                 previous = divider(after: previous, in: menu, identifier: "xyz.mode.toggleDivider")
             }
             let item = item(
@@ -446,6 +427,7 @@ final class EditorAnchorView: NSView {
             self.observer = nil
         }
         guard let window else { return }
+        window.backgroundColor = .textBackgroundColor
         observer = NotificationCenter.default.addObserver(
             forName: NSWindow.didBecomeKeyNotification,
             object: window,
