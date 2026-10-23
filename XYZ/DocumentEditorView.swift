@@ -25,247 +25,46 @@ extension FocusedValues {
     }
 }
 
-enum ViewModeSymbol {
-    static func name(_ mode: EditorViewMode) -> String {
-        switch mode {
-        case .coding:
-            return "chevron.left.forwardslash.chevron.right"
-        case .preview:
-            return "rectangle.split.2x1"
-        case .reading:
-            return "book"
-        }
-    }
-
-    static func help(_ mode: EditorViewMode) -> String {
-        switch mode {
-        case .coding:
-            return "Coding. ⌘/ toggles source code mode."
-        case .preview:
-            return "Preview. ⌘/ toggles source code mode."
-        case .reading:
-            return "Reading. ⌘E toggles reading view."
-        }
-    }
-}
-
-struct ViewModeToolbar: ToolbarContent {
-    var mode: EditorViewMode
-    var onSelect: (EditorViewMode) -> Void
-
-    var body: some ToolbarContent {
-        #if os(macOS)
-        if #available(macOS 26, *) {
-            ToolbarSpacer(.flexible)
-            ToolbarItem(id: "xyz.viewMode") {
-                ViewModeControl(mode: mode, onSelect: onSelect)
-            }
-            .sharedBackgroundVisibility(.hidden)
-        } else {
-            ToolbarItem(placement: .primaryAction) {
-                ViewModeControl(mode: mode, onSelect: onSelect)
-            }
-        }
-        #else
-        ToolbarItem(placement: .primaryAction) {
-            ViewModeControl(mode: mode, onSelect: onSelect)
-        }
-        #endif
-    }
-}
-
-struct ViewModeControl: View {
-    var mode: EditorViewMode
-    var onSelect: (EditorViewMode) -> Void
-
-    var body: some View {
-        #if os(macOS)
-        MacViewModeControl(mode: mode, onSelect: onSelect)
-        #else
-        ViewModeMenu(mode: mode, onSelect: onSelect)
-        #endif
-    }
-}
-
-#if os(macOS)
-private struct MacViewModeControl: View {
-    var mode: EditorViewMode
-    var onSelect: (EditorViewMode) -> Void
-    @Environment(\.accessibilityReduceTransparency) private var reduceTransparency
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @Environment(\.colorSchemeContrast) private var contrast
-
-    var body: some View {
-        if #available(macOS 26, *), !reduceTransparency, contrast != .increased {
-            GlassModeControl(mode: mode, onSelect: onSelect, reduceMotion: reduceMotion)
-        } else {
-            ClassicModeControl(mode: mode, onSelect: onSelect)
-        }
-    }
-}
-
-@available(macOS 26, *)
-private struct GlassModeControl: View {
-    var mode: EditorViewMode
-    var onSelect: (EditorViewMode) -> Void
-    var reduceMotion: Bool
-
-    var body: some View {
-        // One glass shape. A container around that single effect measures it
-        // again in the same frame and logs glassEffect() updating twice.
-        HStack(spacing: 0) {
-            ForEach(EditorViewMode.allCases) { item in
-                segment(item)
-            }
-        }
-        .padding(2)
-        .glassEffect(.regular, in: Capsule())
-        .accessibilityElement(children: .contain)
-        .accessibilityLabel("View mode")
-    }
-
-    private func segment(_ item: EditorViewMode) -> some View {
-        let selected = mode == item
-        return Button {
-            onSelect(item)
-        } label: {
-            Image(systemName: ViewModeSymbol.name(item))
-                .font(.system(size: 13, weight: .medium))
-                .symbolRenderingMode(.monochrome)
-                .symbolEffect(.bounce, value: reduceMotion ? false : selected)
-                .frame(width: 34, height: 26)
-                .background {
-                    Capsule()
-                        .fill(Color.accentColor.opacity(0.18))
-                        .opacity(selected ? 1 : 0)
-                }
-        }
-        .buttonStyle(.plain)
-        .foregroundStyle(selected ? Color.accentColor : Color.primary)
-        .help(ViewModeSymbol.help(item))
-        .accessibilityLabel(item.title)
-        .accessibilityAddTraits(selected ? .isSelected : [])
-    }
-}
-
-private struct ClassicModeControl: NSViewRepresentable {
-    var mode: EditorViewMode
-    var onSelect: (EditorViewMode) -> Void
-
-    func makeNSView(context: Context) -> NSSegmentedControl {
-        let control = NSSegmentedControl()
-        control.segmentCount = EditorViewMode.allCases.count
-        control.trackingMode = .selectOne
-        control.segmentStyle = .rounded
-        control.controlSize = .small
-        control.setAccessibilityLabel("View mode")
-        for (index, item) in EditorViewMode.allCases.enumerated() {
-            let image = NSImage(systemSymbolName: ViewModeSymbol.name(item), accessibilityDescription: item.title)
-            control.setImage(image, forSegment: index)
-            control.setToolTip(ViewModeSymbol.help(item), forSegment: index)
-            control.setWidth(36, forSegment: index)
-        }
-        control.target = context.coordinator
-        control.action = #selector(Coordinator.pick(_:))
-        control.selectedSegment = index(of: mode)
-        return control
-    }
-
-    func updateNSView(_ control: NSSegmentedControl, context: Context) {
-        context.coordinator.onSelect = onSelect
-        let selected = index(of: mode)
-        if control.selectedSegment != selected {
-            control.selectedSegment = selected
-        }
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(onSelect: onSelect)
-    }
-
-    private func index(of mode: EditorViewMode) -> Int {
-        EditorViewMode.allCases.firstIndex(of: mode) ?? 1
-    }
-
-    final class Coordinator: NSObject {
-        var onSelect: (EditorViewMode) -> Void
-
-        init(onSelect: @escaping (EditorViewMode) -> Void) {
-            self.onSelect = onSelect
-        }
-
-        @objc func pick(_ sender: NSSegmentedControl) {
-            let index = sender.selectedSegment
-            guard EditorViewMode.allCases.indices.contains(index) else { return }
-            onSelect(EditorViewMode.allCases[index])
-        }
-    }
-}
-#else
-private struct ViewModeMenu: View {
-    var mode: EditorViewMode
-    var onSelect: (EditorViewMode) -> Void
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-
-    var body: some View {
-        Menu {
-            Picker("View", selection: selection) {
-                ForEach(EditorViewMode.allCases) { item in
-                    Label(item.title, systemImage: ViewModeSymbol.name(item)).tag(item)
-                }
-            }
-        } label: {
-            label
-        }
-        .accessibilityLabel(mode.title)
-    }
-
-    private var selection: Binding<EditorViewMode> {
-        Binding(get: { mode }, set: { onSelect($0) })
-    }
-
-    @ViewBuilder
-    private var label: some View {
-        let symbol = Image(systemName: ViewModeSymbol.name(mode))
-            .symbolRenderingMode(.monochrome)
-            .contentTransition(.symbolEffect(.replace))
-        if reduceMotion {
-            symbol
-        } else {
-            symbol.symbolEffect(.bounce, value: mode)
-        }
-    }
-}
-#endif
-
 /// Editor and Markdown preview for one open document.
 struct DocumentEditorView: View {
     let document: MarkdownFileDocument
     let isEditable: Bool
+    var fileURL: URL? = nil
 
     @Environment(\.undoManager) private var undoManager
     #if os(iOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     #endif
+    #if os(iOS)
     @State private var viewMode: EditorViewMode
     @State private var editingMode: EditorViewMode
+    #endif
     @State private var bridge: PreviewBridge
     @State private var webHost: PreviewWebHost
+    #if os(macOS)
+    @StateObject private var commands: DocumentCommandBridge
+    #endif
 
-    init(document: MarkdownFileDocument, isEditable: Bool) {
+    init(document: MarkdownFileDocument, isEditable: Bool, fileURL: URL? = nil) {
         self.document = document
         self.isEditable = isEditable
+        self.fileURL = fileURL
         _bridge = State(initialValue: PreviewBridge(text: document.text))
         _webHost = State(initialValue: PreviewWebHost())
+        #if os(macOS)
+        _commands = StateObject(wrappedValue: DocumentCommandBridge())
+        #endif
         #if os(iOS)
         let start: EditorViewMode = UIDevice.current.userInterfaceIdiom == .phone ? .coding : .preview
-        #else
-        let start = EditorViewMode.preview
-        #endif
         _viewMode = State(initialValue: start)
         _editingMode = State(initialValue: start == .reading ? .preview : start)
+        #endif
     }
+
+    #if os(macOS)
+    private var viewMode: EditorViewMode { commands.mode }
+    #endif
 
     var body: some View {
         Group {
@@ -279,17 +78,22 @@ struct DocumentEditorView: View {
         .background(Color.editorBackground)
         #if os(macOS)
         .frame(minWidth: 640, minHeight: 400)
-        #endif
-        .toolbar { ViewModeToolbar(mode: viewMode) { select($0) } }
+        .background(
+            EditorCommandAnchor(target: commands) {
+                commands.fileURL = fileURL
+            }
+        )
+        #else
         .focusedSceneValue(
             \.editorViewActions,
             EditorViewActions(
                 mode: viewMode,
-                select: { select($0) },
-                toggleReading: { toggleReading() },
-                toggleSource: { toggleSource() }
+                select: { select($0, source: "menu") },
+                toggleReading: { toggleReading(source: "menu") },
+                toggleSource: { toggleSource(source: "menu") }
             )
         )
+        #endif
     }
 
     private var editor: some View {
@@ -374,22 +178,98 @@ struct DocumentEditorView: View {
     }
     #endif
 
-    private func select(_ mode: EditorViewMode) {
+    #if os(iOS)
+    private func select(_ mode: EditorViewMode, source: String) {
         if mode != .reading {
             editingMode = mode
         }
         viewMode = mode
     }
 
-    private func toggleReading() {
+    private func toggleReading(source: String) {
         let next = EditorViewMode.toggleReading(current: viewMode, editing: editingMode)
         editingMode = next.editing
         viewMode = next.mode
     }
 
-    private func toggleSource() {
+    private func toggleSource(source: String) {
         let next = EditorViewMode.toggleSource(current: viewMode)
         editingMode = next
         viewMode = next
     }
+    #endif
 }
+
+#if os(macOS)
+@MainActor
+final class DocumentCommandBridge: ObservableObject, EditorCommandTarget {
+    @Published private(set) var mode: EditorViewMode = .preview
+    private var editingMode: EditorViewMode = .preview
+    var fileURL: URL?
+
+    var editorViewMode: EditorViewMode { mode }
+    var showsHiddenFiles: Bool { true }
+    var supportsWorkspaceFiles: Bool { false }
+
+    func editorSelect(_ mode: EditorViewMode, source: String) {
+        let previous = self.mode
+        if mode != .reading {
+            editingMode = mode
+        }
+        self.mode = mode
+        if previous != mode {
+            ViewModeLog.changed(from: previous.rawValue, to: mode.rawValue, source: source)
+        }
+    }
+
+    func editorToggleReading(source: String) {
+        let previous = mode
+        let next = EditorViewMode.toggleReading(current: mode, editing: editingMode)
+        editingMode = next.editing
+        mode = next.mode
+        if previous != mode {
+            ViewModeLog.changed(from: previous.rawValue, to: mode.rawValue, source: source)
+        }
+    }
+
+    func editorToggleSource(source: String) {
+        let previous = mode
+        let next = EditorViewMode.toggleSource(current: mode)
+        editingMode = next
+        mode = next
+        if previous != mode {
+            ViewModeLog.changed(from: previous.rawValue, to: mode.rawValue, source: source)
+        }
+    }
+
+    func paletteFiles() -> [PaletteFile] {
+        guard let fileURL else { return [] }
+        return [PaletteFile(name: fileURL.lastPathComponent, relativePath: fileURL.path, recency: 1)]
+    }
+
+    func paletteOpen(fileID: String, newWindow: Bool) {
+        guard newWindow, let fileURL else { return }
+        NSDocumentController.shared.openDocument(withContentsOf: fileURL, display: true) { _, _, _ in }
+    }
+
+    func newFile() {
+        NSDocumentController.shared.newDocument(nil)
+    }
+
+    func reveal() {
+        guard let fileURL else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([fileURL])
+    }
+
+    func copyPath() {
+        guard let fileURL else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(fileURL.path, forType: .string)
+    }
+
+    func reloadFile() {
+        NSApp.sendAction(#selector(NSDocument.revert(_:)), to: nil, from: nil)
+    }
+}
+#endif

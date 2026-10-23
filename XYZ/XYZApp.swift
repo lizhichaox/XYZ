@@ -1,10 +1,6 @@
 import SwiftUI
 import XYZCore
 
-#if os(macOS)
-import AppKit
-#endif
-
 @main
 struct XYZApp: App {
     #if os(macOS)
@@ -15,14 +11,17 @@ struct XYZApp: App {
         DocumentGroup(newDocument: { MarkdownFileDocument() }) { configuration in
             DocumentEditorView(
                 document: configuration.document,
-                isEditable: configuration.isEditable
+                isEditable: configuration.isEditable,
+                fileURL: configuration.fileURL
             )
         }
         #if os(macOS)
         .defaultSize(width: 980, height: 700)
         #endif
         .commands {
+            #if os(iOS)
             ViewModeCommands()
+            #endif
             #if os(macOS)
             AboutCommands()
             WorkspaceCommands()
@@ -93,33 +92,9 @@ private struct AboutCommands: Commands {
     var body: some Commands {
         CommandGroup(replacing: .appInfo) {
             Button("About XYZ") {
-                NSApp.orderFrontStandardAboutPanel(options: [
-                    .credits: AboutCredits.make()
-                ])
+                AboutWindow.show()
             }
         }
-    }
-}
-
-private enum AboutCredits {
-    static let line = "Made by LIZHICHAO with 💗"
-
-    static func make() -> NSAttributedString {
-        let text = line as NSString
-        let attributed = NSMutableAttributedString(string: line)
-        let full = NSRange(location: 0, length: text.length)
-        let style = NSMutableParagraphStyle()
-        style.alignment = .center
-        attributed.addAttribute(.font, value: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize), range: full)
-        attributed.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: full)
-        attributed.addAttribute(.paragraphStyle, value: style, range: full)
-        let name = text.range(of: "LIZHICHAO")
-        if name.location != NSNotFound, let url = URL(string: "https://lizhichao.com") {
-            attributed.addAttribute(.link, value: url, range: name)
-            attributed.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: name)
-            attributed.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: name)
-        }
-        return attributed
     }
 }
 #endif

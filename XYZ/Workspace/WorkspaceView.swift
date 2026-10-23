@@ -22,9 +22,11 @@ extension FocusedValues {
 
 struct WorkspaceView: View {
     @ObservedObject var session: WorkspaceSession
+    @StateObject private var commands = WorkspaceCommandBridge()
+    @State private var columnVisibility = NavigationSplitViewVisibility.all
 
     var body: some View {
-        NavigationSplitView {
+        NavigationSplitView(columnVisibility: $columnVisibility) {
             WorkspaceSidebar(session: session)
                 .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 420)
         } detail: {
@@ -36,9 +38,13 @@ struct WorkspaceView: View {
         .navigationTitle(titleText)
         .modifier(WorkspaceSubtitle(text: subtitleText))
         .toolbarRole(.editor)
-        .toolbar { ViewModeToolbar(mode: session.viewMode) { session.selectViewMode($0) } }
         .frame(minWidth: 880, minHeight: 520)
         .background(WorkspaceWindowChrome(title: titleText))
+        .background(
+            EditorCommandAnchor(target: commands) {
+                commands.attach(session: session, columnVisibility: $columnVisibility)
+            }
+        )
         .workspaceFolderDrop()
         .focusedSceneValue(
             \.workspaceActions,
@@ -48,7 +54,6 @@ struct WorkspaceView: View {
                 focusSearch: { session.focusSearch() }
             )
         )
-        .modifier(WorkspaceEditorActions(session: session))
     }
 
     private var titleText: String {
@@ -151,67 +156,65 @@ enum WorkspaceChrome {
 
 private struct WorkspaceDetail: View {
     @ObservedObject var session: WorkspaceSession
-
-    var body: some View {
-        if let buffer = session.buffer {
-            WorkspaceFilePane(buffer: buffer, mode: session.viewMode)
-                .id(buffer.relativePath)
-        } else {
-            ContentUnavailableView(
-                "No File Open",
-                systemImage: "doc.text",
-                description: Text("Choose a file in the sidebar.")
-            )
-        }
-    }
-}
-
-private struct WorkspaceFilePane: View {
-    @ObservedObject var buffer: WorkspaceFileBuffer
-    var mode: EditorViewMode
     @Environment(\.undoManager) private var undoManager
-    @State private var bridge: PreviewBridge
-    @State private var webHost: PreviewWebHost
-
-    init(buffer: WorkspaceFileBuffer, mode: EditorViewMode) {
-        self.buffer = buffer
-        self.mode = mode
-        _bridge = State(initialValue: PreviewBridge(text: buffer.text))
-        _webHost = State(initialValue: PreviewWebHost())
-    }
 
     var body: some View {
         VStack(spacing: 0) {
             if let status = banner {
                 bannerView(status)
             }
-            switch buffer.kind {
-            case .markdown:
-                markdownBody
-            case .plainText:
-                editor
-            case .binary:
-                placeholder(
-                    title: "Can't Edit This File",
-                    systemImage: "doc",
-                    message: "XYZ doesn't edit this file."
+            ZStack {
+                EditorPreviewSplit(
+                    mode: layoutMode,
+                    fileID: session.buffer?.relativePath ?? "",
+                    editor: editor,
+                    preview: preview
                 )
-            case .tooLarge:
-                placeholder(
-                    title: "File Too Large",
-                    systemImage: "doc",
-                    message: "This file is too large to edit in XYZ."
-                )
+                .opacity(showsEditor ? 1 : 0)
+                .allowsHitTesting(showsEditor)
+                if session.buffer == nil {
+                    ContentUnavailableView(
+                        "No File Open",
+                        systemImage: "doc.text",
+                        description: Text("Choose a file in the sidebar.")
+                    )
+                } else if let buffer = session.buffer, !showsEditor {
+                    placeholder(for: buffer)
+                        .background(Color.editorBackground)
+                }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.editorBackground)
-        .onChange(of: buffer.reloadToken) { _, _ in
-            bridge.send(buffer.text)
+        .onChange(of: session.buffer?.editorToken) { _, _ in
+            session.previewBridge.send(session.buffer?.text ?? "")
+        }
+    }
+
+    private var showsEditor: Bool {
+        guard let kind = session.buffer?.kind else { return false }
+        return kind == .markdown || kind == .plainText
+    }
+
+    private var layoutMode: EditorViewMode {
+        session.buffer?.kind == .markdown ? session.viewMode : .coding
+    }
+
+    private func placeholder(for buffer: WorkspaceFileBuffer) -> some View {
+        let tooLarge = buffer.kind == .tooLarge
+        return ContentUnavailableView {
+            Label(tooLarge ? "File Too Large" : "Can't Edit This File", systemImage: "doc")
+        } description: {
+            Text(tooLarge ? "This file is too large to edit in XYZ." : "XYZ doesn't edit this file.")
+        } actions: {
+            Button("Open with Default App") {
+                NSWorkspace.shared.open(buffer.url)
+            }
         }
     }
 
     private var banner: String? {
+        guard let buffer = session.buffer else { return nil }
         if buffer.isMissing {
             return "This file was removed from the folder."
         }
@@ -222,14 +225,15 @@ private struct WorkspaceFilePane: View {
     }
 
     private func bannerView(_ message: String) -> some View {
-        HStack(spacing: 12) {
+        let buffer = session.buffer
+        return HStack(spacing: 12) {
             Text(message)
             Spacer(minLength: 8)
-            if buffer.conflictText != nil {
-                Button("Reload") { buffer.reloadFromDisk() }
-                Button("Overwrite") { buffer.overwrite() }
-            } else if buffer.isMissing && buffer.kind != .binary && buffer.kind != .tooLarge {
-                Button("Save Anyway") { buffer.overwrite() }
+            if buffer?.conflictText != nil {
+                Button("Reload") { buffer?.reloadFromDisk() }
+                Button("Overwrite") { buffer?.overwrite() }
+            } else if buffer?.isMissing == true && buffer?.kind != .binary && buffer?.kind != .tooLarge {
+                Button("Save Anyway") { buffer?.overwrite() }
             }
         }
         .font(.callout)
@@ -238,59 +242,95 @@ private struct WorkspaceFilePane: View {
         .background(Color.orange.opacity(0.18))
     }
 
-    private var markdownBody: some View {
-        EditorPreviewSplit(mode: mode, editor: editor, preview: preview)
-    }
-
     private var preview: some View {
-        MarkdownPreview(bridge: bridge, host: webHost)
+        MarkdownPreview(bridge: session.previewBridge, host: session.previewHost)
     }
 
     private var editor: some View {
         XYZEditor(
-            text: buffer.text,
-            isEditable: true,
+            text: session.buffer?.text ?? "",
+            isEditable: showsEditor,
             undoManager: undoManager,
-            reloadToken: buffer.reloadToken,
+            reloadToken: session.buffer?.editorToken ?? 0,
             onTextChange: { newText in
-                buffer.userEdited(newText)
-                bridge.send(newText)
+                session.buffer?.userEdited(newText)
+                session.previewBridge.send(newText)
             }
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
-
-    private func placeholder(title: String, systemImage: String, message: String) -> some View {
-        ContentUnavailableView {
-            Label(title, systemImage: systemImage)
-        } description: {
-            Text(message)
-        } actions: {
-            Button("Open with Default App") {
-                NSWorkspace.shared.open(buffer.url)
-            }
-        }
-    }
 }
 
-/// View menu actions while a Markdown file is the one on screen.
-private struct WorkspaceEditorActions: ViewModifier {
-    @ObservedObject var session: WorkspaceSession
+/// Forwards View-menu and palette actions to the open folder.
+@MainActor
+final class WorkspaceCommandBridge: EditorCommandTarget {
+    private weak var session: WorkspaceSession?
+    private var columnVisibility: Binding<NavigationSplitViewVisibility> = .constant(.all)
 
-    func body(content: Content) -> some View {
-        if session.buffer?.kind == .markdown {
-            content.focusedSceneValue(
-                \.editorViewActions,
-                EditorViewActions(
-                    mode: session.viewMode,
-                    select: { session.selectViewMode($0) },
-                    toggleReading: { session.toggleReadingView() },
-                    toggleSource: { session.toggleSourceMode() }
-                )
-            )
+    func attach(session: WorkspaceSession, columnVisibility: Binding<NavigationSplitViewVisibility>) {
+        self.session = session
+        self.columnVisibility = columnVisibility
+    }
+
+    var editorViewMode: EditorViewMode { session?.viewMode ?? .preview }
+    var showsHiddenFiles: Bool { session?.showsHiddenFiles ?? true }
+    var supportsWorkspaceFiles: Bool { session != nil }
+
+    func editorSelect(_ mode: EditorViewMode, source: String) {
+        session?.selectViewMode(mode, source: source)
+    }
+
+    func editorToggleReading(source: String) {
+        session?.toggleReadingView(source: source)
+    }
+
+    func editorToggleSource(source: String) {
+        session?.toggleSourceMode(source: source)
+    }
+
+    func paletteFiles() -> [PaletteFile] {
+        session?.paletteFiles() ?? []
+    }
+
+    func paletteOpen(fileID: String, newWindow: Bool) {
+        guard let session else { return }
+        if newWindow {
+            session.openInDocumentWindow(relativePath: fileID)
         } else {
-            content
+            session.openRelative(fileID)
         }
+    }
+
+    func toggleSidebar() {
+        columnVisibility.wrappedValue = columnVisibility.wrappedValue == .detailOnly ? .all : .detailOnly
+    }
+
+    func focusFilter() {
+        session?.focusSearch()
+    }
+
+    func toggleHiddenFiles() {
+        session?.showsHiddenFiles.toggle()
+    }
+
+    func newFile() {
+        session?.newItem(directory: false)
+    }
+
+    func newFolder() {
+        session?.newItem(directory: true)
+    }
+
+    func reveal() {
+        session?.revealOpenItem()
+    }
+
+    func copyPath() {
+        session?.copyOpenPath()
+    }
+
+    func reloadFile() {
+        session?.reloadOpenFile()
     }
 }
 

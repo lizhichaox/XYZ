@@ -25,6 +25,7 @@
 		8C0000000000000000000016 /* WorkspaceLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000016 /* WorkspaceLog.swift */; };
 		8C0000000000000000000017 /* EditorSplit.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000017 /* EditorSplit.swift */; };
 		8C0000000000000000000018 /* WorkspaceSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000018 /* WorkspaceSidebar.swift */; };
+		8C0000000000000000000019 /* EditorCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000019 /* EditorCommands.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -52,6 +53,7 @@
 		8B0000000000000000000016 /* WorkspaceLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceLog.swift; sourceTree = "<group>"; };
 		8B0000000000000000000017 /* EditorSplit.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorSplit.swift; sourceTree = "<group>"; };
 		8B0000000000000000000018 /* WorkspaceSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebar.swift; sourceTree = "<group>"; };
+		8B0000000000000000000019 /* EditorCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorCommands.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -139,6 +141,7 @@
 				8B0000000000000000000014 /* WorkspaceWindowController.swift */,
 				8B0000000000000000000015 /* FolderOpening.swift */,
 				8B0000000000000000000016 /* WorkspaceLog.swift */,
+				8B0000000000000000000019 /* EditorCommands.swift */,
 			);
 			path = Workspace;
 			sourceTree = "<group>";
@@ -243,6 +246,7 @@
 				8C0000000000000000000016 /* WorkspaceLog.swift in Sources */,
 				8C0000000000000000000017 /* EditorSplit.swift in Sources */,
 				8C0000000000000000000018 /* WorkspaceSidebar.swift in Sources */,
+				8C0000000000000000000019 /* EditorCommands.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

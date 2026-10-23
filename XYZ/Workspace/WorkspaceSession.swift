@@ -1,4 +1,5 @@
 #if os(macOS)
+import AppKit
 import Combine
 import CryptoKit
 import Foundation
@@ -32,6 +33,10 @@ final class WorkspaceSession: ObservableObject {
     /// Set when a new item should start inline rename once the row exists.
     var pendingEditPath: String?
     var focusSearchHandler: (() -> Void)?
+    /// One preview for the life of this window. File switches push new text.
+    let previewBridge = PreviewBridge(text: "")
+    let previewHost = PreviewWebHost()
+    private(set) var recentPaths: [String] = []
 
     private var editingMode: EditorViewMode
     private let monitor = DirectoryMonitor()
@@ -52,6 +57,7 @@ final class WorkspaceSession: ObservableObject {
         let mode = EditorViewMode(rawValue: saved ?? "") ?? .preview
         self.viewMode = mode
         self.editingMode = mode == .reading ? .preview : mode
+        self.recentPaths = UserDefaults.standard.stringArray(forKey: Self.recentsKey(for: rootURL)) ?? []
     }
 
     func activate() {
@@ -115,23 +121,31 @@ final class WorkspaceSession: ObservableObject {
         return WorkspaceTreeQuery.filter(entries: source, query: trimmed)
     }
 
-    func selectViewMode(_ mode: EditorViewMode) {
+    func selectViewMode(_ mode: EditorViewMode, source: String) {
+        let previous = viewMode
         if mode != .reading {
             editingMode = mode
         }
         viewMode = mode
         UserDefaults.standard.set(mode.rawValue, forKey: Self.viewModeKey(for: rootURL))
+        if previous != viewMode {
+            ViewModeLog.changed(from: previous.rawValue, to: viewMode.rawValue, source: source)
+        }
     }
 
-    func toggleReadingView() {
+    func toggleReadingView(source: String) {
+        let previous = viewMode
         let next = EditorViewMode.toggleReading(current: viewMode, editing: editingMode)
         editingMode = next.editing
         viewMode = next.mode
         UserDefaults.standard.set(viewMode.rawValue, forKey: Self.viewModeKey(for: rootURL))
+        if previous != viewMode {
+            ViewModeLog.changed(from: previous.rawValue, to: viewMode.rawValue, source: source)
+        }
     }
 
-    func toggleSourceMode() {
-        selectViewMode(EditorViewMode.toggleSource(current: viewMode))
+    func toggleSourceMode(source: String) {
+        selectViewMode(EditorViewMode.toggleSource(current: viewMode), source: source)
     }
 
     func focusSearch() {
@@ -288,8 +302,67 @@ final class WorkspaceSession: ObservableObject {
             await MainActor.run {
                 guard let self, self.selectedPath == path else { return }
                 self.install(loaded, relativePath: path, url: url)
+                self.noteRecent(path)
             }
         }
+    }
+
+    func newItem(directory: Bool) {
+        let parent: String
+        if let path = buffer?.relativePath {
+            parent = WorkspacePaths.parent(of: path)
+        } else if let path = selectedPath, node(at: path)?.isDirectory == true {
+            parent = path
+        } else {
+            parent = ""
+        }
+        createItem(directory: directory, in: parent)
+    }
+
+    func reloadOpenFile() {
+        buffer?.noteExternalChange()
+    }
+
+    func revealOpenItem() {
+        NSWorkspace.shared.activateFileViewerSelecting([buffer?.url ?? rootURL])
+    }
+
+    func copyOpenPath() {
+        let path = buffer?.url.path ?? rootURL.path
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(path, forType: .string)
+    }
+
+    func openInDocumentWindow(relativePath: String) {
+        let url = url(for: relativePath)
+        NSDocumentController.shared.openDocument(withContentsOf: url, display: true) { _, _, error in
+            guard let error else { return }
+            WorkspaceLog.openFailed(path: url.path, error: error)
+        }
+    }
+
+    func paletteFiles() -> [PaletteFile] {
+        let source = indexedEntries.isEmpty ? flattenedLoadedEntries() : indexedEntries
+        let rank = Dictionary(uniqueKeysWithValues: recentPaths.enumerated().map { index, path in
+            (path, recentPaths.count - index)
+        })
+        return source.filter { !$0.isDirectory }.map { entry in
+            PaletteFile(
+                name: entry.name,
+                relativePath: entry.relativePath,
+                recency: rank[entry.relativePath] ?? 0
+            )
+        }
+    }
+
+    func noteRecent(_ path: String) {
+        recentPaths.removeAll { $0 == path }
+        recentPaths.insert(path, at: 0)
+        if recentPaths.count > 40 {
+            recentPaths.removeLast(recentPaths.count - 40)
+        }
+        UserDefaults.standard.set(recentPaths, forKey: Self.recentsKey(for: rootURL))
     }
 
     func url(for relativePath: String) -> URL {
@@ -440,6 +513,10 @@ final class WorkspaceSession: ObservableObject {
         "xyz.workspace.viewMode." + token(for: url)
     }
 
+    private static func recentsKey(for url: URL) -> String {
+        "xyz.workspace.recents." + token(for: url)
+    }
+
     private func collapse(_ path: String) {
         let descendants = expanded.filter { $0 == path || $0.hasPrefix(path + "/") }
         for item in descendants {
@@ -509,6 +586,7 @@ final class WorkspaceSession: ObservableObject {
             text: loaded.text
         )
         self.buffer = buffer
+        previewBridge.send(loaded.text)
         if let fileWatchKey {
             monitor.unwatch(key: fileWatchKey)
         }
@@ -530,15 +608,24 @@ final class WorkspaceSession: ObservableObject {
     private static func readForEditing(url: URL, name: String) async -> LoadedFile {
         await Task.detached {
             let size = WorkspaceFileCoordination.fileSize(at: url)
-            let sample = (try? WorkspaceFileCoordination.readSample(at: url, limit: WorkspaceFileClassifier.sampleLimit)) ?? Data()
-            var kind = WorkspaceFileClassifier.kind(name: name, byteCount: size, sample: sample)
+            var sample = (try? WorkspaceFileCoordination.readSample(at: url, limit: WorkspaceFileClassifier.sampleLimit)) ?? Data()
+            var fullFile: Data?
+            if WorkspaceFileClassifier.needsFullRead(byteCount: size, sample: sample),
+               let full = try? WorkspaceFileCoordination.readData(at: url) {
+                fullFile = full
+                sample = full
+            }
+            var kind = WorkspaceFileClassifier.kind(
+                name: name,
+                byteCount: size,
+                sample: sample,
+                fullFile: fullFile
+            )
             guard kind == .markdown || kind == .plainText else {
                 return LoadedFile(kind: kind, text: "")
             }
-            guard let data = try? WorkspaceFileCoordination.readData(at: url),
-                  !data.contains(0),
-                  let text = String(data: data, encoding: .utf8)
-            else {
+            let data = (fullFile?.count == size ? fullFile : nil) ?? (try? WorkspaceFileCoordination.readData(at: url))
+            guard let data, !data.contains(0), let text = String(data: data, encoding: .utf8) else {
                 kind = .binary
                 return LoadedFile(kind: kind, text: "")
             }
@@ -567,7 +654,15 @@ final class WorkspaceFileBuffer: ObservableObject {
         self.kind = kind
         self.text = text
         self.lastSaved = text
+        Self.nextGeneration += 1
+        generation = Self.nextGeneration
     }
+
+    /// Changes when the file is opened or reloaded, so one text view can swap documents.
+    var editorToken: Int { generation &+ reloadToken }
+
+    private static var nextGeneration = 0
+    private let generation: Int
 
     func userEdited(_ newText: String) {
         text = newText

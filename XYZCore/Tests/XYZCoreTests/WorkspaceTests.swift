@@ -253,6 +253,117 @@ final class WorkspaceFilePolicyTests: XCTestCase {
         )
     }
 
+    func testCJKSampleBoundaryIsText() {
+        let character: [UInt8] = [0xE4, 0xB8, 0x80]
+        for tail in 0..<3 {
+            let sample = sampleCutting(unit: character, tailBytes: tail)
+            XCTAssertEqual(sample.count, WorkspaceFileClassifier.sampleLimit)
+            if tail == 0 {
+                XCTAssertNotNil(String(data: sample, encoding: .utf8))
+            } else {
+                XCTAssertNil(String(data: sample, encoding: .utf8))
+            }
+            let count = sample.count + character.count
+            XCTAssertFalse(WorkspaceFileClassifier.needsFullRead(byteCount: count, sample: sample))
+            XCTAssertEqual(
+                WorkspaceFileClassifier.kind(name: "essay.md", byteCount: count, sample: sample),
+                .markdown
+            )
+            XCTAssertEqual(
+                WorkspaceFileClassifier.kind(name: "notes.txt", byteCount: count, sample: sample),
+                .plainText
+            )
+            XCTAssertEqual(
+                WorkspaceFileClassifier.utf8Sample(sample, byteCount: count),
+                .text
+            )
+        }
+    }
+
+    func testEmojiSampleBoundaryIsText() {
+        let emoji: [UInt8] = [0xF0, 0x9F, 0x98, 0x80]
+        for tail in 1...3 {
+            let sample = sampleCutting(unit: emoji, tailBytes: tail)
+            XCTAssertNil(String(data: sample, encoding: .utf8))
+            XCTAssertEqual(
+                WorkspaceFileClassifier.kind(
+                    name: "note.md",
+                    byteCount: sample.count + 4,
+                    sample: sample
+                ),
+                .markdown
+            )
+        }
+    }
+
+    func testNULIsBinary() {
+        XCTAssertEqual(
+            WorkspaceFileClassifier.kind(
+                name: "notes.md",
+                byteCount: 4,
+                sample: Data([0x61, 0x00, 0x62, 0x63])
+            ),
+            .binary
+        )
+    }
+
+    func testLatin1IsBinaryWhenTheFileIsComplete() {
+        let latin1 = Data([0x48, 0x69, 0x20, 0xE9])
+        XCTAssertNil(String(data: latin1, encoding: .utf8))
+        XCTAssertEqual(
+            WorkspaceFileClassifier.kind(name: "letter.dat", byteCount: latin1.count, sample: latin1),
+            .binary
+        )
+        XCTAssertEqual(
+            WorkspaceFileClassifier.kind(name: "letter.txt", byteCount: latin1.count, sample: latin1),
+            .binary
+        )
+        XCTAssertFalse(
+            WorkspaceFileClassifier.needsFullRead(byteCount: latin1.count, sample: latin1)
+        )
+    }
+
+    func testAmbiguousCutReadsTheFullFile() {
+        let full = Data(String(repeating: "\u{4E00}", count: 8).utf8)
+        var sample = Data(full.prefix(6))
+        sample.append(0xFF)
+        XCTAssertTrue(WorkspaceFileClassifier.needsFullRead(byteCount: full.count, sample: sample))
+        XCTAssertEqual(
+            WorkspaceFileClassifier.kind(name: "blob.bin", byteCount: full.count, sample: sample),
+            .binary
+        )
+        XCTAssertEqual(
+            WorkspaceFileClassifier.kind(
+                name: "blob.bin",
+                byteCount: full.count,
+                sample: sample,
+                fullFile: full
+            ),
+            .plainText
+        )
+        XCTAssertEqual(
+            WorkspaceFileClassifier.kind(name: "essay.md", byteCount: full.count, sample: sample),
+            .markdown
+        )
+    }
+
+    private func sampleCutting(unit: [UInt8], tailBytes: Int) -> Data {
+        let limit = WorkspaceFileClassifier.sampleLimit
+        let incomplete = tailBytes == unit.count ? 0 : tailBytes
+        let bodyCount = limit - incomplete
+        var data = Data()
+        let width = unit.count
+        let ascii = bodyCount % width
+        data.append(Data(repeating: 0x61, count: ascii))
+        while data.count + width <= bodyCount {
+            data.append(contentsOf: unit)
+        }
+        if incomplete > 0 {
+            data.append(contentsOf: unit.prefix(incomplete))
+        }
+        return data
+    }
+
     func testExternalChangeDoesNotClobberEdits() {
         XCTAssertEqual(
             WorkspaceFilePolicy.interpretChange(editor: "local", lastSaved: "base", disk: "remote"),

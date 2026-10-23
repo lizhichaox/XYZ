@@ -24,6 +24,13 @@ final class XYZMacTextView: NSTextView {
         onAppearanceChange?()
     }
 
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if EditorCommands.shared.handleKeyEquivalent(event) {
+            return true
+        }
+        return super.performKeyEquivalent(with: event)
+    }
+
     override func layout() {
         super.layout()
         guard let width = enclosingScrollView?.contentSize.width, width > 1 else { return }

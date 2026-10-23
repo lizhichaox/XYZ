@@ -3,7 +3,8 @@ import Foundation
 /// How a Markdown document is shown.
 ///
 /// Coding is the source. Preview keeps the source beside the rendered note.
-/// Reading hides the source. The same cases drive the Mac segments and the iOS menu.
+/// Reading hides the source. The View menu and shortcuts switch these; the
+/// reading surface itself has no mode buttons.
 public enum EditorViewMode: String, CaseIterable, Codable, Sendable, Identifiable, Equatable {
     case coding
     case preview

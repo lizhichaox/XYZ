@@ -9,11 +9,11 @@ New documents are Markdown (`.md`). The app also opens and saves `.markdown` and
 ## What you see
 
 - A proportional text editor in the system font (SF Pro, with PingFang SC for Chinese), about 16pt with comfortable line height. The column stays near 700 points wide and centered. Markdown markers are tinted and headings are slightly larger. Settings → Monospaced editor font switches the editor to a fixed-width face. On the Mac the view is an `NSTextView`; on iOS it is a `UITextView`. Both use TextKit 2.
-- Three ways to read a Markdown note: Coding (source only), Preview (source and rendered note), and Reading (rendered note only). On the Mac a compact trailing control switches them. The divider in Preview can be dragged; the other two modes animate that divider and do not change the window frame. The choice is remembered for each folder window, and for a document window while it is open.
-- On iPhone and iPad the same three modes are in a toolbar menu. A compact iPhone stacks the source above the preview. A regular width layout puts them side by side.
+- Three ways to read a Markdown note: Coding (source only), Preview (source and rendered note), and Reading (rendered note only). Switch them from the View menu. The divider in Preview can be dragged; the other two modes animate that divider and do not change the window frame. Choosing another file does not animate the layout. The choice is remembered for each folder window, and for a document window while it is open. The reading and editing surface has no buttons of its own, including the toolbar above it. The sidebar toggle stays on the sidebar side.
+- On iPhone and iPad the same three modes are in the View menu. A compact iPhone stacks the source above the preview. A regular width layout puts them side by side.
 - Preview renders headings, emphasis, lists, task lists, links, images (as tags), tables, code, and blockquotes. It follows light and dark mode.
 
-The preview is an HTML page in one `WKWebView` per open note. Parsing is [swift-markdown](https://github.com/swiftlang/swift-markdown) (cmark-gfm: tables, strikethrough, task lists). A separate walker turns that syntax tree into HTML. Typing waits about 220ms, then the page body is replaced in place. The shell is loaded once; a script error does not load it again. Raw HTML in the file is shown as text, and `javascript:` / `data:` URLs are not turned into links. The Mac sandbox has the network client entitlement so the web content process can start. The renderer still does not request remote images. The iOS entitlements do not add that key.
+The preview is an HTML page in one `WKWebView` per window. A folder window keeps that view and only replaces the note text when you select another file. Parsing is [swift-markdown](https://github.com/swiftlang/swift-markdown) (cmark-gfm: tables, strikethrough, task lists). A separate walker turns that syntax tree into HTML. Typing waits about 220ms, then the page body is replaced in place. The shell is loaded once; a script error does not load it again. Raw HTML in the file is shown as text, and `javascript:` / `data:` URLs are not turned into links. The Mac sandbox has the network client entitlement so the web content process can start. The renderer still does not request remote images. The iOS entitlements do not add that key.
 
 ## View modes
 
@@ -22,9 +22,11 @@ The View menu lists Coding, Preview, and Reading. Two shortcuts follow the apps 
 - ⌘E is Toggle Reading View, as in [Obsidian's editing views](https://obsidian.md/help/edit-and-read). It switches between Reading and the editing mode you last used (Preview, unless you were in Coding).
 - ⌘/ is Source Code Mode, as in [Typora's shortcut list](https://support.typora.io/Shortcut-Keys/). It switches Coding and Preview. From Reading it enters Coding.
 
-⌘1 through ⌘9 are left unbound so window tabs can use them. Find in the open note stays ⌘F. The segment tooltips name the same shortcuts.
+⌘1 through ⌘9 are left unbound so window tabs can use them. Find in the open note stays ⌘F. ⌘E is delivered through the AppKit menu so it works in a folder window as well as a document window. Edit → Use Selection for Find moves to ⌘⌥E so it does not take ⌘E. XYZ has no print command; Print is ⌘⇧⌥P, and ⌘P opens the command palette.
 
-On macOS 26 and later the mode control and the sidebar filter use Liquid Glass when Reduce Transparency and Increase Contrast are off. Reduce Motion turns off the symbol bounce and the divider animation. Earlier systems keep a segmented control and a sidebar material.
+⌘P is Quick Open. A field at the top of the window lists files in the open folder, recent files first, with fuzzy highlighting. A leading `>` lists commands (view modes, sidebar, new file, new folder, Open Folder, Reveal in Finder, Copy Path, Reload, About XYZ) and shows each shortcut on the right. ↑ and ↓, or ⌃P and ⌃N, move the selection. Return runs it. ⌘Return opens a file in a new window. Esc or a click outside dismisses the palette. It is not a button on the note.
+
+On macOS 26 and later the sidebar filter and the command palette use Liquid Glass when Reduce Transparency and Increase Contrast are off. Reduce Motion turns off the divider animation. Earlier systems keep a sidebar material and a material palette.
 
 ## Layout
 
@@ -44,7 +46,7 @@ File → Open Folder… (⇧⌘O) opens a folder beside the single-document wind
 
 Names truncate at the tail, with the full name in the tooltip. Extensions stay visible and are dimmed for `.md`, `.markdown`, `.txt`, and `.text`. Folders sort first, then by the system natural order, so `v0.0.10` follows `v0.0.9`. Hidden files are dimmed. ⇧⌘. hides them, the same shortcut Finder uses. `.git` starts collapsed, and expanding it is not remembered. Children load when a folder is expanded, off the main thread, and the list updates when files are added, removed, or renamed without collapsing folders you opened. A single click opens a file. Return or Space opens a file or expands a folder. The context menu can create a file or folder, rename in place, reveal the item, copy its path, or move it to the Trash. Dragging an item onto a folder moves it inside the workspace.
 
-Markdown files (`.md`, `.markdown`) follow the window's view mode. Other text, including source files and dotfiles, opens in the editor. Binary files and files over 5 MB show a short message and can be handed to the default app. Edits are written back with a coordinated save. If the file changes on disk while you have unsaved edits, XYZ asks before overwriting.
+Markdown files (`.md`, `.markdown`) follow the window's view mode. Other text, including source files and dotfiles, opens in the editor. A file is not treated as binary just because an 8 KiB sample ends in the middle of a UTF-8 character, which is common with Chinese text. Binary files and files over 5 MB show a short message and can be handed to the default app. Edits are written back with a coordinated save. If the file changes on disk while you have unsaved edits, XYZ asks before overwriting.
 
 The Mac sandbox already has user-selected read-write and app-scoped bookmark entitlements. Opening a folder stores a security-scoped bookmark in your user defaults (not in the repo) so recent folders can reopen next launch. iPhone and iPad still use the document browser only; the tree model lives in `XYZCore` so a later iOS folder view can reuse it.
 
@@ -127,7 +129,7 @@ A build made with `CODE_SIGNING_ALLOWED=NO` does not embed these entitlements, s
 
 XYZ uses MAJOR.MINOR.PATCH. `MARKETING_VERSION` in `Config/Base.xcconfig` is the version shown in About, and `CURRENT_PROJECT_VERSION` is the build number. Those two assignments are the only version source. The target does not set them again, because a value in the project file would override the xcconfig. A small change bumps the last number, a medium change the middle number, and a large or breaking change the first. This release is 0.0.1 (build 1). See `CHANGELOG.md`.
 
-About XYZ shows that version under the app icon. The credit line under it links the name LIZHICHAO to [lizhichao.com](https://lizhichao.com).
+About XYZ is a small window titled About XYZ. It shows the app icon, the version line `0.0.1 (1)`, and the credit line. The credit links the name LIZHICHAO to [lizhichao.com](https://lizhichao.com). Esc or ⌘W closes it.
 
 ## License
 

@@ -209,6 +209,9 @@ final class XYZAppDelegate: NSObject, NSApplicationDelegate {
         FolderOpening.installLate()
         FileMenuSupport.install()
         MainActor.assumeIsolated {
+            EditorMenuSupport.install()
+        }
+        MainActor.assumeIsolated {
             WorkspaceWindowController.restore()
         }
         FileMenuCheck.finishIfRequested()
@@ -256,7 +259,6 @@ final class XYZAppDelegate: NSObject, NSApplicationDelegate {
 
 struct WorkspaceCommands: Commands {
     @ObservedObject private var library = WorkspaceLibrary.shared
-    @FocusedValue(\.workspaceActions) private var actions
 
     var body: some Commands {
         CommandGroup(after: .newItem) {
@@ -282,18 +284,6 @@ struct WorkspaceCommands: Commands {
                 }
                 .disabled(library.recents.isEmpty)
             }
-
-            Button(actions?.showsHidden == false ? "Show Hidden Files" : "Hide Hidden Files") {
-                actions?.toggleHidden()
-            }
-            .keyboardShortcut(".", modifiers: [.command, .shift])
-            .disabled(actions == nil)
-
-            Button("Filter Files") {
-                actions?.focusSearch()
-            }
-            .keyboardShortcut("f", modifiers: [.command, .shift])
-            .disabled(actions == nil)
         }
     }
 }

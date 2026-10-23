@@ -8,12 +8,15 @@ import XYZCore
 /// Changing mode moves the divider. It does not change the window frame.
 struct EditorPreviewSplit<Editor: View, Preview: View>: View {
     var mode: EditorViewMode
+    /// Changes when the open file changes. The divider does not animate for that.
+    var fileID: String = ""
     var editor: Editor
     var preview: Preview
 
     var body: some View {
         EditorPreviewSplitRepresentable(
             mode: mode,
+            fileID: fileID,
             editor: AnyView(editor),
             preview: AnyView(preview)
         )
@@ -22,6 +25,7 @@ struct EditorPreviewSplit<Editor: View, Preview: View>: View {
 
 private struct EditorPreviewSplitRepresentable: NSViewRepresentable {
     var mode: EditorViewMode
+    var fileID: String
     var editor: AnyView
     var preview: AnyView
 
@@ -29,14 +33,14 @@ private struct EditorPreviewSplitRepresentable: NSViewRepresentable {
         let view = EditorPreviewSplitContainer()
         view.editorHost.rootView = editor
         view.previewHost.rootView = preview
-        view.setMode(mode)
+        view.setMode(mode, fileID: fileID)
         return view
     }
 
     func updateNSView(_ view: EditorPreviewSplitContainer, context: Context) {
         view.editorHost.rootView = editor
         view.previewHost.rootView = preview
-        view.setMode(mode)
+        view.setMode(mode, fileID: fileID)
     }
 
     func sizeThatFits(
@@ -56,6 +60,7 @@ final class EditorPreviewSplitContainer: NSView, NSSplitViewDelegate {
     let previewHost = FixedHostingView(rootView: AnyView(EmptyView()))
 
     private var mode: EditorViewMode = .preview
+    private var fileID = ""
     private var didApplyInitial = false
     private var applyingPosition = false
 
@@ -98,7 +103,9 @@ final class EditorPreviewSplitContainer: NSView, NSSplitViewDelegate {
         NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
     }
 
-    func setMode(_ mode: EditorViewMode) {
+    func setMode(_ mode: EditorViewMode, fileID: String) {
+        let fileChanged = fileID != self.fileID
+        self.fileID = fileID
         let changed = self.mode != mode
         self.mode = mode
         split.showsDivider = mode == .preview
@@ -109,9 +116,10 @@ final class EditorPreviewSplitContainer: NSView, NSSplitViewDelegate {
         if mode == .preview { didApplyInitial = true }
         let target = position(for: mode, width: bounds.width)
         let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+        let animate = changed && !fileChanged && !reduceMotion
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = (changed && !reduceMotion) ? 0.22 : 0
-            context.allowsImplicitAnimation = changed && !reduceMotion
+            context.duration = animate ? 0.22 : 0
+            context.allowsImplicitAnimation = animate
             split.animator().setPosition(target, ofDividerAt: 0)
         }
     }
