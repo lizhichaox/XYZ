@@ -69,8 +69,11 @@ final class XYZMacTextView: NSTextView {
 
     @discardableResult
     private func applyMarkupEdit(_ edit: SourceReplacement?) -> Bool {
-        guard isEditable, allowsMarkup, !hasMarkedText(), let edit else { return false }
-        insertText(edit.text, replacementRange: NSRange(location: edit.range.location, length: edit.range.length))
+        guard isEditable, allowsMarkup, !hasMarkedText(), let edit, let storage = textStorage else { return false }
+        let range = NSRange(location: edit.range.location, length: edit.range.length)
+        guard shouldChangeText(in: range, replacementString: edit.text) else { return false }
+        storage.replaceCharacters(in: range, with: edit.text)
+        didChangeText()
         let length = (string as NSString).length
         let location = min(max(0, edit.selection.location), length)
         let selectionLength = min(max(0, edit.selection.length), length - location)
