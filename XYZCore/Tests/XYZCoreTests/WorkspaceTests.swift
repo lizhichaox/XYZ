@@ -114,10 +114,15 @@ final class WorkspaceSearchTests: XCTestCase {
         ]
         let tree = WorkspaceTreeQuery.filter(entries: entries, query: "git")
         XCTAssertEqual(Set(tree.children[""]?.map(\.name) ?? []), [".git", ".gitignore"])
-        XCTAssertTrue(tree.expanded.contains(".git"))
-        XCTAssertEqual(tree.children[".git"]?.map(\.name), ["config"])
+        XCTAssertNil(tree.children[".git"])
         XCTAssertNil(tree.children["Notes"])
         XCTAssertFalse(tree.highlights[".gitignore", default: []].isEmpty)
+        XCTAssertFalse(tree.highlights[".git", default: []].isEmpty)
+
+        let nested = WorkspaceTreeQuery.filter(entries: entries, query: "config")
+        XCTAssertEqual(nested.children[""]?.map(\.name), [".git"])
+        XCTAssertTrue(nested.expanded.contains(".git"))
+        XCTAssertEqual(nested.children[".git"]?.map(\.name), ["config"])
     }
 
     func testFilterDropsUnrelatedSiblings() {

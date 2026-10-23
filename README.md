@@ -50,7 +50,7 @@ The Mac sandbox already has user-selected read-write and app-scoped bookmark ent
 
 ## Build and run
 
-You need Xcode with the macOS 14 and iOS 17 SDKs (the CI image is the current `macos-latest` runner). Open the project and run the **XYZ** scheme on My Mac or an iOS Simulator:
+You need Xcode with the macOS 14 and iOS 17 SDKs. CI uses the current `macos-latest` runner and selects the newest Xcode installed there. Open the project and run the **XYZ** scheme on My Mac or an iOS Simulator:
 
 ```sh
 open XYZ.xcodeproj

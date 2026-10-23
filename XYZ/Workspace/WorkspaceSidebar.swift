@@ -112,7 +112,7 @@ struct WorkspaceSidebar: NSViewRepresentable {
         private var suppressExpansionWrite = false
         private var renamingPath: String?
 
-        func attach(outline: SidebarOutlineView, search: SidebarSearchField, session: WorkspaceSession) {
+        fileprivate func attach(outline: SidebarOutlineView, search: SidebarSearchField, session: WorkspaceSession) {
             self.outline = outline
             self.search = search
             self.session = session
@@ -574,7 +574,7 @@ struct WorkspaceSidebar: NSViewRepresentable {
     }
 }
 
-private final class SidebarColumnView: NSView {
+fileprivate final class SidebarColumnView: NSView {
     let search: SidebarSearchField
     let scroll = NSScrollView()
     let outline = SidebarOutlineView()
@@ -646,7 +646,7 @@ private final class SidebarColumnView: NSView {
     }
 }
 
-private final class SidebarSearchField: NSSearchField {
+fileprivate final class SidebarSearchField: NSSearchField {
     var onEscape: (() -> Void)?
 
     override func cancelOperation(_ sender: Any?) {
@@ -655,7 +655,7 @@ private final class SidebarSearchField: NSSearchField {
 }
 
 @MainActor
-private struct Snapshot: Equatable {
+fileprivate struct Snapshot: Equatable {
     var showsHidden = true
     var rootError: String?
     var rootLoaded = false
@@ -721,7 +721,7 @@ private struct Snapshot: Equatable {
     }
 }
 
-private struct NodeSnap: Equatable {
+fileprivate struct NodeSnap: Equatable {
     var path: String
     var name: String
     var isDirectory: Bool
@@ -729,23 +729,23 @@ private struct NodeSnap: Equatable {
     var parent: String
 }
 
-private final class SidebarSection: NSObject {
+fileprivate final class SidebarSection: NSObject {
     let title: String
     init(title: String) { self.title = title }
 }
 
-private final class SidebarMessage: NSObject {
+fileprivate final class SidebarMessage: NSObject {
     let text: String
     init(text: String) { self.text = text }
 }
 
-private final class SidebarHit: NSObject {
+fileprivate final class SidebarHit: NSObject {
     let hit: WorkspaceContentHit
     var relativePath: String { hit.relativePath }
     init(_ hit: WorkspaceContentHit) { self.hit = hit }
 }
 
-private final class SidebarNode: NSObject {
+fileprivate final class SidebarNode: NSObject {
     let model: WorkspaceNode
     let highlights: [WorkspaceNameSpan]
     var relativePath: String { model.relativePath }
@@ -758,7 +758,7 @@ private final class SidebarNode: NSObject {
     }
 }
 
-private final class SidebarOutlineView: NSOutlineView {
+fileprivate final class SidebarOutlineView: NSOutlineView {
     var onExpand: ((Any) -> Void)?
     var onCollapse: ((Any) -> Void)?
     var onActivate: (() -> Void)?
@@ -807,11 +807,11 @@ private final class SidebarOutlineView: NSOutlineView {
     }
 }
 
-private enum SidebarCell {
+fileprivate enum SidebarCell {
     static let columnID = NSUserInterfaceItemIdentifier("name")
 }
 
-private final class SidebarRowCell: NSTableCellView {
+fileprivate final class SidebarRowCell: NSTableCellView {
     static let identifier = NSUserInterfaceItemIdentifier("row")
 
     private let icon = NSImageView()
@@ -857,7 +857,7 @@ private final class SidebarRowCell: NSTableCellView {
         nil
     }
 
-    func apply(_ node: SidebarNode, expanded: Bool) {
+    fileprivate func apply(_ node: SidebarNode, expanded: Bool) {
         fullName = node.name
         toolTip = node.name
         let symbol = WorkspaceFileSymbolChoice.symbol(
@@ -881,7 +881,7 @@ private final class SidebarRowCell: NSTableCellView {
         label.drawsBackground = false
     }
 
-    func applyHit(_ hit: SidebarHit) {
+    fileprivate func applyHit(_ hit: SidebarHit) {
         let name = (hit.relativePath as NSString).lastPathComponent
         fullName = name
         toolTip = "\(hit.relativePath) — line \(hit.hit.lineNumber)"
@@ -961,7 +961,7 @@ private final class SidebarRowCell: NSTableCellView {
     }
 }
 
-private final class SidebarTextCell: NSTableCellView {
+fileprivate final class SidebarTextCell: NSTableCellView {
     static let sectionID = NSUserInterfaceItemIdentifier("section")
     static let messageID = NSUserInterfaceItemIdentifier("message")
 

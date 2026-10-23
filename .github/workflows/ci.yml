@@ -17,8 +17,39 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Xcode version
-        run: xcodebuild -version
+      - name: Select newest Xcode
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import pathlib, plistlib, sys
+          apps = sorted(pathlib.Path("/Applications").glob("Xcode*.app"))
+          if not apps:
+              sys.exit("No Xcode.app under /Applications")
+          def version(app):
+              info = app / "Contents" / "Info.plist"
+              with info.open("rb") as handle:
+                  raw = str(plistlib.load(handle).get("CFBundleShortVersionString", "0"))
+              parts = []
+              for piece in raw.split("."):
+                  digits = ""
+                  for ch in piece:
+                      if ch.isdigit():
+                          digits += ch
+                      else:
+                          break
+                  parts.append(int(digits or "0"))
+              return (tuple(parts), raw, app)
+          ranked = sorted(version(app) for app in apps)
+          for _, raw, app in ranked:
+              print(f"{raw}\t{app}")
+          chosen = ranked[-1][2]
+          pathlib.Path("/tmp/xyz-xcode-path").write_text(str(chosen))
+          print(f"selected {ranked[-1][1]} {chosen}")
+          PY
+          sudo xcode-select -s "$(cat /tmp/xyz-xcode-path)"
+          echo "DEVELOPER_DIR=$(cat /tmp/xyz-xcode-path)/Contents/Developer" >> "$GITHUB_ENV"
+          xcodebuild -version
+          swift --version
 
       - name: Test XYZCore
         run: swift test --package-path XYZCore
