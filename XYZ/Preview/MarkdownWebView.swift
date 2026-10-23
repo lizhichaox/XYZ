@@ -69,11 +69,12 @@ private enum PreviewWebViewFactory {
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.allowsBackForwardNavigationGestures = false
         webView.allowsLinkPreview = true
-        webView.isOpaque = false
         #if os(macOS)
+        // AppKit's isOpaque is read-only. A clear page background is what makes the preview transparent.
         webView.underPageBackgroundColor = .clear
         webView.setAccessibilityLabel("Markdown preview")
         #else
+        webView.isOpaque = false
         webView.backgroundColor = .clear
         webView.scrollView.backgroundColor = .clear
         webView.scrollView.isOpaque = false
