@@ -305,37 +305,29 @@ enum FileMenuCheck {
 
     static func finishIfRequested() {
         guard ProcessInfo.processInfo.arguments.contains(argument) else { return }
-        poll(attempt: 0)
-    }
-
-    private static func poll(attempt: Int) {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-            NSApp.activate()
-            FileMenuSupport.install()
-            let report = FileMenuSupport.report()
-            let probe = NSOpenPanel()
-            probe.canChooseFiles = true
-            probe.canChooseDirectories = false
-            probe.allowedContentTypes = [.plainText]
-            FolderOpening.prepareDocumentPanel(probe)
-            let policy = probe.canChooseDirectories && probe.allowedContentTypes.contains(.folder)
-            let folderOnly = NSOpenPanel()
-            folderOnly.canChooseFiles = false
-            folderOnly.canChooseDirectories = true
-            FolderOpening.prepareDocumentPanel(folderOnly)
-            let folderPanelUntouched = !folderOnly.canChooseFiles && folderOnly.canChooseDirectories
-            let ready = report.ok && policy && folderPanelUntouched && FolderOpening.openPanelHooked && FolderOpening.openDocumentHooked
-            if ready || attempt >= 12 {
-                let line = """
-                \(ready ? "FILEMENU_OK" : "FILEMENU_MISSING") \(report.summary)
-                hooks panel=\(FolderOpening.openPanelHooked) document=\(FolderOpening.openDocumentHooked) policy=\(policy) folderPanel=\(folderPanelUntouched)
-                """
-                print(line)
-                fflush(stdout)
-                exit(ready ? 0 : 1)
-            }
-            poll(attempt: attempt + 1)
-        }
+        // Exit before DocumentGroup presents its open panel. That panel runs a modal
+        // loop, and a timer queued from here does not fire until the panel closes.
+        FileMenuSupport.install()
+        let report = FileMenuSupport.report()
+        let probe = NSOpenPanel()
+        probe.canChooseFiles = true
+        probe.canChooseDirectories = false
+        probe.allowedContentTypes = [.plainText]
+        FolderOpening.prepareDocumentPanel(probe)
+        let policy = probe.canChooseDirectories && probe.allowedContentTypes.contains(.folder)
+        let folderOnly = NSOpenPanel()
+        folderOnly.canChooseFiles = false
+        folderOnly.canChooseDirectories = true
+        FolderOpening.prepareDocumentPanel(folderOnly)
+        let folderPanelUntouched = !folderOnly.canChooseFiles && folderOnly.canChooseDirectories
+        let ready = report.ok && policy && folderPanelUntouched && FolderOpening.openPanelHooked && FolderOpening.openDocumentHooked
+        let line = """
+        \(ready ? "FILEMENU_OK" : "FILEMENU_MISSING") \(report.summary)
+        hooks panel=\(FolderOpening.openPanelHooked) document=\(FolderOpening.openDocumentHooked) policy=\(policy) folderPanel=\(folderPanelUntouched)
+        """
+        print(line)
+        fflush(stdout)
+        exit(ready ? 0 : 1)
     }
 }
 #endif
