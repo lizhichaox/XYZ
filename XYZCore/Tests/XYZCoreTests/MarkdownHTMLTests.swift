@@ -122,9 +122,11 @@ final class MarkdownHTMLTests: XCTestCase {
     }
 
     func testSmartPunctuationStaysLiteral() {
-        let html = MarkdownHTML.render("a -- b \"quote\"\n")
-        XCTAssertTrue(html.contains("a -- b \"quote\""))
-        XCTAssertFalse(html.contains("—"))
+        // Quotes are escaped in HTML. The source characters themselves stay straight.
+        XCTAssertEqual(
+            MarkdownHTML.render("a -- b \"quote\"\n"),
+            "<p>a -- b &quot;quote&quot;</p>\n"
+        )
     }
 
     func testNestedList() {
