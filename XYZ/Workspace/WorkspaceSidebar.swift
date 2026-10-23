@@ -1,5 +1,5 @@
 #if os(macOS)
-import AppKit
+@preconcurrency import AppKit
 import SwiftUI
 import XYZCore
 
@@ -85,6 +85,7 @@ struct WorkspaceSidebar: NSViewRepresentable {
         CGSize(width: proposal.width ?? 260, height: proposal.height ?? 600)
     }
 
+    @MainActor
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDelegate {
         fileprivate weak var outline: SidebarOutlineView?
         var session: WorkspaceSession?
@@ -106,10 +107,13 @@ struct WorkspaceSidebar: NSViewRepresentable {
             syncSelection(session)
         }
 
-        func expanded(_ item: Any, _ isExpanded: Bool) {
-            guard let session, let node = item as? SidebarNode else { return }
-            guard session.isExpanded(node.relativePath) != isExpanded else { return }
-            session.setExpanded(node.model, isExpanded)
+        /// Called from the outline view's expand and collapse overrides, which are not isolated.
+        nonisolated func expanded(_ item: Any, _ isExpanded: Bool) {
+            MainActor.assumeIsolated {
+                guard let session = self.session, let node = item as? SidebarNode else { return }
+                guard session.isExpanded(node.relativePath) != isExpanded else { return }
+                session.setExpanded(node.model, isExpanded)
+            }
         }
 
         func outlineView(_ outlineView: NSOutlineView, numberOfChildrenOfItem item: Any?) -> Int {
@@ -290,6 +294,7 @@ struct WorkspaceSidebar: NSViewRepresentable {
     }
 }
 
+@MainActor
 private struct Snapshot: Equatable {
     var header = ""
     var showsHidden = true
