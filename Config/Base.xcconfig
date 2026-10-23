@@ -1,0 +1,3 @@
+// Shared signing defaults. The team id stays empty in git so CI can build unsigned.
+DEVELOPMENT_TEAM =
+#include? "Local.xcconfig"

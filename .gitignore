@@ -6,6 +6,8 @@
 
 # Xcode
 build/
+# Local signing override. Copy Config/Local.xcconfig.example and set your team id.
+Config/Local.xcconfig
 DerivedData/
 .derivedData/
 *.xcuserstate

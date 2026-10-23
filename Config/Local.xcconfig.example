@@ -1,0 +1,3 @@
+// Copy this file to Local.xcconfig (gitignored) and replace YOURTEAMID.
+// The id is shown in Xcode Settings → Accounts. Do not commit Local.xcconfig.
+DEVELOPMENT_TEAM = YOURTEAMID

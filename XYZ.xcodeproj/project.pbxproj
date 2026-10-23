@@ -33,6 +33,8 @@
 		8B000000000000000000000A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		8B000000000000000000000B /* XYZ-macOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "XYZ-macOS.entitlements"; sourceTree = "<group>"; };
 		8B000000000000000000000C /* XYZ-iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "XYZ-iOS.entitlements"; sourceTree = "<group>"; };
+		8B000000000000000000000D /* Base.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Base.xcconfig; sourceTree = "<group>"; };
+		8B000000000000000000000E /* Local.xcconfig.example */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Local.xcconfig.example; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -50,6 +52,7 @@
 		8A0000000000000000000007 = {
 			isa = PBXGroup;
 			children = (
+				8A0000000000000000000015 /* Config */,
 				8A0000000000000000000008 /* XYZ */,
 				8A0000000000000000000009 /* Products */,
 			);
@@ -95,6 +98,15 @@
 				8B0000000000000000000007 /* MarkdownWebView.swift */,
 			);
 			path = Preview;
+			sourceTree = "<group>";
+		};
+		8A0000000000000000000015 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				8B000000000000000000000D /* Base.xcconfig */,
+				8B000000000000000000000E /* Local.xcconfig.example */,
+			);
+			path = Config;
 			sourceTree = "<group>";
 		};
 		8A000000000000000000000C /* Resources */ = {
@@ -289,6 +301,7 @@
 		};
 		8A0000000000000000000011 /* Debug */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 8B000000000000000000000D /* Base.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -298,7 +311,6 @@
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "XYZ/XYZ-macOS.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = NO;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -335,6 +347,7 @@
 		};
 		8A0000000000000000000012 /* Release */ = {
 			isa = XCBuildConfiguration;
+			baseConfigurationReference = 8B000000000000000000000D /* Base.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
@@ -344,7 +357,6 @@
 				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "XYZ/XYZ-macOS.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
 				ENABLE_HARDENED_RUNTIME = NO;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;

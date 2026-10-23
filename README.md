@@ -67,7 +67,21 @@ Package tests (document round-trip and Markdown HTML):
 swift test --package-path XYZCore
 ```
 
-`DEVELOPMENT_TEAM` is empty and signing is Automatic, so an unsigned build is what CI does. Hardened Runtime is off so that unsigned build can succeed. Turn Hardened Runtime on before you notarize a Mac build.
+Signing is Automatic. `Config/Base.xcconfig` is the base configuration for the app target's Debug and Release, and it sets `DEVELOPMENT_TEAM` to empty. CI still passes `CODE_SIGNING_ALLOWED=NO`, so the GitHub build stays unsigned. Hardened Runtime is off so that unsigned build can succeed. Turn Hardened Runtime on before you notarize a Mac build.
+
+To sign on your own Mac, copy the example and put your team id in the gitignored file:
+
+```sh
+cp Config/Local.xcconfig.example Config/Local.xcconfig
+```
+
+`Config/Local.xcconfig` then contains:
+
+```
+DEVELOPMENT_TEAM = YOURTEAMID
+```
+
+Replace `YOURTEAMID` with the id from Xcode Settings → Accounts. `Base.xcconfig` includes that file when it exists, and a later assignment there overrides the empty default. Do not also set Development Team in the target's Build Settings. A value in the project file overrides the xcconfig, and it would be committed.
 
 ## iCloud Drive
 
@@ -81,7 +95,7 @@ The project already declares the iCloud Documents capability:
 That is not enough for iCloud to work on a device. Apple only grants the container to a signed app. In Xcode:
 
 1. Select the XYZ target, then Signing & Capabilities.
-2. Choose your Development Team. The project does not contain a team id.
+2. Set your team id in `Config/Local.xcconfig`, as described under Build and run. Leave the target's Development Team build setting unset.
 3. Leave signing on Automatic. Xcode will create a provisioning profile.
 4. Confirm iCloud is enabled with **iCloud Documents** (CloudKit is not required). The container identifier must stay `iCloud.com.lizhichao.XYZ`. If Xcode warns that the container is missing, create it from that capability editor. The Apple ID needs a program membership that can register iCloud containers.
 5. Run on a device or a Mac that is signed into iCloud. The system open panel (Mac) and document browser (iPhone and iPad) then list iCloud Drive directly. The app's own folder appears in iCloud Drive after the container has been provisioned and the app has launched once.
