@@ -2,6 +2,7 @@
 import Combine
 import Darwin
 import Foundation
+import XYZCore
 
 /// Watches one file or directory at a time, per key. Events are debounced onto the main queue.
 final class DirectoryMonitor {
