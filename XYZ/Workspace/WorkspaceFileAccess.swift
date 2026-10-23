@@ -177,6 +177,17 @@ enum WorkspaceBookmarks {
         )
     }
 
+    /// Bookmark a URL the system just handed us. Access is held only while the bookmark is written.
+    static func capture(_ url: URL) -> Data? {
+        let started = url.startAccessingSecurityScopedResource()
+        defer {
+            if started {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+        return try? make(for: url)
+    }
+
     static func resolve(_ data: Data) throws -> URL {
         var stale = false
         return try URL(

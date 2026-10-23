@@ -50,8 +50,9 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
         panel.canCreateDirectories = true
-        panel.prompt = "Open"
+        panel.prompt = "Open Folder"
         panel.message = "Open a folder as a workspace."
+        panel.showsHiddenFiles = true
         panel.begin { response in
             guard response == .OK, let url = panel.url else { return }
             // Bookmark before this callback returns. The panel's access ends with it.
@@ -69,7 +70,7 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
 
     static func open(url: URL, bookmark: Data? = nil) {
         guard WorkspaceFolders.isDirectory(url) else { return }
-        let data = bookmark ?? (try? WorkspaceBookmarks.make(for: url))
+        let data = bookmark ?? WorkspaceBookmarks.capture(url)
         let resolved: URL
         if let data, let url = try? WorkspaceBookmarks.resolve(data) {
             resolved = url
@@ -118,7 +119,14 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
 enum WorkspaceFolders {
     static func isDirectory(_ url: URL) -> Bool {
         var isDirectory = ObjCBool(false)
-        return FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) && isDirectory.boolValue
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return false
+        }
+        // Packages stay documents. A folder workspace is a real directory.
+        if let values = try? url.resourceValues(forKeys: [.isPackageKey]), values.isPackage == true {
+            return false
+        }
+        return true
     }
 }
 
@@ -155,13 +163,23 @@ enum WorkspaceFolderDrop {
 /// PlatformDocumentController in applicationWillFinishLaunching, and a
 /// controller created earlier crashes that setup.
 final class XYZAppDelegate: NSObject, NSApplicationDelegate {
+    override init() {
+        super.init()
+        FolderOpening.installEarly()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        FolderOpening.installLate()
+        FileMenuSupport.install()
         MainActor.assumeIsolated {
             WorkspaceWindowController.restore()
         }
+        FileMenuCheck.finishIfRequested()
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
+        // A Dock drop can arrive once the document controller exists. Hook it before SwiftUI opens the URL.
+        FolderOpening.installLate()
         let folders = urls.filter(WorkspaceFolders.isDirectory)
         guard !folders.isEmpty else { return }
         MainActor.assumeIsolated {
@@ -172,6 +190,7 @@ final class XYZAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func application(_ sender: NSApplication, openFile filename: String) -> Bool {
+        FolderOpening.installLate()
         let url = URL(fileURLWithPath: filename)
         guard WorkspaceFolders.isDirectory(url) else { return false }
         MainActor.assumeIsolated {

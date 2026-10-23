@@ -29,7 +29,7 @@ Typing undo uses the text view, pointed at the document scene's undo manager, so
 
 ## Folders on Mac
 
-File → Open Folder… (⇧⌘O) opens a folder beside the single-document windows. You can also drop a folder on a workspace window. The Dock icon is not a folder target: registering `public.folder` as a document type makes SwiftUI's document controller crash at launch. The sidebar lists every subdirectory and file, including hidden ones (`.gitignore`, `.github`, `.DS_Store`). ⇧⌘. hides those, the same shortcut Finder uses. Folders sort first, then names, without regard to case. Children load when a folder is expanded, off the main thread, and the list updates when files are added, removed, or renamed.
+File → Open Folder… (⇧⌘O) opens a folder beside the single-document windows. That panel accepts only folders, shows hidden files, and its button says Open Folder. File → Open (⌘O) still opens Markdown and plain text; choosing a folder there opens the same workspace. You can also drop a folder on the Dock icon or on a workspace window. The sidebar lists every subdirectory and file, including hidden ones (`.gitignore`, `.github`, `.DS_Store`). ⇧⌘. hides those, the same shortcut Finder uses. Folders sort first, then names, without regard to case. Children load when a folder is expanded, off the main thread, and the list updates when files are added, removed, or renamed.
 
 Markdown files (`.md`, `.markdown`) open in the editor and preview. Other text, including source files and dotfiles, opens in the editor with the preview hidden. Binary files and files over 5 MB show a short message and can be handed to the default app. Edits are written back with a coordinated save. If the file changes on disk while you have unsaved edits, XYZ asks before overwriting.
 
