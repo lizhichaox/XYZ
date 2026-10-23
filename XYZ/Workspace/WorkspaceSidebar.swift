@@ -86,7 +86,7 @@ struct WorkspaceSidebar: NSViewRepresentable {
     }
 
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDelegate {
-        weak var outline: SidebarOutlineView?
+        fileprivate weak var outline: SidebarOutlineView?
         var session: WorkspaceSession?
         private var header = SidebarHeader(title: "")
         private var childItems: [String: [NSObject]] = [:]
