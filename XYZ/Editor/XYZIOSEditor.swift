@@ -113,7 +113,10 @@ final class XYZIOSTextView: UITextView {
         let start = position(from: beginningOfDocument, offset: location) ?? beginningOfDocument
         scrollRangeToVisible(NSRange(location: location, length: 0))
         let rect = caretRect(for: start)
-        scrollRectToVisible(CGRect(x: 0, y: max(0, rect.minY - textContainerInset.top), width: 1, height: bounds.height))
+        scrollRectToVisible(
+            CGRect(x: 0, y: max(0, rect.minY - textContainerInset.top), width: 1, height: bounds.height),
+            animated: false
+        )
     }
 }
 

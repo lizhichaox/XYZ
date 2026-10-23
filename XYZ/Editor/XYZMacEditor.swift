@@ -30,7 +30,24 @@ final class XYZMacTextView: NSTextView {
         if EditorCommands.shared.handleKeyEquivalent(event) {
             return true
         }
+        if markupKeyEquivalent(event) {
+            return true
+        }
         return super.performKeyEquivalent(with: event)
+    }
+
+    /// ⌘B and ⌘I. AppKit has no `toggleBoldface` on NSResponder; the text view handles the keys itself.
+    private func markupKeyEquivalent(_ event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        guard flags == .command else { return false }
+        switch event.charactersIgnoringModifiers?.lowercased() {
+        case "b":
+            return applyMarkupEdit(SourceEditing.toggleBold(in: string, selection: sourceSelection()))
+        case "i":
+            return applyMarkupEdit(SourceEditing.toggleItalic(in: string, selection: sourceSelection()))
+        default:
+            return false
+        }
     }
 
     override func insertNewline(_ sender: Any?) {
@@ -52,14 +69,6 @@ final class XYZMacTextView: NSTextView {
             super.insertBacktab(sender)
             return
         }
-    }
-
-    override func toggleBoldface(_ sender: Any?) {
-        _ = applyMarkupEdit(SourceEditing.toggleBold(in: string, selection: sourceSelection()))
-    }
-
-    override func toggleItalics(_ sender: Any?) {
-        _ = applyMarkupEdit(SourceEditing.toggleItalic(in: string, selection: sourceSelection()))
     }
 
     private func sourceSelection() -> SourceRange {
