@@ -141,7 +141,9 @@ final class FolderActions: NSObject {
     static let shared = FolderActions()
 
     @objc func openFolder(_ sender: Any?) {
-        WorkspaceWindowController.prompt()
+        MainActor.assumeIsolated {
+            WorkspaceWindowController.prompt()
+        }
     }
 
     @objc func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
