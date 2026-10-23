@@ -265,6 +265,7 @@ enum EditorMenuSupport {
 
     /// Edit → Use Selection for Find. The menu action is the shared find selector;
     /// the tag says which find command it is. Matching every find item would steal ⌘F.
+    /// `performTextFinderAction` is on NSResponder. `performFindPanelAction` is on NSTextView.
     private static func isUseSelectionForFind(_ item: NSMenuItem) -> Bool {
         if item.title == "Use Selection for Find" {
             return true
@@ -273,7 +274,7 @@ enum EditorMenuSupport {
            item.tag == NSTextFinder.Action.setSearchString.rawValue {
             return true
         }
-        if item.action == #selector(NSResponder.performFindPanelAction(_:)),
+        if item.action == #selector(NSTextView.performFindPanelAction(_:)),
            item.tag == Int(NSFindPanelAction.setFindString.rawValue) {
             return true
         }
