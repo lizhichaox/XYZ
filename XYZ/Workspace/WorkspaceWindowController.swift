@@ -54,9 +54,22 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
         panel.message = "Open a folder as a workspace."
         panel.showsHiddenFiles = true
         panel.begin { response in
-            guard response == .OK, let url = panel.url else { return }
+            guard response == .OK, let url = panel.url else {
+                WorkspaceLog.panelCancelled(kind: "open-folder")
+                return
+            }
+            WorkspaceLog.folderPicked(source: "open-folder", path: url.path)
             // Bookmark before this callback returns. The panel's access ends with it.
-            let bookmark = try? WorkspaceBookmarks.make(for: url)
+            let bookmark: Data?
+            do {
+                bookmark = try WorkspaceBookmarks.make(for: url)
+                if let bookmark {
+                    WorkspaceLog.bookmarkSaved(path: url.path, bytes: bookmark.count)
+                }
+            } catch {
+                bookmark = nil
+                WorkspaceLog.bookmarkFailed(action: "save", path: url.path, error: error)
+            }
             MainActor.assumeIsolated {
                 open(url: url, bookmark: bookmark)
             }
@@ -64,22 +77,37 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
     }
 
     static func open(bookmark: WorkspaceBookmark) {
-        guard let url = try? WorkspaceBookmarks.resolve(bookmark.data) else { return }
-        open(url: url, bookmark: bookmark.data)
+        do {
+            let url = try WorkspaceBookmarks.resolve(bookmark.data)
+            open(url: url, bookmark: bookmark.data)
+        } catch {
+            WorkspaceLog.bookmarkFailed(action: "restore", path: bookmark.name, error: error)
+        }
     }
 
     static func open(url: URL, bookmark: Data? = nil) {
-        guard WorkspaceFolders.isDirectory(url) else { return }
+        guard WorkspaceFolders.isDirectory(url) else {
+            WorkspaceLog.rejected(path: url.path, reason: "not-a-folder")
+            return
+        }
         let data = bookmark ?? WorkspaceBookmarks.capture(url)
         let resolved: URL
-        if let data, let url = try? WorkspaceBookmarks.resolve(data) {
-            resolved = url
+        if let data {
+            var stale = false
+            do {
+                resolved = try WorkspaceBookmarks.resolve(data, isStale: &stale)
+                WorkspaceLog.bookmarkRestored(path: resolved.path, stale: stale)
+            } catch {
+                WorkspaceLog.bookmarkFailed(action: "restore", path: url.path, error: error)
+                resolved = url
+            }
         } else {
             resolved = url
         }
         if let existing = controllers.first(where: { $0.session.rootURL.standardizedFileURL.path == resolved.standardizedFileURL.path }) {
             existing.showWindow(nil)
             NSApp.activate()
+            WorkspaceLog.workspaceWindow(path: resolved.path, state: "focused", openWindows: controllers.count)
             return
         }
         let session = WorkspaceSession(rootURL: resolved, bookmark: data)
@@ -87,6 +115,7 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
         controllers.append(controller)
         controller.showWindow(nil)
         NSApp.activate()
+        WorkspaceLog.workspaceWindow(path: resolved.path, state: "opened", openWindows: controllers.count)
         if let data {
             WorkspaceLibrary.shared.remember(name: resolved.lastPathComponent, data: data, url: resolved)
         }
@@ -94,7 +123,9 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
     }
 
     static func restore() {
-        for bookmark in WorkspaceLibrary.shared.openBookmarks {
+        let bookmarks = WorkspaceLibrary.shared.openBookmarks
+        WorkspaceLog.restoreStarted(count: bookmarks.count)
+        for bookmark in bookmarks {
             open(bookmark: bookmark)
         }
     }
@@ -145,7 +176,8 @@ enum WorkspaceFolderDrop {
                     url = nil
                 }
                 guard let url, WorkspaceFolders.isDirectory(url) else { return }
-                let bookmark = try? WorkspaceBookmarks.make(for: url)
+                WorkspaceLog.externalOpenFolder(source: "window-drop", path: url.path)
+                let bookmark = WorkspaceBookmarks.capture(url)
                 DispatchQueue.main.async {
                     MainActor.assumeIsolated {
                         WorkspaceWindowController.open(url: url, bookmark: bookmark)
@@ -175,12 +207,19 @@ final class XYZAppDelegate: NSObject, NSApplicationDelegate {
             WorkspaceWindowController.restore()
         }
         FileMenuCheck.finishIfRequested()
+        #if DEBUG
+        FolderLaunchArgument.performIfRequested()
+        #endif
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
         // A Dock drop can arrive once the document controller exists. Hook it before SwiftUI opens the URL.
         FolderOpening.installLate()
         let folders = urls.filter(WorkspaceFolders.isDirectory)
+        WorkspaceLog.externalOpen(source: "application-open", urlCount: urls.count, folderCount: folders.count)
+        for url in folders {
+            WorkspaceLog.externalOpenFolder(source: "application-open", path: url.path)
+        }
         guard !folders.isEmpty else { return }
         MainActor.assumeIsolated {
             for url in folders {
@@ -192,7 +231,10 @@ final class XYZAppDelegate: NSObject, NSApplicationDelegate {
     func application(_ sender: NSApplication, openFile filename: String) -> Bool {
         FolderOpening.installLate()
         let url = URL(fileURLWithPath: filename)
-        guard WorkspaceFolders.isDirectory(url) else { return false }
+        let isFolder = WorkspaceFolders.isDirectory(url)
+        WorkspaceLog.externalOpen(source: "open-file", urlCount: 1, folderCount: isFolder ? 1 : 0)
+        guard isFolder else { return false }
+        WorkspaceLog.externalOpenFolder(source: "open-file", path: url.path)
         MainActor.assumeIsolated {
             WorkspaceWindowController.open(url: url)
         }

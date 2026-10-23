@@ -146,6 +146,7 @@ final class WorkspaceSession: ObservableObject {
                     self.loadErrors[parent] = nil
                     if parent.isEmpty {
                         self.rootError = nil
+                        WorkspaceLog.rootEnumerated(path: self.rootURL.path, count: nodes.count)
                     }
                     self.noteOpenFileStillPresent(parent: parent, nodes: nodes)
                 case .failure:
@@ -153,6 +154,7 @@ final class WorkspaceSession: ObservableObject {
                     self.loadErrors[parent] = message
                     if parent.isEmpty {
                         self.rootError = message
+                        WorkspaceLog.rootEnumerationFailed(path: self.rootURL.path)
                     }
                 }
             }

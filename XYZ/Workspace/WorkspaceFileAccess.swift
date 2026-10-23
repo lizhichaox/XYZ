@@ -185,17 +185,31 @@ enum WorkspaceBookmarks {
                 url.stopAccessingSecurityScopedResource()
             }
         }
-        return try? make(for: url)
+        do {
+            let data = try make(for: url)
+            WorkspaceLog.bookmarkSaved(path: url.path, bytes: data.count)
+            return data
+        } catch {
+            WorkspaceLog.bookmarkFailed(action: "save", path: url.path, error: error)
+            return nil
+        }
     }
 
     static func resolve(_ data: Data) throws -> URL {
         var stale = false
-        return try URL(
+        return try resolve(data, isStale: &stale)
+    }
+
+    static func resolve(_ data: Data, isStale: inout Bool) throws -> URL {
+        var stale = false
+        let url = try URL(
             resolvingBookmarkData: data,
             options: [.withSecurityScope],
             relativeTo: nil,
             bookmarkDataIsStale: &stale
         )
+        isStale = stale
+        return url
     }
 }
 
@@ -228,6 +242,7 @@ final class WorkspaceLibrary: ObservableObject {
             recents.removeLast(recents.count - limit)
         }
         Self.store(recents, key: recentsKey)
+        WorkspaceLog.bookmarksStored(kind: "recent", count: recents.count)
     }
 
     func clearRecents() {
@@ -238,6 +253,7 @@ final class WorkspaceLibrary: ObservableObject {
     func syncOpen(_ bookmarks: [WorkspaceBookmark]) {
         openBookmarks = bookmarks
         Self.store(bookmarks, key: openKey)
+        WorkspaceLog.bookmarksStored(kind: "open-windows", count: bookmarks.count)
     }
 
     private static func load(_ key: String) -> [WorkspaceBookmark] {

@@ -45,7 +45,7 @@ enum FolderOpening {
         let began = hook(cls, NSSelectorFromString("beginWithCompletionHandler:")) { original, selector in
             let block: @convention(block) (AnyObject, AnyObject?) -> Void = { panel, handler in
                 if let open = panel as? NSOpenPanel {
-                    prepareDocumentPanel(open)
+                    noteOpenPanel(open, via: "begin")
                 }
                 let call = unsafeBitCast(original, to: (@convention(c) (AnyObject, Selector, AnyObject?) -> Void).self)
                 call(panel, selector, handler)
@@ -55,7 +55,7 @@ enum FolderOpening {
         let sheet = hook(cls, NSSelectorFromString("beginSheetModalForWindow:completionHandler:")) { original, selector in
             let block: @convention(block) (AnyObject, AnyObject, AnyObject?) -> Void = { panel, window, handler in
                 if let open = panel as? NSOpenPanel {
-                    prepareDocumentPanel(open)
+                    noteOpenPanel(open, via: "sheet")
                 }
                 let call = unsafeBitCast(
                     original,
@@ -68,7 +68,7 @@ enum FolderOpening {
         let modal = hook(cls, NSSelectorFromString("runModal")) { original, selector in
             let block: @convention(block) (AnyObject) -> Int = { panel in
                 if let open = panel as? NSOpenPanel {
-                    prepareDocumentPanel(open)
+                    noteOpenPanel(open, via: "runModal")
                 }
                 let call = unsafeBitCast(original, to: (@convention(c) (AnyObject, Selector) -> Int).self)
                 return call(panel, selector)
@@ -85,17 +85,7 @@ enum FolderOpening {
         let original = method_getImplementation(method)
         let block: @convention(block) (AnyObject, NSURL, Bool, AnyObject) -> Void = { controller, url, display, completion in
             if WorkspaceFolders.isDirectory(url as URL) {
-                let bookmark = WorkspaceBookmarks.capture(url as URL)
-                let open = {
-                    MainActor.assumeIsolated {
-                        WorkspaceWindowController.open(url: url as URL, bookmark: bookmark)
-                    }
-                }
-                if Thread.isMainThread {
-                    open()
-                } else {
-                    DispatchQueue.main.async(execute: open)
-                }
+                acceptFolderChosenInDocumentPanel(url as URL)
                 let cancel = NSError(
                     domain: NSCocoaErrorDomain,
                     code: CocoaError.userCancelled.rawValue,
@@ -133,7 +123,65 @@ enum FolderOpening {
         }
         return true
     }
+
+    /// File → Open calls this after the panel returns a folder. The completion handler
+    /// is the document controller's, and is not part of opening the workspace.
+    static func acceptFolderChosenInDocumentPanel(_ url: URL) {
+        WorkspaceLog.folderPicked(source: "document-open", path: url.path)
+        let bookmark = WorkspaceBookmarks.capture(url)
+        let open = {
+            MainActor.assumeIsolated {
+                WorkspaceWindowController.open(url: url, bookmark: bookmark)
+            }
+        }
+        if Thread.isMainThread {
+            open()
+        } else {
+            DispatchQueue.main.async(execute: open)
+        }
+    }
+
+    /// Logs the panel that is about to appear, after the document panel has been allowed to choose folders.
+    private static func noteOpenPanel(_ panel: NSOpenPanel, via: String) {
+        prepareDocumentPanel(panel)
+        let allowsFolder = panel.allowedContentTypes.contains { $0.conforms(to: .folder) }
+        let kind: String
+        if panel.canChooseFiles {
+            kind = "document-open"
+        } else if panel.canChooseDirectories {
+            kind = "open-folder"
+        } else {
+            kind = "other"
+        }
+        WorkspaceLog.panelShown(
+            kind: kind,
+            via: via,
+            canChooseDirectories: panel.canChooseDirectories,
+            canChooseFiles: panel.canChooseFiles,
+            showsHiddenFiles: panel.showsHiddenFiles,
+            allowsFolderType: allowsFolder,
+            prompt: panel.prompt ?? ""
+        )
+    }
 }
+
+#if DEBUG
+/// `-XYZOpenFolder <path>` runs the same post-panel path as File → Open choosing a folder.
+enum FolderLaunchArgument {
+    static let name = "-XYZOpenFolder"
+
+    static func performIfRequested() {
+        let arguments = ProcessInfo.processInfo.arguments
+        guard let index = arguments.firstIndex(of: name), arguments.indices.contains(index + 1) else { return }
+        let url = URL(fileURLWithPath: arguments[index + 1]).standardizedFileURL
+        WorkspaceLog.launchArgument(path: url.path)
+        NSDocumentController.shared.openDocument(withContentsOf: url, display: true) { _, _, error in
+            guard let error = error as NSError?, error.code != CocoaError.userCancelled.rawValue else { return }
+            WorkspaceLog.openFailed(path: url.path, error: error)
+        }
+    }
+}
+#endif
 
 /// Always-enabled target for File → Open Folder…. SwiftUI's command can be disabled
 /// when no document window is focused, which is exactly when this command is needed.
