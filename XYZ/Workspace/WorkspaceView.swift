@@ -59,21 +59,20 @@ struct WorkspaceView: View {
     }
 
     private var titleText: String {
-        openFileName ?? session.displayName
+        openFilePath.map { ($0 as NSString).lastPathComponent } ?? session.displayName
     }
 
+    /// The way from the folder's root to the open file: `LIZHICHAO › DT`. ⌘-click the title for the full path.
     private var subtitleText: String {
-        openFileName == nil ? "" : session.displayName
+        guard let path = openFilePath else { return "" }
+        return WorkspacePaths.breadcrumb(rootName: session.displayName, relativePath: path).joined(separator: " › ")
     }
 
-    private var openFileName: String? {
+    private var openFilePath: String? {
         if let path = session.selectedPath, let node = session.node(at: path), !node.isDirectory {
-            return node.name
+            return node.relativePath
         }
-        if let path = session.buffer?.relativePath {
-            return (path as NSString).lastPathComponent
-        }
-        return nil
+        return session.buffer?.relativePath
     }
 }
 
@@ -184,6 +183,8 @@ enum WorkspaceChrome {
 private struct WorkspaceDetail: View {
     @ObservedObject var session: WorkspaceSession
     @Environment(\.undoManager) private var undoManager
+    @AppStorage(WordCountSetting.key) private var showsWordCount = false
+    @StateObject private var wordCount = WordCountModel()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -208,10 +209,27 @@ private struct WorkspaceDetail: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if showsWordCount && (showsEditor || showsReading) {
+                WordCountBar(stats: wordCount.stats)
+            }
+        }
         .background(Color.editorBackground)
+        .onAppear {
+            countWords(immediate: true)
+        }
         .onChange(of: session.buffer?.editorToken) { _, _ in
             session.previewBridge.send(session.buffer?.text ?? "")
+            countWords(immediate: true)
         }
+        .onChange(of: showsWordCount) { _, _ in
+            countWords(immediate: true)
+        }
+    }
+
+    private func countWords(immediate: Bool) {
+        guard showsWordCount, let text = session.buffer?.text else { return }
+        wordCount.update(text, immediate: immediate)
     }
 
     private var showsEditor: Bool {
@@ -226,9 +244,9 @@ private struct WorkspaceDetail: View {
     private func placeholder(for buffer: WorkspaceFileBuffer) -> some View {
         let tooLarge = buffer.kind == .tooLarge
         return ContentUnavailableView {
-            Label(tooLarge ? "File Too Large" : "Can't Edit This File", systemImage: "doc")
+            Label(tooLarge ? LocalizedStringKey("File Too Large") : LocalizedStringKey("Can't Edit This File"), systemImage: "doc")
         } description: {
-            Text(tooLarge ? "This file is too large to edit in XYZ." : "XYZ doesn't edit this file.")
+            Text(tooLarge ? LocalizedStringKey("This file is too large to edit in XYZ.") : LocalizedStringKey("XYZ doesn't edit this file."))
         } actions: {
             Button("Open with Default App") {
                 NSWorkspace.shared.open(buffer.url)
@@ -239,10 +257,10 @@ private struct WorkspaceDetail: View {
     private var banner: String? {
         guard let buffer = session.buffer else { return nil }
         if buffer.isMissing {
-            return "This file was removed from the folder."
+            return String(localized: "This file was removed from the folder.")
         }
         if buffer.conflictText != nil {
-            return "This file changed on disk."
+            return String(localized: "This file changed on disk.")
         }
         return buffer.status
     }
@@ -266,7 +284,12 @@ private struct WorkspaceDetail: View {
     }
 
     private var preview: some View {
-        MarkdownPreview(bridge: session.previewBridge, host: session.previewHost, scrollLink: session.scrollLink)
+        MarkdownPreview(
+            bridge: session.previewBridge,
+            host: session.previewHost,
+            scrollLink: session.scrollLink,
+            baseDirectory: session.buffer?.url.deletingLastPathComponent()
+        )
     }
 
     private var editor: some View {
@@ -277,9 +300,13 @@ private struct WorkspaceDetail: View {
             reloadToken: session.buffer?.editorToken ?? 0,
             scrollLink: session.scrollLink,
             markup: session.buffer?.kind == .markdown,
+            spellCheck: TextMarkup.isProse(fileExtension: session.buffer?.url.pathExtension),
             onTextChange: { newText in
                 session.buffer?.userEdited(newText)
                 session.previewBridge.send(newText)
+                if showsWordCount {
+                    wordCount.update(newText)
+                }
             }
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -352,6 +379,15 @@ final class WorkspaceCommandBridge: ObservableObject, EditorCommandTarget {
 
     func reloadFile() {
         session?.reloadOpenFile()
+    }
+
+    func paletteHeadings() -> [OutlineHeading] {
+        guard let buffer = session?.buffer, buffer.kind == .markdown else { return [] }
+        return MarkdownOutline.headings(in: buffer.text)
+    }
+
+    func revealHeading(line: Int) {
+        session?.scrollLink.revealLine(line)
     }
 }
 

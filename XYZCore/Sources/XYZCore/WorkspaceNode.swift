@@ -41,6 +41,17 @@ public enum WorkspacePaths {
         return chain.reversed()
     }
 
+    /// The folders a file sits in, from the workspace root down, for the window subtitle.
+    /// A deep path keeps the root and the nearest folders with `…` between: `root › … › b › c`.
+    public static func breadcrumb(rootName: String, relativePath: String, limit: Int = 5) -> [String] {
+        let folders = ancestors(of: relativePath).map { path in
+            path.split(separator: "/").last.map(String.init) ?? path
+        }
+        let chain = [rootName] + folders
+        guard limit >= 3, chain.count > limit else { return chain }
+        return [chain[0], "…"] + chain.suffix(limit - 2)
+    }
+
     /// Dotfiles, and names the platform already marked hidden.
     public static func isHidden(name: String, resourceHidden: Bool) -> Bool {
         name.hasPrefix(".") || resourceHidden

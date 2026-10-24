@@ -2,6 +2,19 @@ import XCTest
 @testable import XYZCore
 
 final class WorkspaceTreeTests: XCTestCase {
+    func testBreadcrumbRunsFromTheRootAndShortensDeepPaths() {
+        XCTAssertEqual(WorkspacePaths.breadcrumb(rootName: "LIZHICHAO", relativePath: "261024.md"), ["LIZHICHAO"])
+        XCTAssertEqual(WorkspacePaths.breadcrumb(rootName: "LIZHICHAO", relativePath: "DT/261024.md"), ["LIZHICHAO", "DT"])
+        XCTAssertEqual(
+            WorkspacePaths.breadcrumb(rootName: "root", relativePath: "a/b/c/d/e/note.md"),
+            ["root", "…", "c", "d", "e"]
+        )
+        XCTAssertEqual(
+            WorkspacePaths.breadcrumb(rootName: "root", relativePath: "a/b/c/d/note.md"),
+            ["root", "a", "b", "c", "d"]
+        )
+    }
+
     func testPathsJoinAndSplit() {
         XCTAssertEqual(WorkspacePaths.child(parent: "", name: ".gitignore"), ".gitignore")
         XCTAssertEqual(WorkspacePaths.child(parent: ".github", name: "workflows"), ".github/workflows")

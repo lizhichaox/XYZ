@@ -248,7 +248,7 @@ struct XYZIOSEditor: UIViewRepresentable {
         textView.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
         textView.setContentHuggingPriority(.defaultLow, for: .horizontal)
         textView.setContentHuggingPriority(.defaultLow, for: .vertical)
-        textView.accessibilityLabel = "Markdown editor"
+        textView.accessibilityLabel = String(localized: "Markdown editor")
         applyTypingStyle(to: textView, monospaced: monospaced, restyleStorage: false)
         textView.text = text
         applyTypingStyle(to: textView, monospaced: monospaced, restyleStorage: true)

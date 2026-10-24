@@ -10,6 +10,14 @@ final class TextMarkupTests: XCTestCase {
         XCTAssertFalse(TextMarkup.allows(fileExtension: ""))
         XCTAssertFalse(TextMarkup.allows(fileExtension: "swift"))
     }
+
+    func testProseIsMarkdownAndPlainText() {
+        XCTAssertTrue(TextMarkup.isProse(fileExtension: nil))
+        XCTAssertTrue(TextMarkup.isProse(fileExtension: "md"))
+        XCTAssertTrue(TextMarkup.isProse(fileExtension: "TXT"))
+        XCTAssertFalse(TextMarkup.isProse(fileExtension: ""))
+        XCTAssertFalse(TextMarkup.isProse(fileExtension: "json"))
+    }
 }
 
 final class SourceEditingTests: XCTestCase {
