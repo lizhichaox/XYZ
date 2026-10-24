@@ -141,6 +141,15 @@ final class XYZMacTextView: NSTextView {
         return EditorScrollAnchor(fraction: fraction, probe: probe, line: line)
     }
 
+    /// Go to Heading: the caret at the start of the line, and the line at the top of the pane.
+    func jump(toLine line: Int) {
+        let length = (string as NSString).length
+        let location = min(max(0, EditorScrollAnchor.utf16Location(ofLine: line, in: string)), length)
+        setSelectedRange(NSRange(location: location, length: 0))
+        window?.makeFirstResponder(self)
+        reveal(EditorScrollAnchor(fraction: 0, probe: "", line: line))
+    }
+
     /// Remember the line and align on the next layout that has a window and a real inset.
     /// One scroll. `scrollRangeToVisible` is not used: it only guarantees the line is somewhere in view.
     func reveal(_ anchor: EditorScrollAnchor) {
@@ -332,6 +341,9 @@ struct XYZMacEditor: NSViewRepresentable {
         textView.documentUndoManager = undoManager
         scrollLink.capture = { [weak textView] in
             textView?.scrollAnchor() ?? EditorScrollAnchor(fraction: 0, probe: "", line: 1)
+        }
+        scrollLink.revealLine = { [weak textView] line in
+            textView?.jump(toLine: line)
         }
         let styleChanged = context.coordinator.monospaced != monospaced
         if styleChanged {

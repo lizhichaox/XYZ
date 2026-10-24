@@ -10,9 +10,9 @@ final class MarkdownHTMLTests: XCTestCase {
 
     func testHeading() {
         let html = MarkdownHTML.render("# Hello\n")
-        XCTAssertTrue(html.contains("<h1 data-line=\"1\""))
+        XCTAssertTrue(html.contains("<h1 id=\"hello\" data-line=\"1\""))
         XCTAssertTrue(html.contains(">Hello</h1>"))
-        XCTAssertTrue(MarkdownHTML.render("###### Deep\n").contains("<h6 data-line=\"1\""))
+        XCTAssertTrue(MarkdownHTML.render("###### Deep\n").contains("<h6 id=\"deep\" data-line=\"1\""))
     }
 
     func testParagraphEmphasisAndStrong() {
@@ -160,14 +160,14 @@ final class MarkdownHTMLTests: XCTestCase {
         let viaFacade = MarkdownHTML.render(source)
         let viaPieces = HTMLRenderer().render(MarkdownParser.parse(source))
         XCTAssertEqual(viaFacade, viaPieces)
-        XCTAssertTrue(viaPieces.contains("<h1 data-line=\"1\""))
+        XCTAssertTrue(viaPieces.contains("<h1 id=\"hi\" data-line=\"1\""))
         XCTAssertTrue(viaPieces.contains(">Hi</h1>"))
         XCTAssertTrue(viaPieces.contains("<blockquote data-line="))
     }
 
     func testBlockSourceLines() {
         let html = MarkdownHTML.render("# Title\n\nParagraph\n\n- item\n")
-        XCTAssertTrue(html.contains("<h1 data-line=\"1\""))
+        XCTAssertTrue(html.contains("<h1 id=\"title\" data-line=\"1\""))
         XCTAssertTrue(html.contains("<p data-line=\"3\""))
         XCTAssertTrue(html.contains("<li data-line=\"5\""))
         XCTAssertTrue(html.contains("data-end=\""))

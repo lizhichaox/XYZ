@@ -71,6 +71,7 @@ struct DocumentEditorView: View {
         .background(
             EditorCommandAnchor(target: commands) {
                 commands.fileURL = fileURL
+                commands.currentText = { [bridge] in bridge.latestText }
             }
         )
         #else
@@ -161,6 +162,8 @@ final class DocumentCommandBridge: ObservableObject, EditorCommandTarget {
     @Published private(set) var mode: EditorViewMode = .source
     let scrollLink = EditorScrollLink()
     var fileURL: URL?
+    /// The editor's text, for Go to Heading.
+    var currentText: () -> String = { "" }
 
     var editorViewMode: EditorViewMode { mode }
     var showsHiddenFiles: Bool { true }
@@ -209,6 +212,15 @@ final class DocumentCommandBridge: ObservableObject, EditorCommandTarget {
 
     func reloadFile() {
         NSApp.sendAction(#selector(NSDocument.revertToSaved(_:)), to: nil, from: nil)
+    }
+
+    func paletteHeadings() -> [OutlineHeading] {
+        guard TextMarkup.allows(fileExtension: fileURL?.pathExtension) else { return [] }
+        return MarkdownOutline.headings(in: currentText())
+    }
+
+    func revealHeading(line: Int) {
+        scrollLink.revealLine(line)
     }
 }
 #endif

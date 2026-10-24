@@ -49,6 +49,8 @@ protocol EditorCommandTarget: AnyObject {
     func reveal()
     func copyPath()
     func reloadFile()
+    func paletteHeadings() -> [OutlineHeading]
+    func revealHeading(line: Int)
     func performCustomCommand(_ id: String) -> Bool
 }
 
@@ -64,6 +66,8 @@ extension EditorCommandTarget {
     func reveal() {}
     func copyPath() {}
     func reloadFile() {}
+    func paletteHeadings() -> [OutlineHeading] { [] }
+    func revealHeading(line: Int) {}
     func performCustomCommand(_ id: String) -> Bool { false }
 }
 
@@ -85,6 +89,11 @@ final class EditorCommands: NSObject {
         }
         if flags == .command && key.lowercased() == "p" {
             showPalette(nil)
+            return true
+        }
+        if flags == .command && key.lowercased() == "r" {
+            guard target != nil else { return false }
+            goToHeading(nil)
             return true
         }
         if flags == [.command, .shift] && key.lowercased() == "f" {
@@ -127,6 +136,11 @@ final class EditorCommands: NSObject {
             target?.copyPath()
         case "file.reload":
             target?.reloadFile()
+        case "view.goToHeading":
+            // The palette that ran this command is closing. Open it again on the next turn.
+            DispatchQueue.main.async { [weak self] in
+                self?.goToHeading(nil)
+            }
         case "app.about":
             AboutWindow.show()
         default:
@@ -136,6 +150,10 @@ final class EditorCommands: NSObject {
 
     @objc func showPalette(_ sender: Any?) {
         palette.show(target: target)
+    }
+
+    @objc func goToHeading(_ sender: Any?) {
+        palette.show(target: target, query: "@")
     }
 
     @objc func toggleSource(_ sender: Any?) {
@@ -166,7 +184,7 @@ final class EditorCommands: NSObject {
         case "xyz.mode.reading":
             menuItem.state = target?.editorViewMode == .reading ? .on : .off
             return target != nil
-        case "xyz.mode.toggleSource":
+        case "xyz.mode.toggleSource", "xyz.goToHeading":
             return target != nil
         case "xyz.workspace.filter":
             return target?.supportsWorkspaceFiles == true
@@ -267,6 +285,7 @@ enum EditorMenuSupport {
         }
         let specs: [(String, String, String, NSEvent.ModifierFlags, Selector)] = [
             ("xyz.commandPalette", "Command Palette…", "p", .command, #selector(EditorCommands.showPalette(_:))),
+            ("xyz.goToHeading", "Go to Heading…", "r", .command, #selector(EditorCommands.goToHeading(_:))),
             ("xyz.mode.source", "Source", "", [], #selector(EditorCommands.selectSource(_:))),
             ("xyz.mode.reading", "Reading", "", [], #selector(EditorCommands.selectReading(_:))),
             ("xyz.mode.toggleSource", "Source Code Mode", "/", .command, #selector(EditorCommands.toggleSource(_:))),
@@ -572,14 +591,17 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
     private weak var target: EditorCommandTarget?
     private var registry = PaletteCommandRegistry()
     private var rows: [PaletteRow] = []
+    /// The note's headings, read once per show the first time the query starts with `@`.
+    private var headings: [OutlineHeading]?
     private var suppressResign = false
     private var closing = false
 
-    func show(target: EditorCommandTarget?) {
+    func show(target: EditorCommandTarget?, query: String = "") {
         self.target = target
+        headings = nil
         let panel = self.panel ?? makePanel()
         self.panel = panel
-        search?.stringValue = ""
+        search?.stringValue = query
         reloadRows()
         place(panel)
         suppressResign = true
@@ -638,6 +660,14 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
             cell.apply(title: highlighted(title, indices: match.characterIndices, dimDirectory: true), shortcut: "")
         case .command(let command, let match):
             cell.apply(title: highlighted(command.title, indices: match.characterIndices, dimDirectory: false), shortcut: command.shortcut)
+        case .heading(let heading, let match):
+            // Deeper headings step in, so the list reads as an outline.
+            let indent = String(repeating: "    ", count: max(0, min(heading.level, 6) - 1))
+            let offset = indent.count
+            cell.apply(
+                title: highlighted(indent + heading.title, indices: match.characterIndices.map { $0 + offset }, dimDirectory: false),
+                shortcut: "H\(heading.level)"
+            )
         }
         return cell
     }
@@ -669,7 +699,7 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
         panel.isReleasedWhenClosed = false
 
         let search = NSSearchField()
-        search.placeholderString = "Go to file, or > for commands"
+        search.placeholderString = "Go to file, > for commands, @ for headings"
         search.delegate = self
         search.controlSize = .regular
         search.focusRingType = .none
@@ -771,10 +801,14 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
 
     private func reloadRows() {
         let query = search?.stringValue ?? ""
+        if query.hasPrefix("@"), headings == nil {
+            headings = target?.paletteHeadings() ?? []
+        }
         rows = CommandPalette.rows(
             rawQuery: query,
             files: target?.paletteFiles() ?? [],
-            registry: registry
+            registry: registry,
+            headings: headings ?? []
         )
         empty?.isHidden = !rows.isEmpty
         table?.reloadData()
@@ -845,6 +879,9 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
         case .command(let command, _):
             PaletteLog.ranCommand(command.id)
             EditorCommands.shared.run(command.id)
+        case .heading(let heading, _):
+            PaletteLog.ranCommand("heading")
+            target?.revealHeading(line: heading.line)
         }
     }
 

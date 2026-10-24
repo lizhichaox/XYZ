@@ -353,6 +353,15 @@ final class WorkspaceCommandBridge: ObservableObject, EditorCommandTarget {
     func reloadFile() {
         session?.reloadOpenFile()
     }
+
+    func paletteHeadings() -> [OutlineHeading] {
+        guard let buffer = session?.buffer, buffer.kind == .markdown else { return [] }
+        return MarkdownOutline.headings(in: buffer.text)
+    }
+
+    func revealHeading(line: Int) {
+        session?.scrollLink.revealLine(line)
+    }
 }
 
 extension View {

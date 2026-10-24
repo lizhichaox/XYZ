@@ -385,6 +385,10 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate, WKScriptMessa
             }
             return self.readingAnchor(in: webView)
         }
+        scrollLink.revealLine = { [weak self, weak webView] line in
+            guard let self, let webView, self.isReady else { return }
+            self.evaluate(webView, "xyzRevealLine(\(max(1, line)));")
+        }
         PreviewWebChrome.apply(to: webView)
         if !didStartLoad {
             loadShell(webView, html: html, theme: theme)

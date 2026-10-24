@@ -1,6 +1,6 @@
 import Foundation
 
-/// Whether Return, Tab, and ⌘B / ⌘I should edit Markdown markers.
+/// Whether Return, Tab, and the Format commands should edit Markdown markers.
 public enum TextMarkup {
     /// Untitled documents (no extension yet) are Markdown. `.txt` and other names are not.
     public static func allows(fileExtension: String?) -> Bool {
@@ -85,6 +85,14 @@ public enum SourceEditing {
 
     public static func toggleItalic(in text: String, selection: SourceRange) -> SourceReplacement? {
         toggle(marker: "*", in: text, selection: selection)
+    }
+
+    public static func toggleStrikethrough(in text: String, selection: SourceRange) -> SourceReplacement? {
+        toggle(marker: "~~", in: text, selection: selection)
+    }
+
+    public static func toggleInlineCode(in text: String, selection: SourceRange) -> SourceReplacement? {
+        toggle(marker: "`", in: text, selection: selection)
     }
 
     private static func closeEmptyItem(
@@ -355,7 +363,7 @@ public enum SourceEditing {
         return 0
     }
 
-    private static func insideFence(_ ns: NSString, before location: Int) -> Bool {
+    static func insideFence(_ ns: NSString, before location: Int) -> Bool {
         var cursor = 0
         var open = false
         while cursor < location, cursor < ns.length {
@@ -371,7 +379,7 @@ public enum SourceEditing {
         return open
     }
 
-    private static func isFence(_ content: NSString) -> Bool {
+    static func isFence(_ content: NSString) -> Bool {
         var index = 0
         var indent = 0
         while index < content.length, indent < 4 {
@@ -394,7 +402,7 @@ public enum SourceEditing {
         return count >= 3
     }
 
-    private static func coveringLines(in ns: NSString, selection: SourceRange) -> NSRange {
+    static func coveringLines(in ns: NSString, selection: SourceRange) -> NSRange {
         if ns.length == 0 { return NSRange(location: 0, length: 0) }
         let start = lineRange(in: ns, at: selection.location)
         let endLocation = selection.length == 0 ? selection.location : max(selection.location, selection.end - 1)
@@ -404,7 +412,7 @@ public enum SourceEditing {
         return NSRange(location: lower, length: upper - lower)
     }
 
-    private static func lineRange(in ns: NSString, at location: Int) -> NSRange {
+    static func lineRange(in ns: NSString, at location: Int) -> NSRange {
         if ns.length == 0 { return NSRange(location: 0, length: 0) }
         let clamped = min(max(0, location), ns.length)
         let line = ns.lineRange(for: NSRange(location: clamped, length: 0))
@@ -417,7 +425,7 @@ public enum SourceEditing {
         return line
     }
 
-    private static func split(_ ns: NSString, _ range: NSRange) -> (content: NSRange, newline: NSRange) {
+    static func split(_ ns: NSString, _ range: NSRange) -> (content: NSRange, newline: NSRange) {
         var content = range
         if content.length == 0 {
             return (content, NSRange(location: range.location, length: 0))
@@ -435,7 +443,7 @@ public enum SourceEditing {
         return (content, newline)
     }
 
-    private static func contains(_ selection: SourceRange, length: Int) -> Bool {
+    static func contains(_ selection: SourceRange, length: Int) -> Bool {
         selection.location >= 0
             && selection.length >= 0
             && selection.end <= length

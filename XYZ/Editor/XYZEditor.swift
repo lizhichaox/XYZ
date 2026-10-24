@@ -78,6 +78,8 @@ protocol XYZTextEditing: AnyObject {
 @MainActor
 final class EditorScrollLink {
     var capture: () -> EditorScrollAnchor = { EditorScrollAnchor(fraction: 0, probe: "") }
+    /// Go to Heading. The surface on screen (the editor or Reading) sets this when it updates.
+    var revealLine: (Int) -> Void = { _ in }
     private var pending: (anchor: EditorScrollAnchor, destination: EditorViewMode)?
 
     func noteToggle(to destination: EditorViewMode) {

@@ -100,6 +100,12 @@ public struct PaletteCommand: Equatable, Sendable, Identifiable {
             shortcut: "⌘/",
             keywords: ["reading", "source", "coding", "edit"]
         ),
+        PaletteCommand(
+            id: "view.goToHeading",
+            title: "Go to Heading",
+            shortcut: "⌘R",
+            keywords: ["outline", "toc", "heading", "jump"]
+        ),
         PaletteCommand(id: "workspace.toggleSidebar", title: "Toggle Sidebar", keywords: ["sidebar"]),
         PaletteCommand(
             id: "workspace.focusFilter",
@@ -142,6 +148,7 @@ public struct PaletteCommandRegistry: Equatable, Sendable {
 public enum PaletteRow: Equatable, Sendable, Identifiable {
     case file(PaletteFile, FuzzyMatch)
     case command(PaletteCommand, FuzzyMatch)
+    case heading(OutlineHeading, FuzzyMatch)
 
     public var id: String {
         switch self {
@@ -149,18 +156,20 @@ public enum PaletteRow: Equatable, Sendable, Identifiable {
             return "file:" + file.relativePath
         case .command(let command, _):
             return "command:" + command.id
+        case .heading(let heading, _):
+            return "heading:\(heading.line)"
         }
     }
 
     public var match: FuzzyMatch {
         switch self {
-        case .file(_, let match), .command(_, let match):
+        case .file(_, let match), .command(_, let match), .heading(_, let match):
             return match
         }
     }
 }
 
-/// Quick Open, and a command list when the query starts with `>`.
+/// Quick Open, a command list when the query starts with `>`, and the note's headings after `@`.
 public enum CommandPalette {
     public static let rowLimit = 40
 
@@ -168,6 +177,7 @@ public enum CommandPalette {
         rawQuery: String,
         files: [PaletteFile],
         registry: PaletteCommandRegistry,
+        headings: [OutlineHeading] = [],
         limit: Int = rowLimit
     ) -> [PaletteRow] {
         let parsed = parse(rawQuery)
@@ -177,6 +187,8 @@ public enum CommandPalette {
             return fileRows(query: parsed.text, files: files, limit: cap)
         case .commands:
             return commandRows(query: parsed.text, commands: registry.commands, limit: cap)
+        case .headings:
+            return headingRows(query: parsed.text, headings: headings, limit: max(cap, headings.count))
         }
     }
 
@@ -184,6 +196,10 @@ public enum CommandPalette {
         if rawQuery.first == ">" {
             let text = String(rawQuery.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
             return (.commands, text)
+        }
+        if rawQuery.first == "@" {
+            let text = String(rawQuery.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
+            return (.headings, text)
         }
         return (.files, rawQuery.trimmingCharacters(in: .whitespacesAndNewlines))
     }
@@ -232,6 +248,23 @@ public enum CommandPalette {
         return matched.prefix(limit).map { .command($0.0, $0.1) }
     }
 
+    /// Every heading in order for an empty query. Otherwise the best matches, earlier lines first on a tie.
+    private static func headingRows(query: String, headings: [OutlineHeading], limit: Int) -> [PaletteRow] {
+        if query.isEmpty {
+            return headings.prefix(limit).map { .heading($0, FuzzyMatch(score: 0, characterIndices: [])) }
+        }
+        var matched: [(OutlineHeading, FuzzyMatch)] = []
+        for heading in headings {
+            guard let match = FuzzyMatcher.match(query: query, candidate: heading.title) else { continue }
+            matched.append((heading, match))
+        }
+        matched.sort { lhs, rhs in
+            if lhs.1.score != rhs.1.score { return lhs.1.score > rhs.1.score }
+            return lhs.0.line < rhs.0.line
+        }
+        return matched.prefix(limit).map { .heading($0.0, $0.1) }
+    }
+
     private static func commandMatch(query: String, command: PaletteCommand) -> FuzzyMatch? {
         let title = FuzzyMatcher.match(query: query, candidate: command.title)
         let keyword = command.keywords.compactMap { FuzzyMatcher.match(query: query, candidate: $0) }
@@ -252,4 +285,5 @@ public enum CommandPalette {
 public enum PaletteMode: Equatable, Sendable {
     case files
     case commands
+    case headings
 }
