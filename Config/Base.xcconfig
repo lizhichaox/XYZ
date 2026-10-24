@@ -1,0 +1,7 @@
+// Shared signing defaults. The team id stays empty in git so CI can build unsigned.
+// MARKETING_VERSION is the user-facing MAJOR.MINOR.PATCH. CURRENT_PROJECT_VERSION is the build number.
+// These two lines are the only version source for the Mac and iOS targets.
+DEVELOPMENT_TEAM =
+#include? "Local.xcconfig"
+MARKETING_VERSION = 0.0.3
+CURRENT_PROJECT_VERSION = 5

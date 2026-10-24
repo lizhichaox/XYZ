@@ -1,0 +1,135 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select newest Xcode
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import pathlib, plistlib, sys
+          apps = sorted(pathlib.Path("/Applications").glob("Xcode*.app"))
+          if not apps:
+              sys.exit("No Xcode.app under /Applications")
+          def version(app):
+              info = app / "Contents" / "Info.plist"
+              with info.open("rb") as handle:
+                  raw = str(plistlib.load(handle).get("CFBundleShortVersionString", "0"))
+              parts = []
+              for piece in raw.split("."):
+                  digits = ""
+                  for ch in piece:
+                      if ch.isdigit():
+                          digits += ch
+                      else:
+                          break
+                  parts.append(int(digits or "0"))
+              return (tuple(parts), raw, app)
+          ranked = sorted(version(app) for app in apps)
+          for _, raw, app in ranked:
+              print(f"{raw}\t{app}")
+          chosen = ranked[-1][2]
+          pathlib.Path("/tmp/xyz-xcode-path").write_text(str(chosen))
+          print(f"selected {ranked[-1][1]} {chosen}")
+          PY
+          sudo xcode-select -s "$(cat /tmp/xyz-xcode-path)"
+          echo "DEVELOPER_DIR=$(cat /tmp/xyz-xcode-path)/Contents/Developer" >> "$GITHUB_ENV"
+          xcodebuild -version
+          swift --version
+
+      - name: Test XYZCore
+        id: test
+        run: swift test --package-path XYZCore
+
+      - name: Build macOS
+        id: macos
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project XYZ.xcodeproj \
+            -scheme XYZ \
+            -destination 'platform=macOS' \
+            -configuration Debug \
+            -derivedDataPath build/macos \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=- \
+            build
+
+      - name: Launch macOS app
+        if: steps.macos.conclusion == 'success'
+        run: |
+          set -euo pipefail
+          APP="$(find "$PWD/build/macos/Build/Products" -name 'XYZ.app' -type d | head -n 1)"
+          test -n "$APP"
+          test -d "$APP"
+          # The unsigned CI build carries iCloud entitlements. Ad-hoc sign
+          # without them so the process can start. The launch crash is in
+          # DocumentGroup setup, before any file access.
+          codesign --force --deep --sign - "$APP"
+          LOG="$PWD/build/macos/launch.log"
+          "$APP/Contents/MacOS/XYZ" -ApplePersistenceIgnoreState YES >"$LOG" 2>&1 &
+          PID=$!
+          for _ in 1 2 3 4 5 6 7 8; do
+            if ! kill -0 "$PID" 2>/dev/null; then
+              echo "XYZ exited during launch"
+              cat "$LOG" || true
+              exit 1
+            fi
+            sleep 1
+          done
+          kill "$PID"
+          wait "$PID" || true
+
+      - name: Check Open Folder menu
+        if: steps.macos.conclusion == 'success'
+        run: |
+          set -euo pipefail
+          APP="$(find "$PWD/build/macos/Build/Products" -name 'XYZ.app' -type d | head -n 1)"
+          test -d "$APP"
+          codesign --force --deep --sign - "$APP"
+          LOG="$PWD/build/macos/menu.log"
+          "$APP/Contents/MacOS/XYZ" -XYZCheckFileMenu -ApplePersistenceIgnoreState YES >"$LOG" 2>&1 &
+          PID=$!
+          CODE=0
+          for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+            if ! kill -0 "$PID" 2>/dev/null; then
+              wait "$PID" || CODE=$?
+              cat "$LOG"
+              exit "$CODE"
+            fi
+            sleep 1
+          done
+          echo "Timed out waiting for the File menu check"
+          cat "$LOG" || true
+          kill "$PID" || true
+          exit 1
+
+      - name: Build iOS Simulator
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project XYZ.xcodeproj \
+            -scheme XYZ \
+            -destination 'generic/platform=iOS Simulator' \
+            -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=- \
+            build

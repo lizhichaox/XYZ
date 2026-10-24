@@ -1,0 +1,473 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		8C0000000000000000000001 /* XYZApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000001 /* XYZApp.swift */; };
+		8C0000000000000000000002 /* DocumentEditorView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000002 /* DocumentEditorView.swift */; };
+		8C0000000000000000000003 /* XYZEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000003 /* XYZEditor.swift */; };
+		8C0000000000000000000004 /* XYZMacEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000004 /* XYZMacEditor.swift */; };
+		8C0000000000000000000005 /* XYZIOSEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000005 /* XYZIOSEditor.swift */; };
+		8C0000000000000000000006 /* MarkdownPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000006 /* MarkdownPreview.swift */; };
+		8C0000000000000000000007 /* MarkdownWebView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000007 /* MarkdownWebView.swift */; };
+		8C0000000000000000000008 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000008 /* Assets.xcassets */; };
+		8C0000000000000000000009 /* Preview.css in Resources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000009 /* Preview.css */; };
+		8C000000000000000000000A /* XYZCore in Frameworks */ = {isa = PBXBuildFile; productRef = 8A0000000000000000000014 /* XYZCore */; };
+		8C0000000000000000000011 /* WorkspaceFileAccess.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000011 /* WorkspaceFileAccess.swift */; };
+		8C0000000000000000000012 /* WorkspaceSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000012 /* WorkspaceSession.swift */; };
+		8C0000000000000000000013 /* WorkspaceView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000013 /* WorkspaceView.swift */; };
+		8C0000000000000000000014 /* WorkspaceWindowController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000014 /* WorkspaceWindowController.swift */; };
+		8C0000000000000000000015 /* FolderOpening.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000015 /* FolderOpening.swift */; };
+		8C0000000000000000000016 /* WorkspaceLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000016 /* WorkspaceLog.swift */; };
+		8C0000000000000000000018 /* WorkspaceSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000018 /* WorkspaceSidebar.swift */; };
+		8C0000000000000000000019 /* EditorCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000019 /* EditorCommands.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		8A0000000000000000000006 /* XYZ.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = XYZ.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		8B0000000000000000000001 /* XYZApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XYZApp.swift; sourceTree = "<group>"; };
+		8B0000000000000000000002 /* DocumentEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentEditorView.swift; sourceTree = "<group>"; };
+		8B0000000000000000000003 /* XYZEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XYZEditor.swift; sourceTree = "<group>"; };
+		8B0000000000000000000004 /* XYZMacEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XYZMacEditor.swift; sourceTree = "<group>"; };
+		8B0000000000000000000005 /* XYZIOSEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XYZIOSEditor.swift; sourceTree = "<group>"; };
+		8B0000000000000000000006 /* MarkdownPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownPreview.swift; sourceTree = "<group>"; };
+		8B0000000000000000000007 /* MarkdownWebView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MarkdownWebView.swift; sourceTree = "<group>"; };
+		8B0000000000000000000008 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		8B0000000000000000000009 /* Preview.css */ = {isa = PBXFileReference; lastKnownFileType = text.css; path = Preview.css; sourceTree = "<group>"; };
+		8B000000000000000000000A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		8B000000000000000000000B /* XYZ-macOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "XYZ-macOS.entitlements"; sourceTree = "<group>"; };
+		8B000000000000000000000C /* XYZ-iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "XYZ-iOS.entitlements"; sourceTree = "<group>"; };
+		8B000000000000000000000D /* Base.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Base.xcconfig; sourceTree = "<group>"; };
+		8B000000000000000000000E /* Local.xcconfig.example */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Local.xcconfig.example; sourceTree = "<group>"; };
+		8B000000000000000000000F /* Info-macOS.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = "Info-macOS.plist"; sourceTree = "<group>"; };
+		8B0000000000000000000011 /* WorkspaceFileAccess.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceFileAccess.swift; sourceTree = "<group>"; };
+		8B0000000000000000000012 /* WorkspaceSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSession.swift; sourceTree = "<group>"; };
+		8B0000000000000000000013 /* WorkspaceView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceView.swift; sourceTree = "<group>"; };
+		8B0000000000000000000014 /* WorkspaceWindowController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceWindowController.swift; sourceTree = "<group>"; };
+		8B0000000000000000000015 /* FolderOpening.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FolderOpening.swift; sourceTree = "<group>"; };
+		8B0000000000000000000016 /* WorkspaceLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceLog.swift; sourceTree = "<group>"; };
+		8B0000000000000000000018 /* WorkspaceSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebar.swift; sourceTree = "<group>"; };
+		8B0000000000000000000019 /* EditorCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorCommands.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		8A0000000000000000000004 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8C000000000000000000000A /* XYZCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		8A0000000000000000000007 = {
+			isa = PBXGroup;
+			children = (
+				8A0000000000000000000015 /* Config */,
+				8A0000000000000000000008 /* XYZ */,
+				8A0000000000000000000009 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		8A0000000000000000000008 /* XYZ */ = {
+			isa = PBXGroup;
+			children = (
+				8B0000000000000000000001 /* XYZApp.swift */,
+				8B0000000000000000000002 /* DocumentEditorView.swift */,
+				8A000000000000000000000A /* Editor */,
+				8A000000000000000000000B /* Preview */,
+				8A000000000000000000000C /* Resources */,
+				8A0000000000000000000016 /* Workspace */,
+				8B000000000000000000000A /* Info.plist */,
+				8B000000000000000000000F /* Info-macOS.plist */,
+				8B000000000000000000000B /* XYZ-macOS.entitlements */,
+				8B000000000000000000000C /* XYZ-iOS.entitlements */,
+			);
+			path = XYZ;
+			sourceTree = "<group>";
+		};
+		8A0000000000000000000009 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				8A0000000000000000000006 /* XYZ.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		8A000000000000000000000A /* Editor */ = {
+			isa = PBXGroup;
+			children = (
+				8B0000000000000000000003 /* XYZEditor.swift */,
+				8B0000000000000000000004 /* XYZMacEditor.swift */,
+				8B0000000000000000000005 /* XYZIOSEditor.swift */,
+			);
+			path = Editor;
+			sourceTree = "<group>";
+		};
+		8A000000000000000000000B /* Preview */ = {
+			isa = PBXGroup;
+			children = (
+				8B0000000000000000000006 /* MarkdownPreview.swift */,
+				8B0000000000000000000007 /* MarkdownWebView.swift */,
+			);
+			path = Preview;
+			sourceTree = "<group>";
+		};
+		8A0000000000000000000015 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				8B000000000000000000000D /* Base.xcconfig */,
+				8B000000000000000000000E /* Local.xcconfig.example */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
+		8A0000000000000000000016 /* Workspace */ = {
+			isa = PBXGroup;
+			children = (
+				8B0000000000000000000011 /* WorkspaceFileAccess.swift */,
+				8B0000000000000000000012 /* WorkspaceSession.swift */,
+				8B0000000000000000000013 /* WorkspaceView.swift */,
+				8B0000000000000000000018 /* WorkspaceSidebar.swift */,
+				8B0000000000000000000014 /* WorkspaceWindowController.swift */,
+				8B0000000000000000000015 /* FolderOpening.swift */,
+				8B0000000000000000000016 /* WorkspaceLog.swift */,
+				8B0000000000000000000019 /* EditorCommands.swift */,
+			);
+			path = Workspace;
+			sourceTree = "<group>";
+		};
+		8A000000000000000000000C /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				8B0000000000000000000008 /* Assets.xcassets */,
+				8B0000000000000000000009 /* Preview.css */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		8A0000000000000000000002 /* XYZ */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 8A000000000000000000000E /* Build configuration list for PBXNativeTarget "XYZ" */;
+			buildPhases = (
+				8A0000000000000000000003 /* Sources */,
+				8A0000000000000000000004 /* Frameworks */,
+				8A0000000000000000000005 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = XYZ;
+			packageProductDependencies = (
+				8A0000000000000000000014 /* XYZCore */,
+			);
+			productName = XYZ;
+			productReference = 8A0000000000000000000006 /* XYZ.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		8A0000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastUpgradeCheck = 2600;
+				ORGANIZATIONNAME = XYZ;
+				TargetAttributes = {
+					8A0000000000000000000002 = {
+						CreatedOnToolsVersion = 26.0;
+					};
+				};
+			};
+			buildConfigurationList = 8A000000000000000000000D /* Build configuration list for PBXProject "XYZ" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 8A0000000000000000000007;
+			packageReferences = (
+				8A0000000000000000000013 /* XCLocalSwiftPackageReference "XYZCore" */,
+			);
+			productRefGroup = 8A0000000000000000000009 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				8A0000000000000000000002 /* XYZ */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		8A0000000000000000000005 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8C0000000000000000000008 /* Assets.xcassets in Resources */,
+				8C0000000000000000000009 /* Preview.css in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		8A0000000000000000000003 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8C0000000000000000000001 /* XYZApp.swift in Sources */,
+				8C0000000000000000000002 /* DocumentEditorView.swift in Sources */,
+				8C0000000000000000000003 /* XYZEditor.swift in Sources */,
+				8C0000000000000000000004 /* XYZMacEditor.swift in Sources */,
+				8C0000000000000000000005 /* XYZIOSEditor.swift in Sources */,
+				8C0000000000000000000006 /* MarkdownPreview.swift in Sources */,
+				8C0000000000000000000007 /* MarkdownWebView.swift in Sources */,
+				8C0000000000000000000011 /* WorkspaceFileAccess.swift in Sources */,
+				8C0000000000000000000012 /* WorkspaceSession.swift in Sources */,
+				8C0000000000000000000013 /* WorkspaceView.swift in Sources */,
+				8C0000000000000000000014 /* WorkspaceWindowController.swift in Sources */,
+				8C0000000000000000000015 /* FolderOpening.swift in Sources */,
+				8C0000000000000000000016 /* WorkspaceLog.swift in Sources */,
+				8C0000000000000000000018 /* WorkspaceSidebar.swift in Sources */,
+				8C0000000000000000000019 /* EditorCommands.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		8A000000000000000000000F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = auto;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		8A0000000000000000000010 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = s;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				SDKROOT = auto;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		8A0000000000000000000011 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 8B000000000000000000000D /* Base.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "XYZ/XYZ-macOS.entitlements";
+				"CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]" = "XYZ/XYZ-iOS.entitlements";
+				"CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]" = "XYZ/XYZ-iOS.entitlements";
+				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "XYZ/XYZ-macOS.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				ENABLE_HARDENED_RUNTIME = NO;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = XYZ/Info.plist;
+				"INFOPLIST_FILE[sdk=macosx*]" = "XYZ/Info-macOS.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = XYZ;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UIStatusBarStyle = UIStatusBarStyleDefault;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportsDocumentBrowser = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.lizhichao.XYZ;
+				PRODUCT_MODULE_NAME = XYZ;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		8A0000000000000000000012 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 8B000000000000000000000D /* Base.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = "XYZ/XYZ-macOS.entitlements";
+				"CODE_SIGN_ENTITLEMENTS[sdk=iphoneos*]" = "XYZ/XYZ-iOS.entitlements";
+				"CODE_SIGN_ENTITLEMENTS[sdk=iphonesimulator*]" = "XYZ/XYZ-iOS.entitlements";
+				"CODE_SIGN_ENTITLEMENTS[sdk=macosx*]" = "XYZ/XYZ-macOS.entitlements";
+				CODE_SIGN_STYLE = Automatic;
+				ENABLE_HARDENED_RUNTIME = NO;
+				ENABLE_PREVIEWS = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = XYZ/Info.plist;
+				"INFOPLIST_FILE[sdk=macosx*]" = "XYZ/Info-macOS.plist";
+				INFOPLIST_KEY_CFBundleDisplayName = XYZ;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_LSSupportsOpeningDocumentsInPlace = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UIStatusBarStyle = UIStatusBarStyleDefault;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
+				INFOPLIST_KEY_UISupportsDocumentBrowser = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.lizhichao.XYZ;
+				PRODUCT_MODULE_NAME = XYZ;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SUPPORTS_XR_DESIGNED_FOR_IPHONE_IPAD = NO;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_STRICT_CONCURRENCY = minimal;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		8A000000000000000000000D /* Build configuration list for PBXProject "XYZ" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8A000000000000000000000F /* Debug */,
+				8A0000000000000000000010 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		8A000000000000000000000E /* Build configuration list for PBXNativeTarget "XYZ" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				8A0000000000000000000011 /* Debug */,
+				8A0000000000000000000012 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		8A0000000000000000000013 /* XCLocalSwiftPackageReference "XYZCore" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = XYZCore;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		8A0000000000000000000014 /* XYZCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 8A0000000000000000000013 /* XCLocalSwiftPackageReference "XYZCore" */;
+			productName = XYZCore;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 8A0000000000000000000001 /* Project object */;
+}
