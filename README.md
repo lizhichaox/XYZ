@@ -122,9 +122,9 @@ A build made with `CODE_SIGNING_ALLOWED=NO` does not embed these entitlements, s
 
 ## Version
 
-XYZ uses MAJOR.MINOR.PATCH. `MARKETING_VERSION` in `Config/Base.xcconfig` is the version shown in About, and `CURRENT_PROJECT_VERSION` is the build number. Those two assignments are the only version source. The target does not set them again, because a value in the project file would override the xcconfig. A small change bumps the last number, a medium change the middle number, and a large or breaking change the first. This release is 0.0.2 (build 4). See `CHANGELOG.md`.
+XYZ uses MAJOR.MINOR.PATCH. `MARKETING_VERSION` in `Config/Base.xcconfig` is the version shown in About, and `CURRENT_PROJECT_VERSION` is the build number. Those two assignments are the only version source. The target does not set them again, because a value in the project file would override the xcconfig. A small change bumps the last number, a medium change the middle number, and a large or breaking change the first. This release is 0.0.3 (build 5). See `CHANGELOG.md`.
 
-About XYZ is a small window titled About XYZ. It shows the app icon, the version line `0.0.2 (4)`, and the credit line. The credit links the name LIZHICHAO to [lizhichao.com](https://lizhichao.com). Esc or ⌘W closes it.
+About XYZ is a small window titled About XYZ. It shows the app icon, the version line `0.0.3 (5)`, and the credit line. The credit links the name LIZHICHAO to [lizhichao.com](https://lizhichao.com). Esc or ⌘W closes it.
 
 ## License
 

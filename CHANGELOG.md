@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.0.3
+
+- ⌘/ keeps the same source line at the top of Source and Reading. Ten switches stay on that line, with one scroll and no second jump.
+- Reading blocks carry the source line (`data-line`). The toggle uses that line, not a height ratio.
+
 ## 0.0.2
 
 - ⌘P with an empty field lists files opened in that folder, most recent first. Matched characters are semibold, in the same grey as the rest of the row.

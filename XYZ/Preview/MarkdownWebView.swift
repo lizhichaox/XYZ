@@ -23,6 +23,7 @@ final class PreviewWebHost {
         let created = PreviewWebViewFactory.make()
         let coordinator = PreviewWebCoordinator()
         created.navigationDelegate = coordinator
+        created.configuration.userContentController.add(coordinator, name: "xyzAnchor")
         storage = created
         coordinatorStorage = coordinator
         PreviewLog.logger.notice("webview created")
@@ -339,7 +340,7 @@ private enum PreviewWebViewFactory {
     }
 }
 
-final class PreviewWebCoordinator: NSObject, WKNavigationDelegate {
+final class PreviewWebCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
     private let css = PreviewStyles.load()
     private var didStartLoad = false
     private var isReady = false
@@ -349,12 +350,41 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate {
     private var appliedTheme: String?
     private var didLogScriptFailure = false
     private var scrollLink: EditorScrollLink?
+    /// Last line the page posted. Capture reads this; `evaluateJavaScript` is too late for a toggle.
+    private var readingLine = 0
+    private var readingFraction = 0.0
+    private var pendingReadingAlign: Int?
+
+    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        guard message.name == "xyzAnchor" else { return }
+        let body = message.body as? [String: Any]
+        let line = Self.intValue(body?["line"])
+        let fraction = min(1, max(0, Self.doubleValue(body?["fraction"])))
+        let apply = {
+            self.readingLine = max(0, line)
+            self.readingFraction = fraction
+            if let requested = self.pendingReadingAlign {
+                self.pendingReadingAlign = nil
+                ViewAnchorLog.aligned(to: "reading", requested: requested, landed: self.readingLine)
+            }
+        }
+        if Thread.isMainThread {
+            apply()
+        } else {
+            DispatchQueue.main.async(execute: apply)
+        }
+    }
 
     func update(webView: WKWebView, html: String, theme: String, scrollLink: EditorScrollLink) {
         pendingHTML = html
         pendingTheme = theme
         self.scrollLink = scrollLink
-        scrollLink.capture = { PreviewWebChrome.anchor(in: webView) }
+        scrollLink.capture = { [weak self, weak webView] in
+            guard let self, let webView else {
+                return EditorScrollAnchor(fraction: 0, probe: "", line: 1)
+            }
+            return self.readingAnchor(in: webView)
+        }
         PreviewWebChrome.apply(to: webView)
         if !didStartLoad {
             loadShell(webView, html: html, theme: theme)
@@ -424,16 +454,46 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate {
             appliedTheme = theme
             script += "setTheme(\(PreviewPage.javaScriptLiteral(theme)));"
         }
+        var replaced = false
         if let html = pendingHTML, html != appliedHTML {
             appliedHTML = html
+            replaced = true
             script += "setContent(\(PreviewPage.javaScriptLiteral(html)));"
         }
         if let anchor = scrollLink?.take(for: .reading) {
-            let fraction = min(1, max(0, anchor.fraction))
-            script += "xyzReveal(\(fraction), \(PreviewPage.javaScriptLiteral(anchor.probe)));"
+            if anchor.line > 0 {
+                pendingReadingAlign = anchor.line
+                script += "xyzRevealLine(\(anchor.line));"
+            } else {
+                let fraction = min(1, max(0, anchor.fraction))
+                script += "xyzRevealFraction(\(fraction));"
+            }
+        } else if replaced {
+            script += "xyzReport();"
         }
         guard !script.isEmpty else { return }
         evaluate(webView, script)
+    }
+
+    /// The posted source line. A fraction is only a stand-in until the page has reported a line.
+    private func readingAnchor(in webView: WKWebView) -> EditorScrollAnchor {
+        if readingLine > 0 {
+            ViewAnchorLog.captured(from: "reading", line: readingLine)
+            return EditorScrollAnchor(fraction: readingFraction, probe: "", line: readingLine)
+        }
+        let fallback = PreviewWebChrome.anchor(in: webView)
+        ViewAnchorLog.captured(from: "reading", line: 0)
+        return EditorScrollAnchor(fraction: fallback.fraction, probe: "", line: 0)
+    }
+
+    private static func intValue(_ value: Any?) -> Int {
+        if let number = value as? NSNumber { return number.intValue }
+        return 0
+    }
+
+    private static func doubleValue(_ value: Any?) -> Double {
+        if let number = value as? NSNumber { return number.doubleValue }
+        return 0
     }
 
     private func evaluate(_ webView: WKWebView, _ script: String) {
@@ -604,38 +664,109 @@ private enum PreviewPage {
         <body>
         <article id="content">\(html)</article>
         <script>
+        var xyzPinned = 0;
+        var xyzPinUntil = 0;
         function setContent(html) {
           var node = document.getElementById("content");
           if (node) node.innerHTML = html;
+          xyzPinned = 0;
+          xyzPinUntil = 0;
         }
         function setTheme(theme) {
           document.documentElement.setAttribute("data-theme", theme);
         }
-        function xyzReveal(fraction, probe) {
-          var nodes = document.querySelectorAll("h1,h2,h3,h4,h5,h6,p,li,pre");
-          var max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
-          var target = max * fraction;
-          if (probe) {
-            var best = null;
-            var bestDistance = 1e15;
-            for (var i = 0; i < nodes.length; i++) {
-              var text = (nodes[i].innerText || "").replace(/^\\s+|\\s+$/g, "");
-              if (!text || text.indexOf(probe) === -1) continue;
-              var top = nodes[i].getBoundingClientRect().top + window.scrollY;
-              var distance = Math.abs(top - target);
-              if (distance < bestDistance) {
-                best = nodes[i];
-                bestDistance = distance;
-              }
-            }
-            if (best) {
-              best.scrollIntoView({block: "start"});
-              return;
+        function xyzSourceLine(start, end, fraction) {
+          start = Math.max(1, start | 0);
+          end = Math.max(start, end | 0);
+          fraction = Math.min(1, Math.max(0, +fraction || 0));
+          if (fraction === 0 || start === end) return start;
+          var offset = Math.floor((end - start) * fraction);
+          return Math.min(end, start + offset);
+        }
+        function xyzPost(line, fraction) {
+          var handlers = window.webkit && window.webkit.messageHandlers;
+          if (!handlers || !handlers.xyzAnchor) return;
+          handlers.xyzAnchor.postMessage({line: line | 0, fraction: +fraction || 0});
+        }
+        function xyzTop() {
+          var nodes = document.querySelectorAll("[data-line]");
+          var hit = null;
+          for (var i = 0; i < nodes.length; i++) {
+            var rect = nodes[i].getBoundingClientRect();
+            if (rect.top <= 1 && rect.bottom > 1) {
+              hit = nodes[i];
+            } else if (rect.top > 1) {
+              if (!hit) hit = nodes[i];
+              break;
             }
           }
-          window.scrollTo(0, target);
+          if (!hit) return {line: 1, fraction: 0};
+          var start = parseInt(hit.getAttribute("data-line"), 10) || 1;
+          var end = parseInt(hit.getAttribute("data-end"), 10) || start;
+          if (end < start) end = start;
+          var box = hit.getBoundingClientRect();
+          var fraction = 0;
+          if (box.top < 0 && box.height > 0) {
+            fraction = Math.min(1, Math.max(0, -box.top / box.height));
+          }
+          return {line: xyzSourceLine(start, end, fraction), fraction: fraction};
         }
+        function xyzReport() {
+          if (xyzPinned && Date.now() < xyzPinUntil) {
+            xyzPost(xyzPinned, 0);
+            return;
+          }
+          xyzPinned = 0;
+          var found = xyzTop();
+          xyzPost(found.line, found.fraction);
+        }
+        function xyzRevealLine(line) {
+          line = line | 0;
+          if (line < 1) return;
+          var nodes = document.querySelectorAll("[data-line]");
+          var best = null;
+          var bestStart = -1;
+          for (var i = 0; i < nodes.length; i++) {
+            var start = parseInt(nodes[i].getAttribute("data-line"), 10) || 0;
+            var end = parseInt(nodes[i].getAttribute("data-end"), 10) || start;
+            if (end < start) end = start;
+            if (start < 1 || start > line || line > end) continue;
+            if (start >= bestStart) {
+              best = nodes[i];
+              bestStart = start;
+            }
+          }
+          if (!best) {
+            xyzPinned = 0;
+            window.scrollTo(0, 0);
+            xyzReport();
+            return;
+          }
+          var startLine = bestStart;
+          var endLine = parseInt(best.getAttribute("data-end"), 10) || startLine;
+          if (endLine < startLine) endLine = startLine;
+          var span = endLine - startLine;
+          var fraction = span > 0 ? (line - startLine) / span : 0;
+          var rect = best.getBoundingClientRect();
+          var y = window.scrollY + rect.top + (rect.height * fraction);
+          xyzPinned = line;
+          xyzPinUntil = Date.now() + 80;
+          window.scrollTo(0, Math.max(0, y));
+          xyzPost(line, fraction);
+        }
+        function xyzRevealFraction(fraction) {
+          var max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+          xyzPinned = 0;
+          window.scrollTo(0, max * Math.min(1, Math.max(0, +fraction || 0)));
+          xyzReport();
+        }
+        window.addEventListener("scroll", function() { xyzReport(); }, {passive: true});
+        function xyzUnpin() { xyzPinned = 0; xyzPinUntil = 0; }
+        window.addEventListener("wheel", xyzUnpin, {passive: true});
+        window.addEventListener("touchmove", xyzUnpin, {passive: true});
+        window.addEventListener("keydown", xyzUnpin);
         setTheme("\(themeName)");
+        xyzReport();
         </script>
         </body>
         </html>

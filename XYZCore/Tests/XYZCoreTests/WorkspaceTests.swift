@@ -247,6 +247,63 @@ final class EditorScrollAnchorTests: XCTestCase {
         XCTAssertEqual(EditorScrollAnchor.probe(from: "# Notes for today"), "Notes for today")
         XCTAssertEqual(EditorScrollAnchor.probe(from: "- item"), "item")
     }
+
+    func testLineNumberRoundTrip() {
+        let text = "a\nbb\nccc\n"
+        XCTAssertEqual(EditorScrollAnchor.lineNumber(at: 0, in: text), 1)
+        XCTAssertEqual(EditorScrollAnchor.lineNumber(at: 2, in: text), 2)
+        XCTAssertEqual(EditorScrollAnchor.lineNumber(at: 5, in: text), 3)
+        XCTAssertEqual(EditorScrollAnchor.utf16Location(ofLine: 1, in: text), 0)
+        XCTAssertEqual(EditorScrollAnchor.utf16Location(ofLine: 2, in: text), 2)
+        XCTAssertEqual(EditorScrollAnchor.utf16Location(ofLine: 3, in: text), 5)
+        XCTAssertEqual(EditorScrollAnchor.utf16Location(ofLine: 9, in: text), (text as NSString).length)
+        for line in 1...3 {
+            let location = EditorScrollAnchor.utf16Location(ofLine: line, in: text)
+            XCTAssertEqual(EditorScrollAnchor.lineNumber(at: location, in: text), line)
+        }
+    }
+
+    func testCRLFIsOneLineBreak() {
+        let text = "a\r\nb\r\n"
+        XCTAssertEqual(EditorScrollAnchor.lineNumber(at: 0, in: text), 1)
+        XCTAssertEqual(EditorScrollAnchor.utf16Location(ofLine: 2, in: text), 3)
+        XCTAssertEqual(EditorScrollAnchor.lineNumber(at: 3, in: text), 2)
+    }
+
+    func testKnownLineWinsOverFraction() {
+        let text = "a\nbb\nccc\n"
+        let anchor = EditorScrollAnchor(fraction: 0, probe: "a", line: 3)
+        XCTAssertEqual(anchor.utf16Location(in: text), 5)
+    }
+}
+
+final class ReadingLineMapTests: XCTestCase {
+    func testBlockStartPicksTheLatestStartAtOrBeforeTheLine() {
+        XCTAssertEqual(ReadingLineMap.blockStart(containing: 6, starts: [1, 4, 10]), 4)
+        XCTAssertEqual(ReadingLineMap.blockStart(containing: 4, starts: [1, 4, 10]), 4)
+        XCTAssertEqual(ReadingLineMap.blockStart(containing: 10, starts: [1, 4, 10]), 10)
+        XCTAssertNil(ReadingLineMap.blockStart(containing: 0, starts: [1, 4]))
+        XCTAssertNil(ReadingLineMap.blockStart(containing: 3, starts: []))
+    }
+
+    func testSourceLineMatchesTheReadingScript() {
+        XCTAssertEqual(ReadingLineMap.sourceLine(startLine: 10, endLine: 20, fraction: 0.5), 15)
+        XCTAssertEqual(ReadingLineMap.sourceLine(startLine: 10, endLine: 20, fraction: 0), 10)
+        XCTAssertEqual(ReadingLineMap.sourceLine(startLine: 10, endLine: 10, fraction: 0.9), 10)
+        XCTAssertEqual(ReadingLineMap.sourceLine(startLine: 4, endLine: 8, fraction: 1), 8)
+    }
+
+    func testIntegerLineInsideABlockRoundTrips() {
+        let start = 10
+        let end = 20
+        for line in start...end {
+            let fraction = Double(line - start) / Double(end - start)
+            let mapped = ReadingLineMap.sourceLine(startLine: start, endLine: end, fraction: fraction)
+            XCTAssertEqual(mapped, line)
+            let block = ReadingLineMap.blockStart(containing: mapped, starts: [1, start, 30])
+            XCTAssertEqual(block, start)
+        }
+    }
 }
 
 final class WorkspaceFilePolicyTests: XCTestCase {

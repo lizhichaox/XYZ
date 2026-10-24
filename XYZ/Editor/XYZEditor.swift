@@ -1,5 +1,19 @@
+import os
 import SwiftUI
 import XYZCore
+
+/// Scroll anchors for a Source/Reading toggle. Category `viewmode`. Line numbers only.
+enum ViewAnchorLog {
+    static let logger = Logger(subsystem: "com.lizhichao.XYZ", category: "viewmode")
+
+    static func captured(from mode: String, line: Int) {
+        logger.notice("anchor from=\(mode, privacy: .public) line=\(line, privacy: .public)")
+    }
+
+    static func aligned(to mode: String, requested: Int, landed: Int) {
+        logger.notice("align to=\(mode, privacy: .public) requested=\(requested, privacy: .public) landed=\(landed, privacy: .public)")
+    }
+}
 
 #if os(macOS)
 import AppKit

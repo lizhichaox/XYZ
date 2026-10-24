@@ -9,13 +9,16 @@ final class MarkdownHTMLTests: XCTestCase {
     }
 
     func testHeading() {
-        XCTAssertEqual(MarkdownHTML.render("# Hello\n"), "<h1>Hello</h1>\n")
-        XCTAssertEqual(MarkdownHTML.render("###### Deep\n"), "<h6>Deep</h6>\n")
+        let html = MarkdownHTML.render("# Hello\n")
+        XCTAssertTrue(html.contains("<h1 data-line=\"1\""))
+        XCTAssertTrue(html.contains(">Hello</h1>"))
+        XCTAssertTrue(MarkdownHTML.render("###### Deep\n").contains("<h6 data-line=\"1\""))
     }
 
     func testParagraphEmphasisAndStrong() {
         let html = MarkdownHTML.render("Hello *em* and **bold**\n")
-        XCTAssertEqual(html, "<p>Hello <em>em</em> and <strong>bold</strong></p>\n")
+        XCTAssertTrue(html.contains("<p data-line=\"1\""))
+        XCTAssertTrue(html.contains("Hello <em>em</em> and <strong>bold</strong>"))
     }
 
     func testStrikethrough() {
@@ -25,16 +28,16 @@ final class MarkdownHTMLTests: XCTestCase {
 
     func testLists() {
         let html = MarkdownHTML.render("- one\n- two\n\n1. first\n2. second\n")
-        XCTAssertTrue(html.contains("<ul>"))
-        XCTAssertTrue(html.contains("<li>"))
+        XCTAssertTrue(html.contains("<ul data-line=\"1\""))
+        XCTAssertTrue(html.contains("<li data-line=\"1\""))
         XCTAssertTrue(html.contains("one"))
-        XCTAssertTrue(html.contains("<ol>"))
+        XCTAssertTrue(html.contains("<ol"))
         XCTAssertTrue(html.contains("second"))
     }
 
     func testOrderedListStart() {
         let html = MarkdownHTML.render("3. third\n")
-        XCTAssertTrue(html.contains("<ol start=\"3\">"))
+        XCTAssertTrue(html.contains("start=\"3\""))
         XCTAssertTrue(html.contains("third"))
     }
 
@@ -65,12 +68,13 @@ final class MarkdownHTMLTests: XCTestCase {
     func testInlineCodeAndCodeBlock() {
         let html = MarkdownHTML.render("Use `a < b`.\n\n```swift\nlet x = 1\n```\n")
         XCTAssertTrue(html.contains("<code>a &lt; b</code>"))
-        XCTAssertTrue(html.contains("<pre><code class=\"language-swift\">let x = 1</code></pre>"))
+        XCTAssertTrue(html.contains("<pre data-line="))
+        XCTAssertTrue(html.contains("<code class=\"language-swift\">let x = 1</code></pre>"))
     }
 
     func testBlockquote() {
         let html = MarkdownHTML.render("> quoted *text*\n")
-        XCTAssertTrue(html.contains("<blockquote>"))
+        XCTAssertTrue(html.contains("<blockquote data-line=\"1\""))
         XCTAssertTrue(html.contains("<em>text</em>"))
         XCTAssertTrue(html.contains("quoted"))
     }
@@ -83,7 +87,8 @@ final class MarkdownHTMLTests: XCTestCase {
 
         """
         let html = MarkdownHTML.render(markdown)
-        XCTAssertTrue(html.contains("<div class=\"table-wrap\">"))
+        XCTAssertTrue(html.contains("class=\"table-wrap\""))
+        XCTAssertTrue(html.contains("data-line=\"1\""))
         XCTAssertTrue(html.contains("<table>"))
         XCTAssertTrue(html.contains("</table>\n</div>"))
         XCTAssertTrue(html.contains("<thead>"))
@@ -101,14 +106,13 @@ final class MarkdownHTMLTests: XCTestCase {
     }
 
     func testEscapesText() {
-        XCTAssertEqual(
-            MarkdownHTML.render("a < b & c\n"),
-            "<p>a &lt; b &amp; c</p>\n"
-        )
+        let html = MarkdownHTML.render("a < b & c\n")
+        XCTAssertTrue(html.contains("<p data-line=\"1\""))
+        XCTAssertTrue(html.contains("a &lt; b &amp; c"))
     }
 
     func testThematicBreak() {
-        XCTAssertTrue(MarkdownHTML.render("a\n\n---\n\nb\n").contains("<hr>"))
+        XCTAssertTrue(MarkdownHTML.render("a\n\n---\n\nb\n").contains("<hr data-line=\"3\""))
     }
 
     func testImage() {
@@ -125,15 +129,14 @@ final class MarkdownHTMLTests: XCTestCase {
 
     func testSmartPunctuationStaysLiteral() {
         // Quotes are escaped in HTML. The source characters themselves stay straight.
-        XCTAssertEqual(
-            MarkdownHTML.render("a -- b \"quote\"\n"),
-            "<p>a -- b &quot;quote&quot;</p>\n"
-        )
+        let html = MarkdownHTML.render("a -- b \"quote\"\n")
+        XCTAssertTrue(html.contains("a -- b &quot;quote&quot;"))
+        XCTAssertFalse(html.contains("—"))
     }
 
     func testNestedList() {
         let html = MarkdownHTML.render("- outer\n  - inner\n")
-        XCTAssertEqual(html.components(separatedBy: "<ul>").count - 1, 2)
+        XCTAssertEqual(html.components(separatedBy: "<ul").count - 1, 2)
         XCTAssertTrue(html.contains("inner"))
     }
 
@@ -157,8 +160,25 @@ final class MarkdownHTMLTests: XCTestCase {
         let viaFacade = MarkdownHTML.render(source)
         let viaPieces = HTMLRenderer().render(MarkdownParser.parse(source))
         XCTAssertEqual(viaFacade, viaPieces)
-        XCTAssertTrue(viaPieces.contains("<h1>Hi</h1>"))
-        XCTAssertTrue(viaPieces.contains("<blockquote>"))
+        XCTAssertTrue(viaPieces.contains("<h1 data-line=\"1\""))
+        XCTAssertTrue(viaPieces.contains(">Hi</h1>"))
+        XCTAssertTrue(viaPieces.contains("<blockquote data-line="))
+    }
+
+    func testBlockSourceLines() {
+        let html = MarkdownHTML.render("# Title\n\nParagraph\n\n- item\n")
+        XCTAssertTrue(html.contains("<h1 data-line=\"1\""))
+        XCTAssertTrue(html.contains("<p data-line=\"3\""))
+        XCTAssertTrue(html.contains("<li data-line=\"5\""))
+        XCTAssertTrue(html.contains("data-end=\""))
+    }
+
+    func testParserKeepsSourceLines() {
+        let document = MarkdownParser.parse("# Title\n\nParagraph\n")
+        let heading = document.child(at: 0) as? Heading
+        XCTAssertEqual(heading?.range?.lowerBound.line, 1)
+        let paragraph = document.child(at: 1) as? Paragraph
+        XCTAssertEqual(paragraph?.range?.lowerBound.line, 3)
     }
 
     func testManyBlocks() {

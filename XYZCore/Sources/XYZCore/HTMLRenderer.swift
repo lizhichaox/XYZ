@@ -26,6 +26,7 @@ private struct HTMLRenderingWalker: MarkupWalker {
         let level = min(max(heading.level, 1), 6)
         html.append("<h")
         html.append(String(level))
+        html.append(lineMarkup(heading))
         html.append(">")
         descendInto(heading)
         html.append("</h")
@@ -34,19 +35,25 @@ private struct HTMLRenderingWalker: MarkupWalker {
     }
 
     mutating func visitParagraph(_ paragraph: Paragraph) {
-        html.append("<p>")
+        html.append("<p")
+        html.append(lineMarkup(paragraph))
+        html.append(">")
         descendInto(paragraph)
         html.append("</p>\n")
     }
 
     mutating func visitBlockQuote(_ blockQuote: BlockQuote) {
-        html.append("<blockquote>\n")
+        html.append("<blockquote")
+        html.append(lineMarkup(blockQuote))
+        html.append(">\n")
         descendInto(blockQuote)
         html.append("</blockquote>\n")
     }
 
     mutating func visitCodeBlock(_ codeBlock: CodeBlock) {
-        html.append("<pre><code")
+        html.append("<pre")
+        html.append(lineMarkup(codeBlock))
+        html.append("><code")
         if let language = Self.languageToken(codeBlock.language) {
             html.append(" class=\"language-")
             html.append(HTMLText.attribute(language))
@@ -62,29 +69,36 @@ private struct HTMLRenderingWalker: MarkupWalker {
     }
 
     mutating func visitHTMLBlock(_ htmlBlock: HTMLBlock) {
-        html.append("<pre class=\"raw-html\">")
+        html.append("<pre class=\"raw-html\"")
+        html.append(lineMarkup(htmlBlock))
+        html.append(">")
         html.append(HTMLText.escape(htmlBlock.rawHTML))
         html.append("</pre>\n")
     }
 
     mutating func visitThematicBreak(_ thematicBreak: ThematicBreak) {
-        html.append("<hr>\n")
+        html.append("<hr")
+        html.append(lineMarkup(thematicBreak))
+        html.append(">\n")
     }
 
     mutating func visitUnorderedList(_ unorderedList: UnorderedList) {
-        html.append("<ul>\n")
+        html.append("<ul")
+        html.append(lineMarkup(unorderedList))
+        html.append(">\n")
         descendInto(unorderedList)
         html.append("</ul>\n")
     }
 
     mutating func visitOrderedList(_ orderedList: OrderedList) {
-        if orderedList.startIndex == 1 {
-            html.append("<ol>\n")
-        } else {
-            html.append("<ol start=\"")
+        html.append("<ol")
+        html.append(lineMarkup(orderedList))
+        if orderedList.startIndex != 1 {
+            html.append(" start=\"")
             html.append(String(orderedList.startIndex))
-            html.append("\">\n")
+            html.append("\"")
         }
+        html.append(">\n")
         descendInto(orderedList)
         html.append("</ol>\n")
     }
@@ -92,13 +106,17 @@ private struct HTMLRenderingWalker: MarkupWalker {
     mutating func visitListItem(_ listItem: ListItem) {
         if let checkbox = listItem.checkbox {
             let checked = checkbox == .checked ? " checked" : ""
-            html.append("<li class=\"task\"><input type=\"checkbox\" disabled")
+            html.append("<li class=\"task\"")
+            html.append(lineMarkup(listItem))
+            html.append("><input type=\"checkbox\" disabled")
             html.append(checked)
             html.append(">")
             descendInto(listItem)
             html.append("</li>\n")
         } else {
-            html.append("<li>")
+            html.append("<li")
+            html.append(lineMarkup(listItem))
+            html.append(">")
             descendInto(listItem)
             html.append("</li>\n")
         }
@@ -107,7 +125,9 @@ private struct HTMLRenderingWalker: MarkupWalker {
     mutating func visitTable(_ table: Table) {
         let previousAlignments = alignments
         alignments = table.columnAlignments
-        html.append("<div class=\"table-wrap\">\n<table>\n")
+        html.append("<div class=\"table-wrap\"")
+        html.append(lineMarkup(table))
+        html.append(">\n<table>\n")
         descendInto(table)
         html.append("</table>\n</div>\n")
         alignments = previousAlignments
@@ -130,7 +150,9 @@ private struct HTMLRenderingWalker: MarkupWalker {
     }
 
     mutating func visitTableRow(_ tableRow: Table.Row) {
-        html.append("<tr>\n")
+        html.append("<tr")
+        html.append(lineMarkup(tableRow))
+        html.append(">\n")
         descendInto(tableRow)
         html.append("</tr>\n")
     }
@@ -242,6 +264,16 @@ private struct HTMLRenderingWalker: MarkupWalker {
         html.append("<code>")
         html.append(HTMLText.escape(symbolLink.destination ?? ""))
         html.append("</code>")
+    }
+
+    /// `data-line` / `data-end` are 1-based source lines. `data-end` is inclusive.
+    /// The type is spelled out so it cannot be confused with XYZCore's edit range.
+    private func lineMarkup(_ markup: Markup) -> String {
+        guard let range: Range<SourceLocation> = markup.range else { return "" }
+        let start = range.lowerBound.line
+        guard start > 0 else { return "" }
+        let end = max(start, range.upperBound.line)
+        return " data-line=\"\(start)\" data-end=\"\(end)\""
     }
 
     private static func alignmentAttribute(_ alignment: Table.ColumnAlignment?) -> String {

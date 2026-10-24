@@ -8,6 +8,9 @@ final class XYZMacTextView: NSTextView {
     weak var documentUndoManager: UndoManager?
     var onAppearanceChange: (() -> Void)?
     var allowsMarkup = true
+    /// Restored once, after the view is in a window and the inset matches the pane.
+    private var pendingAnchor: EditorScrollAnchor?
+    private var isAligning = false
 
     override var undoManager: UndoManager? {
         documentUndoManager ?? super.undoManager
@@ -92,29 +95,41 @@ final class XYZMacTextView: NSTextView {
 
     override func layout() {
         super.layout()
+        guard !isAligning else { return }
         guard let width = enclosingScrollView?.contentSize.width, width > 1 else { return }
         let side = XYZEditorStyle.sideInset(for: width)
         let next = NSSize(width: side, height: XYZEditorStyle.markdown.verticalInset)
         if textContainerInset != next {
             textContainerInset = next
+            needsLayout = true
+            return
         }
+        alignIfReady()
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        guard window != nil else { return }
+        layoutSubtreeIfNeeded()
+        alignIfReady()
     }
 
     func scrollAnchor() -> EditorScrollAnchor {
         guard let scroll = enclosingScrollView else {
-            return EditorScrollAnchor(fraction: 0, probe: "")
+            ViewAnchorLog.captured(from: "source", line: 1)
+            return EditorScrollAnchor(fraction: 0, probe: "", line: 1)
         }
         let visible = scroll.contentView.bounds
         let span = max(bounds.height - visible.height, 1)
         let fraction = min(1, max(0, visible.origin.y / span))
-        let point = convert(NSPoint(x: visible.midX, y: visible.minY + 4), from: scroll.contentView)
-        let index = characterIndexForInsertion(at: point)
+        let line = viewportTopLine()
+        ViewAnchorLog.captured(from: "source", line: line)
         let ns = string as NSString
-        guard index != NSNotFound, index >= 0, ns.length > 0 else {
-            return EditorScrollAnchor(fraction: fraction, probe: "")
+        let location = min(max(0, EditorScrollAnchor.utf16Location(ofLine: line, in: string)), max(ns.length - 1, 0))
+        guard ns.length > 0 else {
+            return EditorScrollAnchor(fraction: fraction, probe: "", line: line)
         }
-        let safe = min(index, ns.length - 1)
-        let range = ns.lineRange(for: NSRange(location: safe, length: 0))
+        let range = ns.lineRange(for: NSRange(location: location, length: 0))
         var content = range
         if content.length > 0 {
             let last = ns.character(at: NSMaxRange(content) - 1)
@@ -123,13 +138,103 @@ final class XYZMacTextView: NSTextView {
             }
         }
         let probe = EditorScrollAnchor.probe(from: ns.substring(with: content))
-        return EditorScrollAnchor(fraction: fraction, probe: probe)
+        return EditorScrollAnchor(fraction: fraction, probe: probe, line: line)
     }
 
+    /// Remember the line and align on the next layout that has a window and a real inset.
+    /// One scroll. `scrollRangeToVisible` is not used: it only guarantees the line is somewhere in view.
     func reveal(_ anchor: EditorScrollAnchor) {
+        pendingAnchor = anchor
+        if window != nil {
+            layoutSubtreeIfNeeded()
+            alignIfReady()
+        }
+    }
+
+    private func alignIfReady() {
+        guard let anchor = pendingAnchor, !isAligning, window != nil else { return }
+        guard let scroll = enclosingScrollView, scroll.contentSize.width > 1, bounds.width > 1 else { return }
+        let side = XYZEditorStyle.sideInset(for: scroll.contentSize.width)
+        let expected = NSSize(width: side, height: XYZEditorStyle.markdown.verticalInset)
+        guard textContainerInset == expected else { return }
+        pendingAnchor = nil
+        scrollLineToTop(anchor)
+    }
+
+    /// Lay out from the start of the document through the target line, then put that line
+    /// where the first line sits: viewport top plus `textContainerInset`.
+    private func scrollLineToTop(_ anchor: EditorScrollAnchor) {
+        isAligning = true
+        defer { isAligning = false }
         let length = (string as NSString).length
         let location = min(max(0, anchor.utf16Location(in: string)), length)
-        scrollRangeToVisible(NSRange(location: location, length: 0))
+        let requested = anchor.line > 0 ? anchor.line : EditorScrollAnchor.lineNumber(at: location, in: string)
+        guard let scroll = enclosingScrollView else {
+            ViewAnchorLog.aligned(to: "source", requested: requested, landed: requested)
+            return
+        }
+        var y = lineOffset(utf16: location) ?? 0
+        let visible = max(scroll.contentView.bounds.height, 1)
+        if bounds.height < y + visible, let manager = textLayoutManager {
+            manager.ensureLayout(for: manager.documentRange)
+            let used = manager.usageBoundsForTextContainer
+            let fitted = ceil(used.maxY + textContainerInset.height * 2)
+            let needed = max(fitted, y + visible)
+            if bounds.height + 1 < needed {
+                setFrameSize(NSSize(width: bounds.width, height: needed))
+            }
+            y = lineOffset(utf16: location) ?? y
+        }
+        let maxY = max(0, bounds.height - scroll.contentView.bounds.height)
+        let target = min(max(0, y), maxY)
+        NSAnimationContext.beginGrouping()
+        NSAnimationContext.current.duration = 0
+        NSAnimationContext.current.allowsImplicitAnimation = false
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: target))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        NSAnimationContext.endGrouping()
+        ViewAnchorLog.aligned(to: "source", requested: requested, landed: viewportTopLine())
+    }
+
+    /// Distance from the top of the text view to the line, minus the inset.
+    /// That is the clip origin that leaves the inset above the line, matching a document opened at the top.
+    private func lineOffset(utf16: Int) -> CGFloat? {
+        guard let manager = textLayoutManager, let content = manager.textContentManager else { return nil }
+        let document = content.documentRange
+        let length = (string as NSString).length
+        let clamped = min(max(0, utf16), length)
+        let start = content.location(document.location, offsetBy: clamped) ?? document.location
+        let end = content.location(start, offsetBy: 1) ?? document.endLocation
+        manager.ensureLayout(for: NSTextRange(location: document.location, end: end))
+        let fragment = manager.textLayoutFragment(for: start)
+            ?? (clamped > 0 ? content.location(document.location, offsetBy: clamped - 1).flatMap { manager.textLayoutFragment(for: $0) } : nil)
+        guard let fragment else { return 0 }
+        let lineTop = textContainerOrigin.y + fragment.layoutFragmentFrame.minY
+        return lineTop - textContainerInset.height
+    }
+
+    /// The source line whose top is at the viewport's content top.
+    /// Uses the same fragment frame as `lineOffset`, so capture and restore name one line.
+    private func viewportTopLine() -> Int {
+        guard let scroll = enclosingScrollView,
+              let manager = textLayoutManager,
+              let content = manager.textContentManager else { return 1 }
+        let marker = scroll.contentView.bounds.origin.y + 0.5
+        var found: NSTextLayoutFragment?
+        manager.enumerateTextLayoutFragments(
+            from: content.documentRange.location,
+            options: [.ensuresLayout]
+        ) { fragment in
+            let bottom = textContainerOrigin.y + fragment.layoutFragmentFrame.maxY - textContainerInset.height
+            if bottom > marker {
+                found = fragment
+                return false
+            }
+            return true
+        }
+        guard let found else { return 1 }
+        let offset = content.offset(from: content.documentRange.location, to: found.rangeInElement.location)
+        return EditorScrollAnchor.lineNumber(at: max(0, offset), in: string)
     }
 }
 
@@ -220,12 +325,7 @@ struct XYZMacEditor: NSViewRepresentable {
         textView.allowsMarkup = markup
         textView.documentUndoManager = undoManager
         scrollLink.capture = { [weak textView] in
-            textView?.scrollAnchor() ?? EditorScrollAnchor(fraction: 0, probe: "")
-        }
-        if let anchor = scrollLink.take(for: .source) {
-            DispatchQueue.main.async { [weak textView] in
-                textView?.reveal(anchor)
-            }
+            textView?.scrollAnchor() ?? EditorScrollAnchor(fraction: 0, probe: "", line: 1)
         }
         let styleChanged = context.coordinator.monospaced != monospaced
         if styleChanged {
@@ -241,6 +341,9 @@ struct XYZMacEditor: NSViewRepresentable {
             }
         } else if styleChanged {
             context.coordinator.restyle(edited: nil)
+        }
+        if let anchor = scrollLink.take(for: .source) {
+            textView.reveal(anchor)
         }
     }
 

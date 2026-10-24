@@ -8,6 +8,9 @@ final class XYZIOSTextView: UITextView {
     weak var documentUndoManager: UndoManager?
     var allowsMarkup = true
     var isApplyingMarkupEdit = false
+    /// Restored once, after the view is in a window and the inset matches the pane.
+    private var pendingAnchor: EditorScrollAnchor?
+    private var isAligning = false
 
     override var undoManager: UndoManager? {
         documentUndoManager ?? super.undoManager
@@ -20,6 +23,7 @@ final class XYZIOSTextView: UITextView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        guard !isAligning else { return }
         let width = bounds.width
         guard width > 1 else { return }
         let side = XYZEditorStyle.sideInset(for: width)
@@ -32,28 +36,38 @@ final class XYZIOSTextView: UITextView {
         if textContainerInset != next {
             textContainerInset = next
         }
+        alignIfReady()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        guard window != nil else { return }
+        alignIfReady()
     }
 
     func scrollAnchor() -> EditorScrollAnchor {
         let span = max(contentSize.height - bounds.height, 1)
         let fraction = min(1, max(0, contentOffset.y / span))
-        let point = CGPoint(x: textContainerInset.left + 8, y: contentOffset.y + textContainerInset.top + 4)
-        guard let position = closestPosition(to: point), let text else {
-            return EditorScrollAnchor(fraction: fraction, probe: "")
-        }
-        let ns = text as NSString
+        let line = viewportTopLine()
+        ViewAnchorLog.captured(from: "source", line: line)
+        let value = text ?? ""
+        let ns = value as NSString
         guard ns.length > 0 else {
-            return EditorScrollAnchor(fraction: fraction, probe: "")
+            return EditorScrollAnchor(fraction: fraction, probe: "", line: line)
         }
-        let index = min(max(0, offset(from: beginningOfDocument, to: position)), ns.length - 1)
-        var range = ns.lineRange(for: NSRange(location: index, length: 0))
+        let location = min(max(0, EditorScrollAnchor.utf16Location(ofLine: line, in: value)), ns.length - 1)
+        var range = ns.lineRange(for: NSRange(location: location, length: 0))
         if range.length > 0 {
             let last = ns.character(at: NSMaxRange(range) - 1)
             if last == 0x0A || last == 0x0D {
                 range.length -= 1
             }
         }
-        return EditorScrollAnchor(fraction: fraction, probe: EditorScrollAnchor.probe(from: ns.substring(with: range)))
+        return EditorScrollAnchor(
+            fraction: fraction,
+            probe: EditorScrollAnchor.probe(from: ns.substring(with: range)),
+            line: line
+        )
     }
 
     override var keyCommands: [UIKeyCommand]? {
@@ -108,15 +122,83 @@ final class XYZIOSTextView: UITextView {
         return true
     }
 
+    /// Remember the line and align on the next layout that has a window and a real inset. One scroll.
     func reveal(_ anchor: EditorScrollAnchor) {
-        let location = anchor.utf16Location(in: text ?? "")
-        let start = position(from: beginningOfDocument, offset: location) ?? beginningOfDocument
-        scrollRangeToVisible(NSRange(location: location, length: 0))
-        let rect = caretRect(for: start)
-        scrollRectToVisible(
-            CGRect(x: 0, y: max(0, rect.minY - textContainerInset.top), width: 1, height: bounds.height),
-            animated: false
-        )
+        pendingAnchor = anchor
+        alignIfReady()
+        setNeedsLayout()
+    }
+
+    private func alignIfReady() {
+        guard let anchor = pendingAnchor, !isAligning, window != nil, bounds.width > 1 else { return }
+        let side = XYZEditorStyle.sideInset(for: bounds.width)
+        let top = XYZEditorStyle.markdown.verticalInset
+        let inset = textContainerInset
+        guard abs(inset.top - top) < 0.5, abs(inset.left - side) < 0.5, abs(inset.right - side) < 0.5 else { return }
+        pendingAnchor = nil
+        UIView.performWithoutAnimation {
+            scrollLineToTop(anchor)
+        }
+    }
+
+    /// Lay out from the start of the document through the target line, then put that line
+    /// where the first line sits. `animated` stays false so a SwiftUI view-mode animation cannot glide the offset.
+    private func scrollLineToTop(_ anchor: EditorScrollAnchor) {
+        isAligning = true
+        defer { isAligning = false }
+        let value = text ?? ""
+        let length = (value as NSString).length
+        let location = min(max(0, anchor.utf16Location(in: value)), length)
+        let requested = anchor.line > 0 ? anchor.line : EditorScrollAnchor.lineNumber(at: location, in: value)
+        var y = lineOffset(utf16: location) ?? 0
+        if contentSize.height < y + bounds.height, let manager = textLayoutManager {
+            manager.ensureLayout(for: manager.documentRange)
+            layoutIfNeeded()
+            y = lineOffset(utf16: location) ?? y
+        }
+        let maxY = max(0, contentSize.height - bounds.height)
+        let target = min(max(0, y), max(maxY, 0))
+        setContentOffset(CGPoint(x: contentOffset.x, y: target), animated: false)
+        ViewAnchorLog.aligned(to: "source", requested: requested, landed: viewportTopLine())
+    }
+
+    private func lineOffset(utf16: Int) -> CGFloat? {
+        guard let manager = textLayoutManager, let content = manager.textContentManager else { return nil }
+        let document = content.documentRange
+        let value = text ?? ""
+        let length = (value as NSString).length
+        let clamped = min(max(0, utf16), length)
+        let start = content.location(document.location, offsetBy: clamped) ?? document.location
+        let end = content.location(start, offsetBy: 1) ?? document.endLocation
+        manager.ensureLayout(for: NSTextRange(location: document.location, end: end))
+        let fragment = manager.textLayoutFragment(for: start)
+            ?? (clamped > 0 ? content.location(document.location, offsetBy: clamped - 1).flatMap { manager.textLayoutFragment(for: $0) } : nil)
+        guard let fragment else { return 0 }
+        let lineTop = textContainerInset.top + fragment.layoutFragmentFrame.minY
+        return lineTop - textContainerInset.top
+    }
+
+    /// The source line whose top is at the viewport's content top.
+    /// Uses the same fragment frame as `lineOffset`, so capture and restore name one line.
+    private func viewportTopLine() -> Int {
+        let value = text ?? ""
+        guard let manager = textLayoutManager, let content = manager.textContentManager else { return 1 }
+        let marker = contentOffset.y + 0.5
+        var found: NSTextLayoutFragment?
+        manager.enumerateTextLayoutFragments(
+            from: content.documentRange.location,
+            options: [.ensuresLayout]
+        ) { fragment in
+            let bottom = textContainerInset.top + fragment.layoutFragmentFrame.maxY - textContainerInset.top
+            if bottom > marker {
+                found = fragment
+                return false
+            }
+            return true
+        }
+        guard let found else { return 1 }
+        let offset = content.offset(from: content.documentRange.location, to: found.rangeInElement.location)
+        return EditorScrollAnchor.lineNumber(at: max(0, offset), in: value)
     }
 }
 
@@ -182,12 +264,7 @@ struct XYZIOSEditor: UIViewRepresentable {
         textView.allowsMarkup = markup
         textView.documentUndoManager = undoManager
         scrollLink.capture = { [weak textView] in
-            textView?.scrollAnchor() ?? EditorScrollAnchor(fraction: 0, probe: "")
-        }
-        if let anchor = scrollLink.take(for: .source) {
-            DispatchQueue.main.async { [weak textView] in
-                textView?.reveal(anchor)
-            }
+            textView?.scrollAnchor() ?? EditorScrollAnchor(fraction: 0, probe: "", line: 1)
         }
         let styleChanged = context.coordinator.monospaced != monospaced
         if styleChanged {
@@ -202,6 +279,9 @@ struct XYZIOSEditor: UIViewRepresentable {
             }
         }
         applyTypingStyle(to: textView, monospaced: monospaced, restyleStorage: styleChanged || replaced)
+        if let anchor = scrollLink.take(for: .source) {
+            textView.reveal(anchor)
+        }
     }
 
     func makeCoordinator() -> Coordinator {
