@@ -8,10 +8,10 @@ New documents are Markdown (`.md`). The app also opens and saves `.markdown` and
 
 ## What you see
 
-- A proportional text editor in the system font (SF Pro, with PingFang SC for Chinese), 16pt, with a line box about 1.7 times the font size so wrapped lines and hard returns share one rhythm. The text uses the width of the pane, with side padding that stays between 24 and 64 points. Markdown markers are tinted and headings are slightly larger. Settings → Monospaced editor font switches the editor to a fixed-width face. On the Mac the view is an `NSTextView`; on iOS it is a `UITextView`. Both use TextKit 2. In a Markdown file, Return continues a list (and leaves the list on an empty item), Tab and Shift-Tab indent it, and ⌘B / ⌘I toggle bold and italic. Plain text does not get those edits.
+- A proportional text editor in the system font (SF Pro, with PingFang SC for Chinese), 16pt, with a line box about 1.7 times the font size so wrapped lines and hard returns share one rhythm. The text uses the width of the pane, with side padding that stays between 24 and 64 points. Markdown markers are tinted and headings are slightly larger. Settings chooses the font (Default or Monospaced) and the size, and can limit the line width (see Settings below). On the Mac the view is an `NSTextView`; on iOS it is a `UITextView`. Both use TextKit 2. In a Markdown file, Return continues a list (and leaves the list on an empty item), Tab and Shift-Tab indent it, and the Format menu edits Markdown (see Format below). Plain text does not get those edits.
 - A Markdown note is either Source (the editor) or Reading (the rendered note). The content area shows one of them. The choice is remembered for each folder window, and for a document window while it is open. A newly opened file uses Reading only when that window was last in Reading. The reading and editing surface has no buttons of its own, including the toolbar above it. The sidebar toggle stays on the sidebar side.
 - On iPhone and iPad the same two modes are in the View menu.
-- Reading renders headings, emphasis, lists, task lists, links, images (as tags), tables, code, and blockquotes. Wide tables scroll sideways inside the page. The page uses the same side padding as the editor, a line height of 1.75, and hanging punctuation where the system supports it. It follows light and dark mode. Code uses one monospace face in both.
+- Reading renders headings, emphasis, lists, task lists, links, pictures, tables, code, and blockquotes. Wide tables scroll sideways inside the page. Fenced code that names its language is colored. Pictures with a relative path load from the note's folder. A `#fragment` link scrolls to the heading with that id, and a relative link opens the file it names. The page uses the same side padding as the editor, a line height of 1.75, and hanging punctuation where the system supports it. It follows light and dark mode. Code uses one monospace face in both.
 
 Reading is an HTML page in one `WKWebView` per window. The view stays with the window and is shown again the next time that window is in Reading. A folder window replaces the note text when you select another file. Parsing is [swift-markdown](https://github.com/swiftlang/swift-markdown) (cmark-gfm: tables, strikethrough, task lists). A separate walker turns that syntax tree into HTML. Typing waits about 220ms (a little longer for a large note), then the page body is replaced in place. The shell is loaded once; a script error does not load it again. Raw HTML in the file is shown as text, and `javascript:` / `data:` URLs are not turned into links. The Mac sandbox has the network client entitlement so the web content process can start. The renderer still does not request remote images. The iOS entitlements do not add that key.
 
@@ -19,9 +19,36 @@ Reading is an HTML page in one `WKWebView` per window. The view stays with the w
 
 The View menu lists Source and Reading. ⌘/ is Source Code Mode, as in [Typora's shortcut list](https://support.typora.io/Shortcut-Keys/). It switches Source and Reading. ⌘E is Edit → Use Selection for Find. ⌘1 through ⌘9 are left unbound so window tabs can use them. Find in the open note stays ⌘F. XYZ has no print command; Print is ⌘⇧⌥P, and ⌘P opens the command palette.
 
-⌘P is Quick Open. An empty field lists files opened in that folder, most recent first. Typing matches any file, and the matched characters are semibold. A leading `>` lists commands (view modes, sidebar, new file, new folder, Open Folder, Reveal in Finder, Copy Path, Reload, About XYZ) and shows each shortcut on the right. ↑ and ↓, or ⌃P and ⌃N, move the selection. Return runs it. ⌘Return opens a file in a new window. Esc or a click outside dismisses the palette. It is not a button on the note.
+⌘P is Quick Open. An empty field lists files opened in that folder, most recent first. Typing matches any file, and the matched characters are semibold. A leading `>` lists commands (view modes, Go to Heading, sidebar, new file, new folder, Open Folder, Reveal in Finder, Copy Path, Reload, About XYZ) and shows each shortcut on the right. A leading `@` lists the note's headings, deeper ones indented; View → Go to Heading… (⌘R) opens the palette that way. Choosing a heading puts the caret on it in Source, or scrolls Reading to it. ↑ and ↓, or ⌃P and ⌃N, move the selection. Return runs it. ⌘Return opens a file in a new window. Esc or a click outside dismisses the palette. It is not a button on the note.
 
 The sidebar filter is a native search field. On macOS 26 and later the command palette uses Liquid Glass when Reduce Transparency and Increase Contrast are off. Earlier systems keep a sidebar material and a material palette.
+
+## Format
+
+The Format menu edits the Markdown source. Its items are enabled while a Markdown editor has focus, and dimmed in Reading and in plain text. Shortcuts follow Typora where macOS leaves them free; headings use ⌥⌘ because ⌘1 to ⌘9 stay with window tabs.
+
+| Item | Shortcut | Item | Shortcut |
+|---|---|---|---|
+| Bold | ⌘B | Quote | ⌥⌘Q |
+| Italic | ⌘I | Bulleted List | ⌥⌘U |
+| Strikethrough | ⇧⌘X | Numbered List | ⌥⌘O |
+| Inline Code | ⌃` | Task List | ⌥⌘X |
+| Link | ⌘K | Code Block | ⌥⌘C |
+| Heading → Paragraph | ⌥⌘0 | Table | |
+| Heading → Heading 1 to 6 | ⌥⌘1 to ⌥⌘6 | | |
+
+Inline formats wrap the selection, or unwrap it when it is already wrapped. Line formats apply to every line the selection touches: choosing the level a heading already has, or a list kind the lines already are, turns it off. A numbered list is renumbered from 1. Link wraps the selection as `[text]()` with the caret in the parentheses; a selected web address becomes the destination instead. Code Block fences the lines and leaves the caret where the language goes. Lines inside a code fence are left alone. Each command is one undo step.
+
+## Settings
+
+XYZ → Settings… is one pane:
+
+- Appearance: System, Light, or Dark, for the whole app.
+- Language: System, English, or 简体中文. It sets the app's own language list; XYZ uses the new language after it restarts, and Restart Now does that.
+- Text: Default or Monospaced font; a size from 12 to 24 pt shared by Source and Reading; and Limit line width, which keeps a line near 42 em (about 42 Chinese characters) in wide windows. View → Zoom In (⌘+), Zoom Out (⌘−), and Actual Size (⌘0) step the same size.
+- View: Show word count. A quiet line under the note shows the count and the reading time. Chinese and Japanese count by character, other languages by word. View → Show Word Count is the same switch.
+
+The interface is in English and Simplified Chinese, from `XYZ/Resources/Localizable.xcstrings`. Menu code finds the system menus by their actions rather than their titles, so it works in either language.
 
 ## Layout
 
@@ -29,7 +56,9 @@ The sidebar filter is a native search field. On macOS 26 and later the command p
 
 - `TextDocument` reads and writes UTF-8.
 - `MarkdownFileDocument` is the `ReferenceFileDocument` the document scene saves. The text view keeps the buffer; SwiftUI is not given a new string on every keystroke.
-- `MarkdownParser` builds the syntax tree. `HTMLRenderer` only walks a tree. `MarkdownHTML` is the small public wrapper.
+- `MarkdownParser` builds the syntax tree. `HTMLRenderer` only walks a tree, and gives headings GitHub-style ids. `MarkdownHTML` is the small public wrapper.
+- `SourceEditing` holds the typing and Format edits as pure functions from text and selection to one replacement.
+- `MarkdownOutline` lists headings with their source lines. `TextStatistics` counts words and characters.
 
 The app target is shared SwiftUI. `XYZMacEditor` and `XYZIOSEditor` are the platform text views. They share `XYZEditor` / `XYZTextEditing`. The Mac editor applies light heading and marker styling in the text storage without putting those attributes in the saved file. Find and replace, and large-file updates, can still land on `textLayoutManager`.
 
@@ -137,5 +166,7 @@ The icon is the name, `_xyz`, set in Inter and converted to outlines, on a soft 
 XYZ is released under the [MIT License](LICENSE). Copyright (c) 2026 lizhichaox.
 
 Parsing uses [swift-markdown](https://github.com/swiftlang/swift-markdown), which is licensed under the Apache License 2.0.
+
+Reading colors code with [highlight.js](https://highlightjs.org) 11.11.1 (common languages), bundled as `XYZ/Resources/highlight.min.js` under the BSD 3-Clause License.
 
 The app icon wordmark is set in Inter (SIL Open Font License 1.1) and converted to outlines. The source vectors are in `Design/Icon/`.

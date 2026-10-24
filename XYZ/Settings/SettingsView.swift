@@ -44,7 +44,7 @@ struct SettingsView: View {
 
             Section("Text") {
                 Picker("Font", selection: $monospaced) {
-                    Text("System").tag(false)
+                    Text("Default").tag(false)
                     Text("Monospaced").tag(true)
                 }
                 .pickerStyle(.segmented)

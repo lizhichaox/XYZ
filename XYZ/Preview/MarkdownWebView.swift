@@ -163,11 +163,11 @@ final class ReadingSurface: NSView, NSSearchFieldDelegate {
         super.init(frame: frameRect)
         findHost.translatesAutoresizingMaskIntoConstraints = false
         findField.translatesAutoresizingMaskIntoConstraints = false
-        findField.placeholderString = "Find"
+        findField.placeholderString = String(localized: "Find")
         findField.focusRingType = .none
         findField.controlSize = .regular
         findField.delegate = self
-        findField.setAccessibilityLabel("Find in note")
+        findField.setAccessibilityLabel(String(localized: "Find in note"))
         findField.setContentHuggingPriority(.required, for: .vertical)
         findField.setContentCompressionResistancePriority(.required, for: .vertical)
         findHost.setContentCompressionResistancePriority(.required, for: .vertical)
@@ -358,7 +358,7 @@ private enum PreviewWebViewFactory {
         webView.allowsBackForwardNavigationGestures = false
         webView.allowsLinkPreview = true
         #if os(macOS)
-        webView.setAccessibilityLabel("Markdown preview")
+        webView.setAccessibilityLabel(String(localized: "Markdown preview"))
         #endif
         PreviewWebChrome.apply(to: webView)
         #if DEBUG

@@ -291,7 +291,7 @@ struct XYZMacEditor: NSViewRepresentable {
             width: CGFloat.greatestFiniteMagnitude,
             height: CGFloat.greatestFiniteMagnitude
         )
-        textView.setAccessibilityLabel("Markdown editor")
+        textView.setAccessibilityLabel(String(localized: "Markdown editor"))
 
         context.coordinator.textView = textView
         context.coordinator.onTextChange = onTextChange

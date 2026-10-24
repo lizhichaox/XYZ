@@ -223,7 +223,7 @@ final class EditorCommands: NSObject {
             return target?.supportsWorkspaceFiles == true
         case "xyz.workspace.hidden":
             let shown = target?.showsHiddenFiles == true
-            menuItem.title = shown ? "Hide Hidden Files" : "Show Hidden Files"
+            menuItem.title = shown ? String(localized: "Hide Hidden Files") : String(localized: "Show Hidden Files")
             return target?.supportsWorkspaceFiles == true
         case "xyz.commandPalette":
             return true
@@ -234,6 +234,37 @@ final class EditorCommands: NSObject {
 
     private func invocationSource() -> String {
         NSApp.currentEvent?.type == .keyDown ? "shortcut" : "menu"
+    }
+}
+
+/// Palette titles in the interface language. XYZCore keeps the English titles; the English
+/// title stays a keyword, so typing it still finds the command in Chinese.
+enum PaletteTitles {
+    static func localized(_ command: PaletteCommand) -> PaletteCommand {
+        guard let title = title(for: command.id), title != command.title else { return command }
+        var copy = command
+        copy.keywords.append(command.title)
+        copy.title = title
+        return copy
+    }
+
+    private static func title(for id: String) -> String? {
+        switch id {
+        case "view.source": return String(localized: "Source")
+        case "view.reading": return String(localized: "Reading")
+        case "view.toggleSource": return String(localized: "Toggle Source and Reading")
+        case "view.goToHeading": return String(localized: "Go to Heading")
+        case "workspace.toggleSidebar": return String(localized: "Toggle Sidebar")
+        case "workspace.focusFilter": return String(localized: "Filter Files")
+        case "file.new": return String(localized: "New File")
+        case "folder.new": return String(localized: "New Folder")
+        case "folder.open": return String(localized: "Open Folder")
+        case "file.reveal": return String(localized: "Reveal in Finder")
+        case "file.copyPath": return String(localized: "Copy Path")
+        case "file.reload": return String(localized: "Reload")
+        case "app.about": return String(localized: "About XYZ")
+        default: return nil
+        }
     }
 }
 
@@ -263,7 +294,7 @@ enum EditorMenuSupport {
         defer { ensuring = false }
         guard let main = NSApp.mainMenu else { return }
         remapConflictingShortcuts(in: main)
-        if let view = menu(titled: "View", in: main) {
+        if let view = viewMenu(in: main) {
             ensureViewItems(in: view)
         }
         if let file = fileMenu(in: main) {
@@ -279,7 +310,7 @@ enum EditorMenuSupport {
             if isUseSelectionForFind(item) {
                 item.keyEquivalent = "e"
                 item.keyEquivalentModifierMask = .command
-            } else if item.title == "Print…" || item.title == "Print" {
+            } else if isPrint(item) {
                 item.keyEquivalent = "p"
                 item.keyEquivalentModifierMask = [.command, .shift, .option]
             } else if key == "p", flags == .command, item.identifier?.rawValue != "xyz.commandPalette" {
@@ -358,7 +389,7 @@ enum EditorMenuSupport {
     private static func ensureFileItems(in menu: NSMenu) {
         let filter = item(
             identifier: "xyz.workspace.filter",
-            title: "Filter Files",
+            title: String(localized: "Filter Files"),
             key: "f",
             flags: [.command, .shift],
             action: #selector(EditorCommands.focusFilter(_:)),
@@ -366,13 +397,13 @@ enum EditorMenuSupport {
         )
         let hidden = item(
             identifier: "xyz.workspace.hidden",
-            title: "Hide Hidden Files",
+            title: String(localized: "Hide Hidden Files"),
             key: ".",
             flags: [.command, .shift],
             action: #selector(EditorCommands.toggleHidden(_:)),
             in: menu
         )
-        let anchor = menu.items.first { $0.title == "Open Folder…" }
+        let anchor = menu.items.first { $0.title == FileMenuSupport.title }
         if let anchor, let index = menu.items.firstIndex(of: anchor) {
             move(filter, to: min(index + 1, menu.items.count), in: menu)
             move(hidden, to: min((menu.items.firstIndex(of: filter) ?? index) + 1, menu.items.count), in: menu)
@@ -435,17 +466,41 @@ enum EditorMenuSupport {
         menu.insertItem(item, at: min(adjusted, menu.items.count))
     }
 
-    private static func menu(titled title: String, in menu: NSMenu) -> NSMenu? {
-        menu.items.first { $0.title == title }?.submenu
+    /// Found by what it holds, not its title, which is 显示 in Chinese.
+    private static func viewMenu(in main: NSMenu) -> NSMenu? {
+        let menus = main.items.compactMap(\.submenu)
+        if let ours = menus.first(where: { $0.items.contains { $0.identifier?.rawValue == "xyz.mode.source" } }) {
+            return ours
+        }
+        let viewOnly = ["toggleTabBar:", "toggleTabOverview:", "toggleToolbarShown:", "toggleSidebar:"].map(NSSelectorFromString)
+        if let found = menus.first(where: { menu in
+            menu.items.contains { item in item.action.map { viewOnly.contains($0) } ?? false }
+        }) {
+            return found
+        }
+        let fullScreen = NSSelectorFromString("toggleFullScreen:")
+        if let found = menus.first(where: { $0.items.contains { $0.action == fullScreen } }) {
+            return found
+        }
+        return main.items.first { $0.title == "View" || $0.title == String(localized: "View") }?.submenu
     }
 
+    /// The menu with Open… (⌘O) or Open Folder…, in any language.
     private static func fileMenu(in menu: NSMenu) -> NSMenu? {
-        if let view = menu.items.first(where: { $0.title == "File" })?.submenu {
-            return view
+        menu.items.compactMap(\.submenu).first { submenu in
+            submenu.items.contains { item in
+                item.title == FileMenuSupport.title
+                    || item.action == #selector(NSDocumentController.openDocument(_:))
+                    || (item.keyEquivalent.lowercased() == "o" && item.keyEquivalentModifierMask == .command)
+            }
         }
-        return menu.items.compactMap(\.submenu).first { submenu in
-            submenu.items.contains { $0.title == "Open Folder…" || $0.title == "Open…" }
+    }
+
+    private static func isPrint(_ item: NSMenuItem) -> Bool {
+        if item.action == #selector(NSDocument.printDocument(_:)) || item.action == NSSelectorFromString("print:") {
+            return true
         }
+        return item.title == "Print…" || item.title == "Print" || item.title == String(localized: "Print…")
     }
 }
 
@@ -529,7 +584,7 @@ enum AboutWindow {
             backing: .buffered,
             defer: false
         )
-        panel.title = "About XYZ"
+        panel.title = String(localized: "About XYZ")
         panel.isReleasedWhenClosed = false
         panel.hidesOnDeactivate = false
         let content = panel.contentView ?? NSView()
@@ -538,7 +593,7 @@ enum AboutWindow {
         icon.image = NSApp.applicationIconImage
         icon.imageScaling = .scaleProportionallyUpOrDown
         icon.translatesAutoresizingMaskIntoConstraints = false
-        icon.setAccessibilityLabel("Application icon")
+        icon.setAccessibilityLabel(String(localized: "Application icon"))
 
         let version = NSTextField(labelWithString: versionLine())
         version.alignment = .center
@@ -555,7 +610,7 @@ enum AboutWindow {
         credit.textStorage?.setAttributedString(creditLine())
         credit.delegate = links
         credit.translatesAutoresizingMaskIntoConstraints = false
-        credit.setAccessibilityLabel("Made by LIZHICHAO with 💗")
+        credit.setAccessibilityLabel(creditLine().string)
 
         content.addSubview(icon)
         content.addSubview(version)
@@ -583,7 +638,7 @@ enum AboutWindow {
     }
 
     private static func creditLine() -> NSAttributedString {
-        let line = "Made by LIZHICHAO with 💗"
+        let line = String(localized: "Made by LIZHICHAO with 💗")
         let text = line as NSString
         let attributed = NSMutableAttributedString(string: line)
         let full = NSRange(location: 0, length: text.length)
@@ -633,7 +688,7 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
     private var table: NSTableView?
     private var empty: NSTextField?
     private weak var target: EditorCommandTarget?
-    private var registry = PaletteCommandRegistry()
+    private var registry = PaletteCommandRegistry(commands: PaletteCommand.builtIn.map(PaletteTitles.localized))
     private var rows: [PaletteRow] = []
     /// The note's headings, read once per show the first time the query starts with `@`.
     private var headings: [OutlineHeading]?
@@ -731,7 +786,7 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
             defer: false
         )
         panel.delegate = self
-        panel.title = "Command Palette"
+        panel.title = String(localized: "Command Palette")
         panel.isFloatingPanel = true
         panel.level = .floating
         panel.isOpaque = false
@@ -743,14 +798,14 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
         panel.isReleasedWhenClosed = false
 
         let search = NSSearchField()
-        search.placeholderString = "Go to file, > for commands, @ for headings"
+        search.placeholderString = String(localized: "Go to file, > for commands, @ for headings")
         search.delegate = self
         search.controlSize = .regular
         search.focusRingType = .none
         search.setContentHuggingPriority(.required, for: .vertical)
         search.setContentCompressionResistancePriority(.required, for: .vertical)
         search.translatesAutoresizingMaskIntoConstraints = false
-        search.setAccessibilityLabel("Command Palette")
+        search.setAccessibilityLabel(String(localized: "Command Palette"))
         self.search = search
 
         let table = NSTableView()
@@ -778,7 +833,7 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
         scroll.documentView = table
         scroll.translatesAutoresizingMaskIntoConstraints = false
 
-        let empty = NSTextField(labelWithString: "No matches")
+        let empty = NSTextField(labelWithString: String(localized: "No matches"))
         empty.alignment = .center
         empty.textColor = .secondaryLabelColor
         empty.font = .systemFont(ofSize: 13)

@@ -245,9 +245,9 @@ private struct WorkspaceDetail: View {
     private func placeholder(for buffer: WorkspaceFileBuffer) -> some View {
         let tooLarge = buffer.kind == .tooLarge
         return ContentUnavailableView {
-            Label(tooLarge ? "File Too Large" : "Can't Edit This File", systemImage: "doc")
+            Label(tooLarge ? LocalizedStringKey("File Too Large") : LocalizedStringKey("Can't Edit This File"), systemImage: "doc")
         } description: {
-            Text(tooLarge ? "This file is too large to edit in XYZ." : "XYZ doesn't edit this file.")
+            Text(tooLarge ? LocalizedStringKey("This file is too large to edit in XYZ.") : LocalizedStringKey("XYZ doesn't edit this file."))
         } actions: {
             Button("Open with Default App") {
                 NSWorkspace.shared.open(buffer.url)
@@ -258,10 +258,10 @@ private struct WorkspaceDetail: View {
     private var banner: String? {
         guard let buffer = session.buffer else { return nil }
         if buffer.isMissing {
-            return "This file was removed from the folder."
+            return String(localized: "This file was removed from the folder.")
         }
         if buffer.conflictText != nil {
-            return "This file changed on disk."
+            return String(localized: "This file changed on disk.")
         }
         return buffer.status
     }

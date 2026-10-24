@@ -120,6 +120,32 @@ jobs:
           kill "$PID" || true
           exit 1
 
+      - name: Check Open Folder menu in Chinese
+        if: steps.macos.conclusion == 'success'
+        run: |
+          set -euo pipefail
+          APP="$(find "$PWD/build/macos/Build/Products" -name 'XYZ.app' -type d | head -n 1)"
+          test -d "$APP"
+          codesign --force --deep --sign - "$APP"
+          test -d "$APP/Contents/Resources/zh-Hans.lproj"
+          LOG="$PWD/build/macos/menu-zh.log"
+          "$APP/Contents/MacOS/XYZ" -XYZCheckFileMenu -AppleLanguages '(zh-Hans)' -ApplePersistenceIgnoreState YES >"$LOG" 2>&1 &
+          PID=$!
+          CODE=0
+          for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+            if ! kill -0 "$PID" 2>/dev/null; then
+              wait "$PID" || CODE=$?
+              cat "$LOG"
+              grep -q "打开文件夹…" "$LOG"
+              exit "$CODE"
+            fi
+            sleep 1
+          done
+          echo "Timed out waiting for the File menu check"
+          cat "$LOG" || true
+          kill "$PID" || true
+          exit 1
+
       - name: Build iOS Simulator
         if: ${{ !cancelled() }}
         run: |

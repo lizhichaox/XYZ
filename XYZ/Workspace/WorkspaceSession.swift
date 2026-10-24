@@ -209,7 +209,7 @@ final class WorkspaceSession: ObservableObject {
                     try Data().write(to: destination, options: .atomic)
                 }
             } catch {
-                await MainActor.run { self?.actionFailed("Couldn't create this item.") }
+                await MainActor.run { self?.actionFailed(String(localized: "Couldn't create this item.")) }
                 return
             }
             await MainActor.run {
@@ -231,19 +231,19 @@ final class WorkspaceSession: ObservableObject {
 
     /// Nil when the rename landed. A string is a message safe to show in an alert.
     func rename(relativePath: String, to rawName: String) -> String? {
-        if let issue = WorkspaceItemName.issue(with: rawName) { return issue }
+        if let issue = WorkspaceItemName.issue(with: rawName) { return String(localized: String.LocalizationValue(issue)) }
         let name = WorkspaceItemName.normalized(rawName)
         let current = (relativePath as NSString).lastPathComponent
         if name == current { return nil }
         let parent = WorkspacePaths.parent(of: relativePath)
         if (children[parent] ?? []).contains(where: { $0.name == name }) {
-            return "An item with that name already exists."
+            return String(localized: "An item with that name already exists.")
         }
         let destination = WorkspacePaths.child(parent: parent, name: name)
         do {
             try FileManager.default.moveItem(at: url(for: relativePath), to: url(for: destination))
         } catch {
-            return "Couldn't rename this item."
+            return String(localized: "Couldn't rename this item.")
         }
         retarget(from: relativePath, to: destination)
         if buffer?.relativePath == relativePath {
@@ -286,7 +286,7 @@ final class WorkspaceSession: ObservableObject {
             }
             try FileManager.default.moveItem(at: url(for: relativePath), to: url(for: destination))
         } catch {
-            return "Couldn't move this item."
+            return String(localized: "Couldn't move this item.")
         }
         retarget(from: relativePath, to: destination)
         if buffer?.relativePath == relativePath {
@@ -582,7 +582,7 @@ final class WorkspaceSession: ObservableObject {
                     self.noteOpenFileStillPresent(parent: parent, nodes: nodes)
                     self.scheduleIndex()
                 case .failure:
-                    let message = "Couldn't read this folder."
+                    let message = String(localized: "Couldn't read this folder.")
                     self.loadErrors[parent] = message
                     if parent.isEmpty {
                         self.rootError = message
@@ -751,7 +751,7 @@ final class WorkspaceFileBuffer: ObservableObject {
         isMissing = true
         if text != lastSaved {
             conflictText = nil
-            status = "This file was removed. Overwrite to save your edits back."
+            status = String(localized: "This file was removed. Overwrite to save your edits back.")
         }
     }
 
@@ -797,10 +797,10 @@ final class WorkspaceFileBuffer: ObservableObject {
                 }
             case .conflict:
                 conflictText = disk
-                status = disk == nil ? "This file was removed." : "This file changed on disk."
+                status = disk == nil ? String(localized: "This file was removed.") : String(localized: "This file changed on disk.")
             }
         } catch {
-            status = "Couldn't save this file."
+            status = String(localized: "Couldn't save this file.")
         }
     }
 }

@@ -52,7 +52,7 @@ struct ViewModeCommands: Commands {
         }
     }
 
-    private func modeToggle(_ title: String, _ mode: EditorViewMode) -> some View {
+    private func modeToggle(_ title: LocalizedStringKey, _ mode: EditorViewMode) -> some View {
         Toggle(title, isOn: Binding(
             get: { actions?.mode == mode },
             set: { isOn in

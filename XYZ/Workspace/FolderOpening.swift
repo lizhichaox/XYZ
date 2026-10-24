@@ -200,7 +200,8 @@ final class FolderActions: NSObject {
 }
 
 enum FileMenuSupport {
-    static let title = "Open Folder…"
+    /// The same localized title SwiftUI gives `Button("Open Folder…")`, so the two are one item.
+    static let title = String(localized: "Open Folder…")
 
     private static var ensuring = false
     private static var observing = false
