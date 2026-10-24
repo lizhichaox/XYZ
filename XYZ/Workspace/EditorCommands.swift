@@ -515,7 +515,7 @@ enum AboutWindow {
 
     private static func versionLine() -> String {
         let short = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "0.0.2"
-        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "3"
+        let build = Bundle.main.object(forInfoDictionaryKey: "CFBundleVersion") as? String ?? "4"
         return "\(short) (\(build))"
     }
 
@@ -635,11 +635,16 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
         switch rows[row] {
         case .file(let file, let match):
             let title = file.relativePath.isEmpty ? file.name : file.relativePath
-            cell.apply(title: highlighted(title, indices: match.characterIndices), shortcut: "")
+            cell.apply(title: highlighted(title, indices: match.characterIndices, dimDirectory: true), shortcut: "")
         case .command(let command, let match):
-            cell.apply(title: highlighted(command.title, indices: match.characterIndices), shortcut: command.shortcut)
+            cell.apply(title: highlighted(command.title, indices: match.characterIndices, dimDirectory: false), shortcut: command.shortcut)
         }
         return cell
+    }
+
+    func tableView(_ tableView: NSTableView, rowViewForRow row: Int) -> NSTableRowView? {
+        let existing = tableView.makeView(withIdentifier: PaletteRowView.identifier, owner: self) as? PaletteRowView
+        return existing ?? PaletteRowView()
     }
 
     func tableViewSelectionDidChange(_ notification: Notification) {}
@@ -813,8 +818,12 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
 
     private func move(_ delta: Int) {
         guard !rows.isEmpty, let table else { return }
-        let current = table.selectedRow < 0 ? 0 : table.selectedRow
-        let next = min(max(0, current + delta), rows.count - 1)
+        let next: Int
+        if table.selectedRow < 0 {
+            next = delta > 0 ? 0 : rows.count - 1
+        } else {
+            next = min(max(0, table.selectedRow + delta), rows.count - 1)
+        }
         table.selectRowIndexes(IndexSet(integer: next), byExtendingSelection: false)
         table.scrollRowToVisible(next)
     }
@@ -848,24 +857,58 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
         PaletteLog.closed()
     }
 
-    private func highlighted(_ string: String, indices: [Int]) -> NSAttributedString {
+    private func highlighted(_ string: String, indices: [Int], dimDirectory: Bool) -> NSAttributedString {
         let text = NSMutableAttributedString(string: string, attributes: [
             .font: NSFont.systemFont(ofSize: 13),
             .foregroundColor: NSColor.labelColor,
         ])
+        if dimDirectory {
+            let ns = string as NSString
+            let slash = ns.range(of: "/", options: .backwards)
+            if slash.location != NSNotFound {
+                text.addAttribute(
+                    .foregroundColor,
+                    value: NSColor.tertiaryLabelColor,
+                    range: NSRange(location: 0, length: NSMaxRange(slash))
+                )
+            }
+        }
+        let emphasis = NSFont.systemFont(ofSize: 13, weight: .semibold)
         let wanted = Set(indices)
         var location = 0
         for (offset, character) in string.enumerated() {
             let piece = String(character) as NSString
             if wanted.contains(offset) {
                 text.addAttributes([
-                    .foregroundColor: NSColor.controlAccentColor,
-                    .font: NSFont.systemFont(ofSize: 13, weight: .semibold),
+                    .foregroundColor: NSColor.labelColor,
+                    .font: emphasis,
                 ], range: NSRange(location: location, length: piece.length))
             }
             location += piece.length
         }
         return text
+    }
+}
+
+/// Grey selection, so the palette stays in the black, white, and grey range.
+private final class PaletteRowView: NSTableRowView {
+    static let identifier = NSUserInterfaceItemIdentifier("xyz.palette.row")
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        identifier = Self.identifier
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func drawSelection(in dirtyRect: NSRect) {
+        guard selectionHighlightStyle != .none else { return }
+        let rect = bounds.insetBy(dx: 6, dy: 1)
+        NSColor.unemphasizedSelectedContentBackgroundColor.setFill()
+        NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6).fill()
     }
 }
 

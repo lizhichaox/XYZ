@@ -189,9 +189,10 @@ public enum CommandPalette {
     }
 
     private static func fileRows(query: String, files: [PaletteFile], limit: Int) -> [PaletteRow] {
+        let pool = candidates(query: query, files: files)
         var matched: [(PaletteFile, FuzzyMatch)] = []
-        matched.reserveCapacity(files.count)
-        for file in files {
+        matched.reserveCapacity(pool.count)
+        for file in pool {
             let candidate = file.relativePath.isEmpty ? file.name : file.relativePath
             guard let match = FuzzyMatcher.match(query: query, candidate: candidate) else { continue }
             matched.append((file, match))
@@ -204,6 +205,13 @@ public enum CommandPalette {
             return lhs.0.name.localizedStandardCompare(rhs.0.name) == .orderedAscending
         }
         return matched.prefix(limit).map { .file($0.0, $0.1) }
+    }
+
+    /// An empty field lists files that were opened in this folder. If none were, it lists the folder.
+    private static func candidates(query: String, files: [PaletteFile]) -> [PaletteFile] {
+        guard query.isEmpty else { return files }
+        let recent = files.filter { $0.recency > 0 }
+        return recent.isEmpty ? files : recent
     }
 
     private static func commandRows(query: String, commands: [PaletteCommand], limit: Int) -> [PaletteRow] {

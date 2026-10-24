@@ -2,6 +2,8 @@
 
 ## 0.0.2
 
+- ⌘P with an empty field lists files opened in that folder, most recent first. Matched characters are semibold, in the same grey as the rest of the row.
+- A wide table scrolls sideways inside the note. Task checkboxes stay read-only. Code uses the same monospace face in light and dark.
 - The folder sidebar is a source list: monochrome symbols by file type, tighter rows, and left/right to move through folders. Opening a file expands its folders and scrolls to it. Move to Trash uses the system Trash.
 - The window title is the open file. The subtitle is the folder. The proxy icon is that file.
 - A large note restyles the edited lines instead of the whole buffer. Reading waits a little longer before updating a large note.

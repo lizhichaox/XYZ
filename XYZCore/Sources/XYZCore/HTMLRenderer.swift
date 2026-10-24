@@ -107,9 +107,9 @@ private struct HTMLRenderingWalker: MarkupWalker {
     mutating func visitTable(_ table: Table) {
         let previousAlignments = alignments
         alignments = table.columnAlignments
-        html.append("<table>\n")
+        html.append("<div class=\"table-wrap\">\n<table>\n")
         descendInto(table)
-        html.append("</table>\n")
+        html.append("</table>\n</div>\n")
         alignments = previousAlignments
     }
 

@@ -25,7 +25,33 @@ final class CommandPaletteTests: XCTestCase {
             if case .file(let file, _) = row { return file.relativePath }
             return nil
         }
-        XCTAssertEqual(paths, ["b.md", "a.md", "c.md"])
+        XCTAssertEqual(paths, ["b.md", "a.md"])
+    }
+
+    func testEmptyQueryFallsBackWhenNothingWasOpened() {
+        let files = [
+            PaletteFile(name: "b.md", relativePath: "b.md", recency: 0),
+            PaletteFile(name: "a.md", relativePath: "a.md", recency: 0),
+        ]
+        let rows = CommandPalette.rows(rawQuery: "", files: files, registry: PaletteCommandRegistry())
+        let paths = rows.compactMap { row -> String? in
+            if case .file(let file, _) = row { return file.relativePath }
+            return nil
+        }
+        XCTAssertEqual(paths, ["a.md", "b.md"])
+    }
+
+    func testQueryStillFindsAFileThatWasNeverOpened() {
+        let files = [
+            PaletteFile(name: "a.md", relativePath: "notes/a.md", recency: 2),
+            PaletteFile(name: "c.md", relativePath: "c.md", recency: 0),
+        ]
+        let rows = CommandPalette.rows(rawQuery: "c", files: files, registry: PaletteCommandRegistry())
+        guard case .file(let first, let match) = rows.first else {
+            return XCTFail("expected a file")
+        }
+        XCTAssertEqual(first.relativePath, "c.md")
+        XCTAssertEqual(match.characterIndices, [0])
     }
 
     func testEqualMatchesBreakTiesByRecency() {

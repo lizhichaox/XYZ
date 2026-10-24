@@ -99,8 +99,12 @@ del {
   text-decoration-thickness: 1px;
 }
 
-code, kbd {
+code, kbd, pre {
   font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "PingFang SC", monospace;
+  color: var(--text);
+}
+
+code, kbd {
   font-size: 0.86em;
 }
 
@@ -112,9 +116,11 @@ code {
 
 pre {
   background: var(--code);
+  color: var(--text);
   padding: 14px 16px;
   overflow: auto;
   max-width: 100%;
+  border: 1px solid var(--border);
   border-radius: 10px;
   margin: 1.15em 0;
   line-height: 1.55;
@@ -154,7 +160,7 @@ li.task {
 li.task > input {
   margin: 0 0.45em 0.12em 0;
   vertical-align: middle;
-  accent-color: var(--link);
+  accent-color: var(--text);
 }
 
 li.task > p { display: inline; }
@@ -166,11 +172,17 @@ hr {
   margin: 2.1em 0;
 }
 
-table {
-  border-collapse: collapse;
-  width: 100%;
+.table-wrap {
+  overflow-x: auto;
   max-width: 100%;
   margin: 1.2em 0;
+}
+
+table {
+  border-collapse: collapse;
+  width: max-content;
+  min-width: 100%;
+  margin: 0;
   font-size: 0.96em;
   line-height: 1.55;
 }

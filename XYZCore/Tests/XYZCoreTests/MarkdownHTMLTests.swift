@@ -83,7 +83,9 @@ final class MarkdownHTMLTests: XCTestCase {
 
         """
         let html = MarkdownHTML.render(markdown)
+        XCTAssertTrue(html.contains("<div class=\"table-wrap\">"))
         XCTAssertTrue(html.contains("<table>"))
+        XCTAssertTrue(html.contains("</table>\n</div>"))
         XCTAssertTrue(html.contains("<thead>"))
         XCTAssertTrue(html.contains(">Name</th>"))
         XCTAssertTrue(html.contains(">Ada</td>"))
