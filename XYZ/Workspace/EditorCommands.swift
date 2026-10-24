@@ -236,6 +236,7 @@ enum EditorMenuSupport {
         if let file = fileMenu(in: main) {
             ensureFileItems(in: file)
         }
+        FormatMenu.ensure(in: main)
     }
 
     private static func remapConflictingShortcuts(in menu: NSMenu) {

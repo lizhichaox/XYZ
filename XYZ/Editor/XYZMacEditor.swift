@@ -33,24 +33,19 @@ final class XYZMacTextView: NSTextView {
         if EditorCommands.shared.handleKeyEquivalent(event) {
             return true
         }
-        if markupKeyEquivalent(event) {
+        // Format shortcuts work here even while SwiftUI is rebuilding the main menu.
+        if let item = FormatMenu.item(matching: event), isEditable, allowsMarkup {
+            NSApp.sendAction(item.action, to: self, from: item.menuItem())
             return true
         }
         return super.performKeyEquivalent(with: event)
     }
 
-    /// ⌘B and ⌘I. AppKit has no `toggleBoldface` on NSResponder; the text view handles the keys itself.
-    private func markupKeyEquivalent(_ event: NSEvent) -> Bool {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard flags == .command else { return false }
-        switch event.charactersIgnoringModifiers?.lowercased() {
-        case "b":
-            return applyMarkupEdit(SourceEditing.toggleBold(in: string, selection: sourceSelection()))
-        case "i":
-            return applyMarkupEdit(SourceEditing.toggleItalic(in: string, selection: sourceSelection()))
-        default:
-            return false
+    override func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if let action = menuItem.action, FormatMenu.actions.contains(action) {
+            return isEditable && allowsMarkup
         }
+        return super.validateMenuItem(menuItem)
     }
 
     override func insertNewline(_ sender: Any?) {
@@ -74,13 +69,13 @@ final class XYZMacTextView: NSTextView {
         }
     }
 
-    private func sourceSelection() -> SourceRange {
+    func sourceSelection() -> SourceRange {
         let range = selectedRange()
         return SourceRange(location: range.location, length: range.length)
     }
 
     @discardableResult
-    private func applyMarkupEdit(_ edit: SourceReplacement?) -> Bool {
+    func applyMarkupEdit(_ edit: SourceReplacement?) -> Bool {
         guard isEditable, allowsMarkup, !hasMarkedText(), let edit, let storage = textStorage else { return false }
         let range = NSRange(location: edit.range.location, length: edit.range.length)
         guard shouldChangeText(in: range, replacementString: edit.text) else { return false }

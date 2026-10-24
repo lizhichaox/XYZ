@@ -25,6 +25,7 @@
 		8C0000000000000000000016 /* WorkspaceLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000016 /* WorkspaceLog.swift */; };
 		8C0000000000000000000018 /* WorkspaceSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000018 /* WorkspaceSidebar.swift */; };
 		8C0000000000000000000019 /* EditorCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000019 /* EditorCommands.swift */; };
+		8C000000000000000000001A /* FormatMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B000000000000000000001A /* FormatMenu.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -52,6 +53,7 @@
 		8B0000000000000000000016 /* WorkspaceLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceLog.swift; sourceTree = "<group>"; };
 		8B0000000000000000000018 /* WorkspaceSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebar.swift; sourceTree = "<group>"; };
 		8B0000000000000000000019 /* EditorCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorCommands.swift; sourceTree = "<group>"; };
+		8B000000000000000000001A /* FormatMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FormatMenu.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -106,6 +108,7 @@
 				8B0000000000000000000003 /* XYZEditor.swift */,
 				8B0000000000000000000004 /* XYZMacEditor.swift */,
 				8B0000000000000000000005 /* XYZIOSEditor.swift */,
+				8B000000000000000000001A /* FormatMenu.swift */,
 			);
 			path = Editor;
 			sourceTree = "<group>";
@@ -243,6 +246,7 @@
 				8C0000000000000000000016 /* WorkspaceLog.swift in Sources */,
 				8C0000000000000000000018 /* WorkspaceSidebar.swift in Sources */,
 				8C0000000000000000000019 /* EditorCommands.swift in Sources */,
+				8C000000000000000000001A /* FormatMenu.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
