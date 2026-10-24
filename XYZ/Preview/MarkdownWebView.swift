@@ -36,17 +36,31 @@ final class PreviewWebHost {
     }
 }
 
+/// Reading settings the page applies without reloading: the text size shared with the
+/// editor, and whether the column stops at a readable width.
+struct PreviewPrefs: Equatable {
+    var fontSize: Double = XYZEditorStyle.defaultFontSize
+    var readableWidth = false
+
+    var script: String {
+        "setPrefs(\(Int(XYZEditorStyle.clampedFontSize(fontSize))), \(readableWidth));"
+    }
+}
+
 struct MarkdownWebView: View {
     var html: String
     var host: PreviewWebHost
     var scrollLink: EditorScrollLink
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage(XYZEditorStyle.fontSizeKey) private var fontSize = XYZEditorStyle.defaultFontSize
+    @AppStorage(XYZEditorStyle.readableWidthKey) private var readableWidth = false
 
     var body: some View {
+        let prefs = PreviewPrefs(fontSize: fontSize, readableWidth: readableWidth)
         #if os(macOS)
-        MacMarkdownWebView(html: html, theme: colorScheme == .dark ? "dark" : "light", host: host, scrollLink: scrollLink)
+        MacMarkdownWebView(html: html, theme: colorScheme == .dark ? "dark" : "light", prefs: prefs, host: host, scrollLink: scrollLink)
         #else
-        IOSMarkdownWebView(html: html, theme: colorScheme == .dark ? "dark" : "light", host: host, scrollLink: scrollLink)
+        IOSMarkdownWebView(html: html, theme: colorScheme == .dark ? "dark" : "light", prefs: prefs, host: host, scrollLink: scrollLink)
         #endif
     }
 }
@@ -55,6 +69,7 @@ struct MarkdownWebView: View {
 private struct MacMarkdownWebView: NSViewRepresentable {
     var html: String
     var theme: String
+    var prefs: PreviewPrefs
     var host: PreviewWebHost
     var scrollLink: EditorScrollLink
 
@@ -62,7 +77,7 @@ private struct MacMarkdownWebView: NSViewRepresentable {
         let surface = ReadingSurface()
         if let webView = claim(host.webView) as? XYZPreviewWebView {
             surface.install(webView)
-            host.coordinator.update(webView: webView, html: html, theme: theme, scrollLink: scrollLink)
+            host.coordinator.update(webView: webView, html: html, theme: theme, prefs: prefs, scrollLink: scrollLink)
         }
         return surface
     }
@@ -70,7 +85,7 @@ private struct MacMarkdownWebView: NSViewRepresentable {
     func updateNSView(_ surface: ReadingSurface, context: Context) {
         guard let webView = host.webView as? XYZPreviewWebView else { return }
         surface.install(webView)
-        host.coordinator.update(webView: webView, html: html, theme: theme, scrollLink: scrollLink)
+        host.coordinator.update(webView: webView, html: html, theme: theme, prefs: prefs, scrollLink: scrollLink)
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: ReadingSurface, context: Context) -> CGSize? {
@@ -288,17 +303,18 @@ final class ReadingSurface: NSView, NSSearchFieldDelegate {
 private struct IOSMarkdownWebView: UIViewRepresentable {
     var html: String
     var theme: String
+    var prefs: PreviewPrefs
     var host: PreviewWebHost
     var scrollLink: EditorScrollLink
 
     func makeUIView(context: Context) -> WKWebView {
         let webView = claim(host.webView)
-        host.coordinator.update(webView: webView, html: html, theme: theme, scrollLink: scrollLink)
+        host.coordinator.update(webView: webView, html: html, theme: theme, prefs: prefs, scrollLink: scrollLink)
         return webView
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
-        host.coordinator.update(webView: webView, html: html, theme: theme, scrollLink: scrollLink)
+        host.coordinator.update(webView: webView, html: html, theme: theme, prefs: prefs, scrollLink: scrollLink)
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: WKWebView, context: Context) -> CGSize? {
@@ -348,6 +364,8 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate, WKScriptMessa
     private var appliedHTML: String?
     private var pendingTheme: String?
     private var appliedTheme: String?
+    private var pendingPrefs = PreviewPrefs()
+    private var appliedPrefs: PreviewPrefs?
     private var didLogScriptFailure = false
     private var scrollLink: EditorScrollLink?
     /// Last line the page posted. Capture reads this; `evaluateJavaScript` is too late for a toggle.
@@ -375,9 +393,10 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate, WKScriptMessa
         }
     }
 
-    func update(webView: WKWebView, html: String, theme: String, scrollLink: EditorScrollLink) {
+    func update(webView: WKWebView, html: String, theme: String, prefs: PreviewPrefs, scrollLink: EditorScrollLink) {
         pendingHTML = html
         pendingTheme = theme
+        pendingPrefs = prefs
         self.scrollLink = scrollLink
         scrollLink.capture = { [weak self, weak webView] in
             guard let self, let webView else {
@@ -423,6 +442,7 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate, WKScriptMessa
         didStartLoad = false
         appliedHTML = nil
         appliedTheme = nil
+        appliedPrefs = nil
         didLogScriptFailure = false
         loadShell(webView, html: pendingHTML ?? "", theme: pendingTheme ?? "light")
     }
@@ -447,8 +467,9 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate, WKScriptMessa
         isReady = false
         appliedHTML = html
         appliedTheme = theme
+        appliedPrefs = pendingPrefs
         PreviewLog.logger.notice("shell requested")
-        webView.loadHTMLString(PreviewPage.shell(css: css, html: html, theme: theme), baseURL: nil)
+        webView.loadHTMLString(PreviewPage.shell(css: css, html: html, theme: theme, prefs: pendingPrefs), baseURL: nil)
     }
 
     private func push(to webView: WKWebView) {
@@ -457,6 +478,10 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate, WKScriptMessa
         if let theme = pendingTheme, theme != appliedTheme {
             appliedTheme = theme
             script += "setTheme(\(PreviewPage.javaScriptLiteral(theme)));"
+        }
+        if pendingPrefs != appliedPrefs {
+            appliedPrefs = pendingPrefs
+            script += pendingPrefs.script
         }
         var replaced = false
         if let html = pendingHTML, html != appliedHTML {
@@ -652,7 +677,7 @@ private enum PreviewStyles {
 }
 
 private enum PreviewPage {
-    static func shell(css: String, html: String, theme: String) -> String {
+    static func shell(css: String, html: String, theme: String, prefs: PreviewPrefs) -> String {
         let themeName = theme == "dark" ? "dark" : "light"
         return """
         <!DOCTYPE html>
@@ -678,6 +703,11 @@ private enum PreviewPage {
         }
         function setTheme(theme) {
           document.documentElement.setAttribute("data-theme", theme);
+        }
+        function setPrefs(size, readable) {
+          var root = document.documentElement;
+          root.style.setProperty("--text-size", (size | 0) + "px");
+          root.setAttribute("data-readable", readable ? "true" : "false");
         }
         function xyzSourceLine(start, end, fraction) {
           start = Math.max(1, start | 0);
@@ -770,6 +800,7 @@ private enum PreviewPage {
         window.addEventListener("touchmove", xyzUnpin, {passive: true});
         window.addEventListener("keydown", xyzUnpin);
         setTheme("\(themeName)");
+        \(prefs.script)
         xyzReport();
         </script>
         </body>

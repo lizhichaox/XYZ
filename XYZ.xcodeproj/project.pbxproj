@@ -26,6 +26,8 @@
 		8C0000000000000000000018 /* WorkspaceSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000018 /* WorkspaceSidebar.swift */; };
 		8C0000000000000000000019 /* EditorCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000019 /* EditorCommands.swift */; };
 		8C000000000000000000001A /* FormatMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B000000000000000000001A /* FormatMenu.swift */; };
+		8C000000000000000000001B /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B000000000000000000001B /* AppSettings.swift */; };
+		8C000000000000000000001C /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B000000000000000000001C /* SettingsView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -54,6 +56,8 @@
 		8B0000000000000000000018 /* WorkspaceSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebar.swift; sourceTree = "<group>"; };
 		8B0000000000000000000019 /* EditorCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorCommands.swift; sourceTree = "<group>"; };
 		8B000000000000000000001A /* FormatMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FormatMenu.swift; sourceTree = "<group>"; };
+		8B000000000000000000001B /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
+		8B000000000000000000001C /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -85,6 +89,7 @@
 				8A000000000000000000000A /* Editor */,
 				8A000000000000000000000B /* Preview */,
 				8A000000000000000000000C /* Resources */,
+				8A0000000000000000000017 /* Settings */,
 				8A0000000000000000000016 /* Workspace */,
 				8B000000000000000000000A /* Info.plist */,
 				8B000000000000000000000F /* Info-macOS.plist */,
@@ -144,6 +149,15 @@
 				8B0000000000000000000019 /* EditorCommands.swift */,
 			);
 			path = Workspace;
+			sourceTree = "<group>";
+		};
+		8A0000000000000000000017 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				8B000000000000000000001B /* AppSettings.swift */,
+				8B000000000000000000001C /* SettingsView.swift */,
+			);
+			path = Settings;
 			sourceTree = "<group>";
 		};
 		8A000000000000000000000C /* Resources */ = {
@@ -247,6 +261,8 @@
 				8C0000000000000000000018 /* WorkspaceSidebar.swift in Sources */,
 				8C0000000000000000000019 /* EditorCommands.swift in Sources */,
 				8C000000000000000000001A /* FormatMenu.swift in Sources */,
+				8C000000000000000000001B /* AppSettings.swift in Sources */,
+				8C000000000000000000001C /* SettingsView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

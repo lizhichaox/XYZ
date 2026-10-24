@@ -96,6 +96,19 @@ final class EditorCommands: NSObject {
             goToHeading(nil)
             return true
         }
+        // ⌘= is the unshifted ⌘+ on most layouts.
+        if (flags == .command || flags == [.command, .shift]) && (key == "=" || key == "+") {
+            zoomIn(nil)
+            return true
+        }
+        if flags == .command && key == "-" {
+            zoomOut(nil)
+            return true
+        }
+        if flags == .command && key == "0" {
+            actualSize(nil)
+            return true
+        }
         if flags == [.command, .shift] && key.lowercased() == "f" {
             guard target?.supportsWorkspaceFiles == true else { return false }
             focusFilter(nil)
@@ -156,6 +169,23 @@ final class EditorCommands: NSObject {
         palette.show(target: target, query: "@")
     }
 
+    @objc func zoomIn(_ sender: Any?) {
+        TextZoom.step(1)
+    }
+
+    @objc func zoomOut(_ sender: Any?) {
+        TextZoom.step(-1)
+    }
+
+    @objc func actualSize(_ sender: Any?) {
+        TextZoom.reset()
+    }
+
+    @objc func toggleWordCount(_ sender: Any?) {
+        let defaults = UserDefaults.standard
+        defaults.set(!defaults.bool(forKey: WordCountSetting.key), forKey: WordCountSetting.key)
+    }
+
     @objc func toggleSource(_ sender: Any?) {
         target?.editorToggle(source: invocationSource())
     }
@@ -186,6 +216,9 @@ final class EditorCommands: NSObject {
             return target != nil
         case "xyz.mode.toggleSource", "xyz.goToHeading":
             return target != nil
+        case "xyz.wordCount":
+            menuItem.state = UserDefaults.standard.bool(forKey: WordCountSetting.key) ? .on : .off
+            return true
         case "xyz.workspace.filter":
             return target?.supportsWorkspaceFiles == true
         case "xyz.workspace.hidden":
@@ -285,11 +318,15 @@ enum EditorMenuSupport {
             }
         }
         let specs: [(String, String, String, NSEvent.ModifierFlags, Selector)] = [
-            ("xyz.commandPalette", "Command Palette…", "p", .command, #selector(EditorCommands.showPalette(_:))),
-            ("xyz.goToHeading", "Go to Heading…", "r", .command, #selector(EditorCommands.goToHeading(_:))),
-            ("xyz.mode.source", "Source", "", [], #selector(EditorCommands.selectSource(_:))),
-            ("xyz.mode.reading", "Reading", "", [], #selector(EditorCommands.selectReading(_:))),
-            ("xyz.mode.toggleSource", "Source Code Mode", "/", .command, #selector(EditorCommands.toggleSource(_:))),
+            ("xyz.commandPalette", String(localized: "Command Palette…"), "p", .command, #selector(EditorCommands.showPalette(_:))),
+            ("xyz.goToHeading", String(localized: "Go to Heading…"), "r", .command, #selector(EditorCommands.goToHeading(_:))),
+            ("xyz.mode.source", String(localized: "Source"), "", [], #selector(EditorCommands.selectSource(_:))),
+            ("xyz.mode.reading", String(localized: "Reading"), "", [], #selector(EditorCommands.selectReading(_:))),
+            ("xyz.mode.toggleSource", String(localized: "Source Code Mode"), "/", .command, #selector(EditorCommands.toggleSource(_:))),
+            ("xyz.zoomIn", String(localized: "Zoom In"), "+", .command, #selector(EditorCommands.zoomIn(_:))),
+            ("xyz.zoomOut", String(localized: "Zoom Out"), "-", .command, #selector(EditorCommands.zoomOut(_:))),
+            ("xyz.actualSize", String(localized: "Actual Size"), "0", .command, #selector(EditorCommands.actualSize(_:))),
+            ("xyz.wordCount", String(localized: "Show Word Count"), "", [], #selector(EditorCommands.toggleWordCount(_:))),
         ]
         var previous: NSMenuItem?
         for spec in specs {
@@ -298,6 +335,12 @@ enum EditorMenuSupport {
             }
             if spec.0 == "xyz.mode.toggleSource" {
                 previous = divider(after: previous, in: menu, identifier: "xyz.mode.toggleDivider")
+            }
+            if spec.0 == "xyz.zoomIn" {
+                previous = divider(after: previous, in: menu, identifier: "xyz.zoom.divider")
+            }
+            if spec.0 == "xyz.wordCount" {
+                previous = divider(after: previous, in: menu, identifier: "xyz.wordCount.divider")
             }
             let item = item(
                 identifier: spec.0,

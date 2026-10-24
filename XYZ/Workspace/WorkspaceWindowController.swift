@@ -203,6 +203,10 @@ final class XYZAppDelegate: NSObject, NSApplicationDelegate {
         FolderOpening.installEarly()
     }
 
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        AppAppearance.stored.apply()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         FolderOpening.installLate()
         FileMenuSupport.install()

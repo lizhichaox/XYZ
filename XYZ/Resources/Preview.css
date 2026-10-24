@@ -46,7 +46,7 @@ html, body {
 
 body {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", sans-serif;
-  font-size: 16px;
+  font-size: var(--text-size, 16px);
   line-height: 1.75;
   line-break: strict;
   hanging-punctuation: first last;
@@ -60,6 +60,12 @@ article {
   margin: 0;
   padding: clamp(36px, 5vw, 64px) clamp(24px, 5vw, 64px) 96px;
   hanging-punctuation: first last;
+}
+
+/* Settings → Limit line width: about 42 em of text, the editor's measure. */
+:root[data-readable="true"] article {
+  max-width: calc(42em + 2 * clamp(24px, 5vw, 64px));
+  margin-inline: auto;
 }
 
 article > :first-child { margin-top: 0; }

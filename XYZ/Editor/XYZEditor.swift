@@ -24,7 +24,8 @@ import UIKit
 /// Visual defaults for the Markdown editor.
 ///
 /// The default face is the system font (SF Pro, with PingFang SC for Chinese).
-/// A monospaced face is available from Settings and stored in `monospacedKey`.
+/// Settings choose a monospaced face (`monospacedKey`), the text size (`fontSizeKey`, shared
+/// with Reading), and whether lines stop at a readable length (`readableWidthKey`).
 struct XYZEditorStyle: Equatable {
     var fontSize: CGFloat = 16
     /// Line box height relative to the font size. Markdown source stores a hard return
@@ -33,14 +34,33 @@ struct XYZEditorStyle: Equatable {
     var horizontalInset: CGFloat = 24
     var verticalInset: CGFloat = 32
     var monospaced: Bool = false
+    var readableWidth: Bool = false
 
     /// Side padding is 5% of the pane, clamped to 24...64 points. The text uses the remaining width.
     static func sideInset(for paneWidth: CGFloat) -> CGFloat {
         min(64, max(24, floor(paneWidth * 0.05)))
     }
 
+    /// With a readable width, wide panes add padding so a line holds about 42 em: 42 Chinese
+    /// characters, or 80 to 90 Latin ones. Reading uses the same measure.
+    func sideInset(for paneWidth: CGFloat) -> CGFloat {
+        let base = Self.sideInset(for: paneWidth)
+        guard readableWidth else { return base }
+        let measure = (fontSize * Self.readableEms).rounded()
+        return max(base, floor((paneWidth - measure) / 2))
+    }
+
+    static let readableEms: CGFloat = 42
     static let monospacedKey = "xyz.editor.monospaced"
+    static let fontSizeKey = "xyz.text.size"
+    static let readableWidthKey = "xyz.text.readableWidth"
+    static let defaultFontSize: Double = 16
+    static let fontSizes: ClosedRange<Double> = 12...24
     static let markdown = XYZEditorStyle()
+
+    static func clampedFontSize(_ size: Double) -> Double {
+        min(fontSizes.upperBound, max(fontSizes.lowerBound, size.rounded()))
+    }
 
     func paragraphStyle(naturalLineHeight: CGFloat) -> NSMutableParagraphStyle {
         let paragraph = NSMutableParagraphStyle()
@@ -111,6 +131,8 @@ struct XYZEditor: View {
     var onTextChange: (String) -> Void
 
     @AppStorage(XYZEditorStyle.monospacedKey) private var monospaced = false
+    @AppStorage(XYZEditorStyle.fontSizeKey) private var fontSize = XYZEditorStyle.defaultFontSize
+    @AppStorage(XYZEditorStyle.readableWidthKey) private var readableWidth = false
 
     var body: some View {
         #if os(macOS)
@@ -119,7 +141,11 @@ struct XYZEditor: View {
             isEditable: isEditable,
             undoManager: undoManager,
             reloadToken: reloadToken,
-            monospaced: monospaced,
+            style: XYZEditorStyle(
+                fontSize: CGFloat(XYZEditorStyle.clampedFontSize(fontSize)),
+                monospaced: monospaced,
+                readableWidth: readableWidth
+            ),
             scrollLink: scrollLink,
             markup: markup,
             onTextChange: onTextChange

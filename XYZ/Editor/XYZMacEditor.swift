@@ -8,6 +8,8 @@ final class XYZMacTextView: NSTextView {
     weak var documentUndoManager: UndoManager?
     var onAppearanceChange: (() -> Void)?
     var allowsMarkup = true
+    /// Size and measure from Settings. Layout derives the side padding from it.
+    var style = XYZEditorStyle()
     /// Restored once, after the view is in a window and the inset matches the pane.
     private var pendingAnchor: EditorScrollAnchor?
     private var isAligning = false
@@ -92,8 +94,8 @@ final class XYZMacTextView: NSTextView {
         super.layout()
         guard !isAligning else { return }
         guard let width = enclosingScrollView?.contentSize.width, width > 1 else { return }
-        let side = XYZEditorStyle.sideInset(for: width)
-        let next = NSSize(width: side, height: XYZEditorStyle.markdown.verticalInset)
+        let side = style.sideInset(for: width)
+        let next = NSSize(width: side, height: style.verticalInset)
         if textContainerInset != next {
             textContainerInset = next
             needsLayout = true
@@ -158,8 +160,8 @@ final class XYZMacTextView: NSTextView {
     private func alignIfReady() {
         guard let anchor = pendingAnchor, !isAligning, window != nil else { return }
         guard let scroll = enclosingScrollView, scroll.contentSize.width > 1, bounds.width > 1 else { return }
-        let side = XYZEditorStyle.sideInset(for: scroll.contentSize.width)
-        let expected = NSSize(width: side, height: XYZEditorStyle.markdown.verticalInset)
+        let side = style.sideInset(for: scroll.contentSize.width)
+        let expected = NSSize(width: side, height: style.verticalInset)
         guard textContainerInset == expected else { return }
         pendingAnchor = nil
         scrollLineToTop(anchor)
@@ -253,7 +255,7 @@ struct XYZMacEditor: NSViewRepresentable {
     var isEditable: Bool
     var undoManager: UndoManager?
     var reloadToken: Int
-    var monospaced: Bool
+    var style: XYZEditorStyle
     var scrollLink: EditorScrollLink
     var markup: Bool
     var onTextChange: (String) -> Void
@@ -293,7 +295,7 @@ struct XYZMacEditor: NSViewRepresentable {
 
         context.coordinator.textView = textView
         context.coordinator.onTextChange = onTextChange
-        context.coordinator.monospaced = monospaced
+        context.coordinator.style = style
         textView.allowsMarkup = markup
         textView.delegate = context.coordinator
         textView.documentUndoManager = undoManager
@@ -316,7 +318,7 @@ struct XYZMacEditor: NSViewRepresentable {
         scrollView.contentView.contentInsets = NSEdgeInsets()
         scrollView.contentView.drawsBackground = true
         scrollView.documentView = textView
-        applyChrome(textView: textView, scrollView: scrollView, monospaced: monospaced)
+        applyChrome(textView: textView, scrollView: scrollView, style: style)
         textView.string = text
         context.coordinator.restyle(edited: nil)
         textView.textContainer?.containerSize = NSSize(
@@ -340,10 +342,10 @@ struct XYZMacEditor: NSViewRepresentable {
         scrollLink.revealLine = { [weak textView] line in
             textView?.jump(toLine: line)
         }
-        let styleChanged = context.coordinator.monospaced != monospaced
+        let styleChanged = context.coordinator.style != style
         if styleChanged {
-            context.coordinator.monospaced = monospaced
-            applyChrome(textView: textView, scrollView: scrollView, monospaced: monospaced)
+            context.coordinator.style = style
+            applyChrome(textView: textView, scrollView: scrollView, style: style)
         }
         if context.coordinator.reloadToken != reloadToken {
             context.coordinator.reloadToken = reloadToken
@@ -368,8 +370,9 @@ struct XYZMacEditor: NSViewRepresentable {
         CGSize(width: proposal.width ?? 640, height: proposal.height ?? 480)
     }
 
-    private func applyChrome(textView: XYZMacTextView, scrollView: NSScrollView, monospaced: Bool) {
-        let style = XYZEditorStyle(monospaced: monospaced)
+    private func applyChrome(textView: XYZMacTextView, scrollView: NSScrollView, style: XYZEditorStyle) {
+        textView.style = style
+        textView.needsLayout = true
         let font = EditorTypography.baseFont(style)
         let paragraph = style.paragraphStyle(naturalLineHeight: EditorTypography.naturalLineHeight(font))
         textView.backgroundColor = .textBackgroundColor
@@ -392,7 +395,7 @@ struct XYZMacEditor: NSViewRepresentable {
         var onTextChange: (String) -> Void = { _ in }
         var scrollLink: EditorScrollLink?
         var reloadToken = 0
-        var monospaced = false
+        var style = XYZEditorStyle()
         private var isApplyingExternalText = false
         private var isRestyling = false
         private var editedRange: NSRange?
@@ -454,7 +457,7 @@ struct XYZMacEditor: NSViewRepresentable {
             guard let textView, !isRestyling, !textView.hasMarkedText() else { return }
             isRestyling = true
             defer { isRestyling = false }
-            EditorTypography.apply(to: textView, monospaced: monospaced, edited: edited)
+            EditorTypography.apply(to: textView, style: style, edited: edited)
         }
     }
 }
@@ -512,9 +515,8 @@ enum EditorTypography {
         return NSFont(descriptor: descriptor, size: size) ?? base
     }
 
-    static func apply(to textView: NSTextView, monospaced: Bool, edited: NSRange?) {
+    static func apply(to textView: NSTextView, style: XYZEditorStyle, edited: NSRange?) {
         guard let storage = textView.textStorage else { return }
-        let style = XYZEditorStyle(monospaced: monospaced)
         let font = baseFont(style)
         let paragraph = style.paragraphStyle(naturalLineHeight: naturalLineHeight(font))
         let ns = storage.string as NSString
