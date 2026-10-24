@@ -205,7 +205,13 @@ final class XYZMacTextView: NSTextView {
         let clamped = min(max(0, utf16), length)
         let start = content.location(document.location, offsetBy: clamped) ?? document.location
         let end = content.location(start, offsetBy: 1) ?? document.endLocation
-        manager.ensureLayout(for: NSTextRange(location: document.location, end: end))
+        // Failable on the 27.1 SDK, non-optional on 26.6. The annotation accepts both.
+        let layoutRange: NSTextRange? = NSTextRange(location: document.location, end: end)
+        if let layoutRange {
+            manager.ensureLayout(for: layoutRange)
+        } else {
+            manager.ensureLayout(for: manager.documentRange)
+        }
         let fragment = manager.textLayoutFragment(for: start)
             ?? (clamped > 0 ? content.location(document.location, offsetBy: clamped - 1).flatMap { manager.textLayoutFragment(for: $0) } : nil)
         guard let fragment else { return 0 }
