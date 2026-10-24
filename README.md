@@ -126,6 +126,12 @@ XYZ uses MAJOR.MINOR.PATCH. `MARKETING_VERSION` in `Config/Base.xcconfig` is the
 
 About XYZ is a small window titled About XYZ. It shows the app icon, the version line `0.0.3 (5)`, and the credit line. The credit links the name LIZHICHAO to [lizhichao.com](https://lizhichao.com). Esc or ⌘W closes it.
 
+## App icon
+
+The icon is the name, `_xyz`, set in Inter and converted to outlines, on a soft gray field (light) or near-black (dark); tinted is white on black. The underscore is drawn as a bar as heavy as the letters' stems and sits on the baseline. Up to 64 pixels the word is set larger and heavier so it stays legible in Finder and in menus.
+
+`tools/make_icons.py` draws it. `--write` renders the iOS light, dark, and tinted 1024 images and the macOS sizes (on the rounded plate with its shadow) into `AppIcon.appiconset`, and the source vectors into `Design/Icon/`. `--sheet OUT.html` writes a review sheet at full size and at 128, 64, 32, and 16 pixels. It needs fontTools (`pip3 install fonttools`) and Inter; set `INTER` to the folder with the Inter `.otf` files if they are not in a standard font folder. It renders with headless Chrome; set `CHROME` to another Chromium binary if Chrome is not in `/Applications`.
+
 ## License
 
 XYZ is released under the [MIT License](LICENSE). Copyright (c) 2026 lizhichaox.
