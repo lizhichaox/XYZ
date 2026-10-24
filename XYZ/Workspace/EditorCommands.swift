@@ -586,6 +586,7 @@ enum AboutWindow {
         )
         panel.title = String(localized: "About XYZ")
         panel.isReleasedWhenClosed = false
+        EscapeKey.register(panel)
         panel.hidesOnDeactivate = false
         let content = panel.contentView ?? NSView()
 

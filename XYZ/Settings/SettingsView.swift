@@ -70,6 +70,7 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
+        .closesOnEscape()
         .frame(width: 480)
         .fixedSize(horizontal: false, vertical: true)
         .onChange(of: appearance) { _, value in

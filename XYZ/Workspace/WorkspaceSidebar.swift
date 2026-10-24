@@ -355,7 +355,7 @@ struct WorkspaceSidebar: NSViewRepresentable {
             alert.alertStyle = .warning
             alert.addButton(withTitle: String(localized: "Move to Trash"))
             alert.addButton(withTitle: String(localized: "Cancel"))
-            guard alert.runModal() == .alertFirstButtonReturn else { return }
+            guard alert.runModalClosingOnEscape() == .alertFirstButtonReturn else { return }
             do {
                 try session.trash(relativePath: path)
             } catch {
@@ -409,7 +409,7 @@ struct WorkspaceSidebar: NSViewRepresentable {
             alert.messageText = message
             alert.alertStyle = .warning
             alert.addButton(withTitle: String(localized: "OK"))
-            alert.runModal()
+            _ = alert.runModalClosingOnEscape()
         }
 
         private func rebuild(_ session: WorkspaceSession) {

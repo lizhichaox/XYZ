@@ -212,6 +212,7 @@ final class XYZAppDelegate: NSObject, NSApplicationDelegate {
         FileMenuSupport.install()
         MainActor.assumeIsolated {
             EditorMenuSupport.install()
+            EscapeKey.install()
         }
         MainActor.assumeIsolated {
             WorkspaceWindowController.restore()
