@@ -126,8 +126,10 @@ struct XYZEditor: View {
     /// Bump this to replace the buffer from outside the text view, such as a disk reload.
     var reloadToken: Int = 0
     var scrollLink: EditorScrollLink
-    /// Markdown list continuation and ⌘B / ⌘I. Plain text leaves those keys alone.
+    /// Markdown styling, list continuation, and the Format menu. Other files are plain text.
     var markup: Bool = true
+    /// Continuous spell checking, for prose rather than config files and code.
+    var spellCheck: Bool = true
     var onTextChange: (String) -> Void
 
     @AppStorage(XYZEditorStyle.monospacedKey) private var monospaced = false
@@ -148,6 +150,7 @@ struct XYZEditor: View {
             ),
             scrollLink: scrollLink,
             markup: markup,
+            spellCheck: spellCheck,
             onTextChange: onTextChange
         )
         #else

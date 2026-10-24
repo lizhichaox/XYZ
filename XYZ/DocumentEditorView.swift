@@ -110,6 +110,7 @@ struct DocumentEditorView: View {
             undoManager: undoManager,
             scrollLink: scrollLink,
             markup: TextMarkup.allows(fileExtension: fileURL?.pathExtension),
+            spellCheck: TextMarkup.isProse(fileExtension: fileURL?.pathExtension),
             onTextChange: { newText in
                 document.storeEditorText(newText)
                 bridge.send(newText)

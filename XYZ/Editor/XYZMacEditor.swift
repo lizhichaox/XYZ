@@ -258,6 +258,7 @@ struct XYZMacEditor: NSViewRepresentable {
     var style: XYZEditorStyle
     var scrollLink: EditorScrollLink
     var markup: Bool
+    var spellCheck: Bool
     var onTextChange: (String) -> Void
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -276,7 +277,7 @@ struct XYZMacEditor: NSViewRepresentable {
         textView.isAutomaticLinkDetectionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
         textView.isAutomaticSpellingCorrectionEnabled = false
-        textView.isContinuousSpellCheckingEnabled = true
+        textView.isContinuousSpellCheckingEnabled = spellCheck
         textView.isGrammarCheckingEnabled = false
         textView.usesFindBar = true
         textView.isIncrementalSearchingEnabled = true
@@ -334,7 +335,11 @@ struct XYZMacEditor: NSViewRepresentable {
         context.coordinator.onTextChange = onTextChange
         context.coordinator.scrollLink = scrollLink
         textView.isEditable = isEditable
+        let markupChanged = textView.allowsMarkup != markup
         textView.allowsMarkup = markup
+        if textView.isContinuousSpellCheckingEnabled != spellCheck {
+            textView.isContinuousSpellCheckingEnabled = spellCheck
+        }
         textView.documentUndoManager = undoManager
         scrollLink.capture = { [weak textView] in
             textView?.scrollAnchor() ?? EditorScrollAnchor(fraction: 0, probe: "", line: 1)
@@ -342,8 +347,8 @@ struct XYZMacEditor: NSViewRepresentable {
         scrollLink.revealLine = { [weak textView] line in
             textView?.jump(toLine: line)
         }
-        let styleChanged = context.coordinator.style != style
-        if styleChanged {
+        let styleChanged = context.coordinator.style != style || markupChanged
+        if context.coordinator.style != style {
             context.coordinator.style = style
             applyChrome(textView: textView, scrollView: scrollView, style: style)
         }
@@ -457,7 +462,7 @@ struct XYZMacEditor: NSViewRepresentable {
             guard let textView, !isRestyling, !textView.hasMarkedText() else { return }
             isRestyling = true
             defer { isRestyling = false }
-            EditorTypography.apply(to: textView, style: style, edited: edited)
+            EditorTypography.apply(to: textView, style: style, markup: textView.allowsMarkup, edited: edited)
         }
     }
 }
@@ -515,7 +520,8 @@ enum EditorTypography {
         return NSFont(descriptor: descriptor, size: size) ?? base
     }
 
-    static func apply(to textView: NSTextView, style: XYZEditorStyle, edited: NSRange?) {
+    /// Base font and line height everywhere; heading sizes and tinted markers only when `markup` is on.
+    static func apply(to textView: NSTextView, style: XYZEditorStyle, markup: Bool, edited: NSRange?) {
         guard let storage = textView.textStorage else { return }
         let font = baseFont(style)
         let paragraph = style.paragraphStyle(naturalLineHeight: naturalLineHeight(font))
@@ -530,7 +536,7 @@ enum EditorTypography {
                 .foregroundColor: NSColor.labelColor,
                 .paragraphStyle: paragraph,
             ], range: span)
-            if full.length <= stylingLimit {
+            if markup, full.length <= stylingLimit {
                 styleMarkup(storage, style: style, within: span)
             }
         }

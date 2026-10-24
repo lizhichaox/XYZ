@@ -11,6 +11,17 @@ public enum TextMarkup {
             return false
         }
     }
+
+    /// Prose gets spell checking: Markdown, untitled notes, and `.txt`. Config files and code do not,
+    /// so names like `.gitignore` are not underlined.
+    public static func isProse(fileExtension: String?) -> Bool {
+        switch fileExtension?.lowercased() {
+        case nil, "md", "markdown", "txt", "text":
+            return true
+        default:
+            return false
+        }
+    }
 }
 
 /// A UTF-16 range, matching `NSTextView` and `UITextView` selections.

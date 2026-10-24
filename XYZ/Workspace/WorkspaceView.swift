@@ -301,6 +301,7 @@ private struct WorkspaceDetail: View {
             reloadToken: session.buffer?.editorToken ?? 0,
             scrollLink: session.scrollLink,
             markup: session.buffer?.kind == .markdown,
+            spellCheck: TextMarkup.isProse(fileExtension: session.buffer?.url.pathExtension),
             onTextChange: { newText in
                 session.buffer?.userEdited(newText)
                 session.previewBridge.send(newText)
