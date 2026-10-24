@@ -69,3 +69,46 @@ public struct TextStatistics: Equatable, Sendable {
         }
     }
 }
+
+/// Where each source line starts, in UTF-16 offsets, for line numbers beside Source.
+/// `\n`, `\r\n`, and a lone `\r` each end a line, as in ``EditorScrollAnchor``.
+public struct LineIndex: Equatable, Sendable {
+    public private(set) var starts: [Int]
+
+    public init(_ text: String) {
+        let ns = text as NSString
+        var starts = [0]
+        var index = 0
+        while index < ns.length {
+            let character = ns.character(at: index)
+            if character == 0x0A {
+                starts.append(index + 1)
+            } else if character == 0x0D {
+                if index + 1 < ns.length, ns.character(at: index + 1) == 0x0A {
+                    index += 1
+                }
+                starts.append(index + 1)
+            }
+            index += 1
+        }
+        self.starts = starts
+    }
+
+    /// Lines in the text. A trailing line break starts one more, empty line.
+    public var count: Int { starts.count }
+
+    /// The 1-based line holding the UTF-16 offset.
+    public func line(at offset: Int) -> Int {
+        var low = 0
+        var high = starts.count - 1
+        while low < high {
+            let middle = (low + high + 1) / 2
+            if starts[middle] <= offset {
+                low = middle
+            } else {
+                high = middle - 1
+            }
+        }
+        return low + 1
+    }
+}

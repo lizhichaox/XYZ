@@ -33,6 +33,7 @@
 		8C000000000000000000001F /* highlight.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 8B000000000000000000001F /* highlight.min.js */; };
 		8C0000000000000000000020 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000020 /* Localizable.xcstrings */; };
 		8C0000000000000000000021 /* EscapeKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000021 /* EscapeKey.swift */; };
+		8C0000000000000000000022 /* LineNumberGutter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000022 /* LineNumberGutter.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -68,6 +69,7 @@
 		8B000000000000000000001F /* highlight.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = highlight.min.js; sourceTree = "<group>"; };
 		8B0000000000000000000020 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		8B0000000000000000000021 /* EscapeKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EscapeKey.swift; sourceTree = "<group>"; };
+		8B0000000000000000000022 /* LineNumberGutter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineNumberGutter.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -125,6 +127,7 @@
 				8B0000000000000000000005 /* XYZIOSEditor.swift */,
 				8B000000000000000000001A /* FormatMenu.swift */,
 				8B000000000000000000001E /* WordCountBar.swift */,
+				8B0000000000000000000022 /* LineNumberGutter.swift */,
 			);
 			path = Editor;
 			sourceTree = "<group>";
@@ -284,6 +287,7 @@
 				8C000000000000000000001D /* LocalAssets.swift in Sources */,
 				8C000000000000000000001E /* WordCountBar.swift in Sources */,
 				8C0000000000000000000021 /* EscapeKey.swift in Sources */,
+				8C0000000000000000000022 /* LineNumberGutter.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

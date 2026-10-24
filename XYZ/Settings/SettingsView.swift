@@ -8,6 +8,7 @@ struct SettingsView: View {
     @AppStorage(XYZEditorStyle.monospacedKey) private var monospaced = false
     @AppStorage(XYZEditorStyle.fontSizeKey) private var fontSize = XYZEditorStyle.defaultFontSize
     @AppStorage(XYZEditorStyle.readableWidthKey) private var readableWidth = false
+    @AppStorage(XYZEditorStyle.lineNumbersKey) private var lineNumbers = true
     @AppStorage(WordCountSetting.key) private var showsWordCount = false
 
     /// The language this process launched with. A different choice waits for a restart.
@@ -59,6 +60,11 @@ struct SettingsView: View {
                 Toggle(isOn: $readableWidth) {
                     Text("Limit line width")
                     Text("Keeps lines at a comfortable length in wide windows, in Source and Reading.")
+                }
+
+                Toggle(isOn: $lineNumbers) {
+                    Text("Show line numbers")
+                    Text("Numbers each line of the file beside Source.")
                 }
             }
 

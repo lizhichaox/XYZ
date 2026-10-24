@@ -54,6 +54,8 @@ struct XYZEditorStyle: Equatable {
     static let monospacedKey = "xyz.editor.monospaced"
     static let fontSizeKey = "xyz.text.size"
     static let readableWidthKey = "xyz.text.readableWidth"
+    /// Line numbers beside Source. On unless turned off.
+    static let lineNumbersKey = "xyz.editor.lineNumbers"
     static let defaultFontSize: Double = 16
     static let fontSizes: ClosedRange<Double> = 12...24
     static let markdown = XYZEditorStyle()
@@ -135,6 +137,7 @@ struct XYZEditor: View {
     @AppStorage(XYZEditorStyle.monospacedKey) private var monospaced = false
     @AppStorage(XYZEditorStyle.fontSizeKey) private var fontSize = XYZEditorStyle.defaultFontSize
     @AppStorage(XYZEditorStyle.readableWidthKey) private var readableWidth = false
+    @AppStorage(XYZEditorStyle.lineNumbersKey) private var lineNumbers = true
 
     var body: some View {
         #if os(macOS)
@@ -151,6 +154,7 @@ struct XYZEditor: View {
             scrollLink: scrollLink,
             markup: markup,
             spellCheck: spellCheck,
+            lineNumbers: lineNumbers,
             onTextChange: onTextChange
         )
         #else

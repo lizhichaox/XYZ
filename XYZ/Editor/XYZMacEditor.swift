@@ -9,7 +9,32 @@ final class XYZMacTextView: NSTextView {
     var onAppearanceChange: (() -> Void)?
     var allowsMarkup = true
     /// Size and measure from Settings. Layout derives the side padding from it.
-    var style = XYZEditorStyle()
+    var style = XYZEditorStyle() {
+        didSet {
+            if showsLineNumbers, style != oldValue {
+                gutter.needsDisplay = true
+            }
+        }
+    }
+    /// Settings → Show line numbers. The left padding grows to fit them.
+    var showsLineNumbers = false {
+        didSet {
+            guard showsLineNumbers != oldValue else { return }
+            gutter.isHidden = !showsLineNumbers
+            if showsLineNumbers {
+                gutter.invalidateLines()
+            }
+            needsLayout = true
+        }
+    }
+    private lazy var gutter: LineNumberGutter = {
+        let view = LineNumberGutter()
+        view.textView = self
+        view.isHidden = true
+        view.autoresizingMask = [.height]
+        addSubview(view)
+        return view
+    }()
     /// Restored once, after the view is in a window and the inset matches the pane.
     private var pendingAnchor: EditorScrollAnchor?
     private var isAligning = false
@@ -94,14 +119,51 @@ final class XYZMacTextView: NSTextView {
         super.layout()
         guard !isAligning else { return }
         guard let width = enclosingScrollView?.contentSize.width, width > 1 else { return }
-        let side = style.sideInset(for: width)
-        let next = NSSize(width: side, height: style.verticalInset)
+        let next = expectedInset(for: width)
         if textContainerInset != next {
             textContainerInset = next
             needsLayout = true
             return
         }
+        if showsLineNumbers {
+            placeGutter()
+        }
         alignIfReady()
+    }
+
+    /// The side padding from Settings, widened when line numbers need more room.
+    private func expectedInset(for paneWidth: CGFloat) -> NSSize {
+        var side = style.sideInset(for: paneWidth)
+        if showsLineNumbers {
+            side = max(side, gutter.numberWidth(fontSize: style.fontSize) + LineNumberGutter.gap + 12)
+        }
+        return NSSize(width: side, height: style.verticalInset)
+    }
+
+    /// The gutter covers the left padding, above TextKit's own fragment views.
+    private func placeGutter() {
+        let frame = NSRect(x: 0, y: 0, width: textContainerInset.width, height: bounds.height)
+        if gutter.frame != frame {
+            gutter.frame = frame
+            gutter.needsDisplay = true
+        }
+        if subviews.last !== gutter {
+            addSubview(gutter, positioned: .above, relativeTo: nil)
+        }
+    }
+
+    /// The text changed: renumber, and widen the padding when the count gains a digit.
+    func lineNumbersChanged() {
+        guard showsLineNumbers else { return }
+        if gutter.invalidateLines() {
+            needsLayout = true
+        }
+    }
+
+    /// The caret's number is darker, so a selection change redraws the numbers in view.
+    func caretMoved() {
+        guard showsLineNumbers else { return }
+        gutter.setNeedsDisplay(visibleRect)
     }
 
     override func viewDidMoveToWindow() {
@@ -160,9 +222,7 @@ final class XYZMacTextView: NSTextView {
     private func alignIfReady() {
         guard let anchor = pendingAnchor, !isAligning, window != nil else { return }
         guard let scroll = enclosingScrollView, scroll.contentSize.width > 1, bounds.width > 1 else { return }
-        let side = style.sideInset(for: scroll.contentSize.width)
-        let expected = NSSize(width: side, height: style.verticalInset)
-        guard textContainerInset == expected else { return }
+        guard textContainerInset == expectedInset(for: scroll.contentSize.width) else { return }
         pendingAnchor = nil
         scrollLineToTop(anchor)
     }
@@ -259,6 +319,7 @@ struct XYZMacEditor: NSViewRepresentable {
     var scrollLink: EditorScrollLink
     var markup: Bool
     var spellCheck: Bool
+    var lineNumbers: Bool
     var onTextChange: (String) -> Void
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -298,6 +359,7 @@ struct XYZMacEditor: NSViewRepresentable {
         context.coordinator.onTextChange = onTextChange
         context.coordinator.style = style
         textView.allowsMarkup = markup
+        textView.showsLineNumbers = lineNumbers
         textView.delegate = context.coordinator
         textView.documentUndoManager = undoManager
         textView.onAppearanceChange = { [weak coordinator = context.coordinator] in
@@ -340,6 +402,7 @@ struct XYZMacEditor: NSViewRepresentable {
         if textView.isContinuousSpellCheckingEnabled != spellCheck {
             textView.isContinuousSpellCheckingEnabled = spellCheck
         }
+        textView.showsLineNumbers = lineNumbers
         textView.documentUndoManager = undoManager
         scrollLink.capture = { [weak textView] in
             textView?.scrollAnchor() ?? EditorScrollAnchor(fraction: 0, probe: "", line: 1)
@@ -437,6 +500,10 @@ struct XYZMacEditor: NSViewRepresentable {
             return true
         }
 
+        func textViewDidChangeSelection(_ notification: Notification) {
+            (notification.object as? XYZMacTextView)?.caretMoved()
+        }
+
         func textDidChange(_ notification: Notification) {
             guard !isApplyingExternalText, !isRestyling else { return }
             guard let textView = notification.object as? NSTextView else { return }
@@ -463,6 +530,7 @@ struct XYZMacEditor: NSViewRepresentable {
             isRestyling = true
             defer { isRestyling = false }
             EditorTypography.apply(to: textView, style: style, markup: textView.allowsMarkup, edited: edited)
+            textView.lineNumbersChanged()
         }
     }
 }

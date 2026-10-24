@@ -181,6 +181,16 @@ final class EditorCommands: NSObject {
         TextZoom.reset()
     }
 
+    @objc func toggleLineNumbers(_ sender: Any?) {
+        let defaults = UserDefaults.standard
+        defaults.set(!Self.showsLineNumbers, forKey: XYZEditorStyle.lineNumbersKey)
+    }
+
+    /// On unless turned off, so an unset key reads as on.
+    private static var showsLineNumbers: Bool {
+        UserDefaults.standard.object(forKey: XYZEditorStyle.lineNumbersKey) as? Bool ?? true
+    }
+
     @objc func toggleWordCount(_ sender: Any?) {
         let defaults = UserDefaults.standard
         defaults.set(!defaults.bool(forKey: WordCountSetting.key), forKey: WordCountSetting.key)
@@ -216,6 +226,9 @@ final class EditorCommands: NSObject {
             return target != nil
         case "xyz.mode.toggleSource", "xyz.goToHeading":
             return target != nil
+        case "xyz.lineNumbers":
+            menuItem.state = Self.showsLineNumbers ? .on : .off
+            return true
         case "xyz.wordCount":
             menuItem.state = UserDefaults.standard.bool(forKey: WordCountSetting.key) ? .on : .off
             return true
@@ -357,6 +370,7 @@ enum EditorMenuSupport {
             ("xyz.zoomIn", String(localized: "Zoom In"), "+", .command, #selector(EditorCommands.zoomIn(_:))),
             ("xyz.zoomOut", String(localized: "Zoom Out"), "-", .command, #selector(EditorCommands.zoomOut(_:))),
             ("xyz.actualSize", String(localized: "Actual Size"), "0", .command, #selector(EditorCommands.actualSize(_:))),
+            ("xyz.lineNumbers", String(localized: "Show Line Numbers"), "", [], #selector(EditorCommands.toggleLineNumbers(_:))),
             ("xyz.wordCount", String(localized: "Show Word Count"), "", [], #selector(EditorCommands.toggleWordCount(_:))),
         ]
         var previous: NSMenuItem?
@@ -370,7 +384,7 @@ enum EditorMenuSupport {
             if spec.0 == "xyz.zoomIn" {
                 previous = divider(after: previous, in: menu, identifier: "xyz.zoom.divider")
             }
-            if spec.0 == "xyz.wordCount" {
+            if spec.0 == "xyz.lineNumbers" {
                 previous = divider(after: previous, in: menu, identifier: "xyz.wordCount.divider")
             }
             let item = item(

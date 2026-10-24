@@ -672,6 +672,16 @@
         }
       }
     },
+    "Numbers each line of the file beside Source.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在源码视图左侧为文件的每一行标注行号。"
+          }
+        }
+      }
+    },
     "OK": {
       "localizations": {
         "zh-Hans": {
@@ -852,12 +862,32 @@
         }
       }
     },
+    "Show Line Numbers": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示行号"
+          }
+        }
+      }
+    },
     "Show Word Count": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "显示字数"
+          }
+        }
+      }
+    },
+    "Show line numbers": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示行号"
           }
         }
       }

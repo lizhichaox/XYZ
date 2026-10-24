@@ -144,6 +144,19 @@ final class DocumentInsightTests: XCTestCase {
         XCTAssertEqual(TextStatistics.count(String(repeating: "字", count: 1200)).readingMinutes, 3)
     }
 
+    func testLineIndexFindsTheLineOfAnOffset() {
+        let index = LineIndex("one\r\ntwo\rthree\n")
+        XCTAssertEqual(index.starts, [0, 5, 9, 15])
+        XCTAssertEqual(index.count, 4)
+        XCTAssertEqual(index.line(at: 0), 1)
+        XCTAssertEqual(index.line(at: 4), 1)
+        XCTAssertEqual(index.line(at: 5), 2)
+        XCTAssertEqual(index.line(at: 12), 3)
+        XCTAssertEqual(index.line(at: 15), 4)
+        XCTAssertEqual(LineIndex("").count, 1)
+        XCTAssertEqual(LineIndex("").line(at: 0), 1)
+    }
+
     func testHeadingIDsAreSlugsAndUnique() {
         let html = MarkdownHTML.render("# Hello, World!\n\n## Hello World\n\n## 安装 指南\n\n# Hello World\n")
         XCTAssertTrue(html.contains("<h1 id=\"hello-world\""))
