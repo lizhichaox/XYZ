@@ -59,21 +59,20 @@ struct WorkspaceView: View {
     }
 
     private var titleText: String {
-        openFileName ?? session.displayName
+        openFilePath.map { ($0 as NSString).lastPathComponent } ?? session.displayName
     }
 
+    /// The way from the folder's root to the open file: `LIZHICHAO › DT`. ⌘-click the title for the full path.
     private var subtitleText: String {
-        openFileName == nil ? "" : session.displayName
+        guard let path = openFilePath else { return "" }
+        return WorkspacePaths.breadcrumb(rootName: session.displayName, relativePath: path).joined(separator: " › ")
     }
 
-    private var openFileName: String? {
+    private var openFilePath: String? {
         if let path = session.selectedPath, let node = session.node(at: path), !node.isDirectory {
-            return node.name
+            return node.relativePath
         }
-        if let path = session.buffer?.relativePath {
-            return (path as NSString).lastPathComponent
-        }
-        return nil
+        return session.buffer?.relativePath
     }
 }
 

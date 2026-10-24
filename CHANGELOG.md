@@ -8,6 +8,7 @@
 - Settings: appearance (System, Light, Dark), language (System, English, 简体中文), font, a text size shared by Source and Reading, and Limit line width. View → Zoom In, Zoom Out, and Actual Size step the size.
 - View → Show Word Count shows the word count and reading time under the note.
 - The interface is in English and Simplified Chinese.
+- A folder window's subtitle shows the path from the workspace root to the open file, such as `LIZHICHAO › DT`.
 - Files that are not Markdown show as plain text in the editor, without heading sizes or tinted `#`. Spell checking is on for Markdown and `.txt` only.
 - The `_xyz` icon is redrawn: the underscore is as heavy as the letters and stands a little apart from the x, the word is larger, and up to 64 pixels it is set heavier so it stays legible in Finder and menus. The Mac icon's rounded edge no longer shows a dark rim at small sizes. `tools/make_icons.py` draws it.
 
