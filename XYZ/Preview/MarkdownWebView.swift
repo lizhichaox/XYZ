@@ -17,11 +17,14 @@ enum PreviewLog {
 final class PreviewWebHost {
     private var storage: WKWebView?
     private var coordinatorStorage: PreviewWebCoordinator?
+    /// Opens a file a relative link in Reading points at, such as another note in the folder.
+    var openFile: ((URL) -> Void)?
 
     var webView: WKWebView {
         if let storage { return storage }
         let created = PreviewWebViewFactory.make()
         let coordinator = PreviewWebCoordinator()
+        coordinator.openFile = { [weak self] url in self?.openFile?(url) }
         created.navigationDelegate = coordinator
         created.configuration.userContentController.add(coordinator, name: "xyzAnchor")
         storage = created
@@ -41,6 +44,8 @@ final class PreviewWebHost {
 struct PreviewPrefs: Equatable {
     var fontSize: Double = XYZEditorStyle.defaultFontSize
     var readableWidth = false
+    /// `<base href>` for the note's folder. Set before the content, so its pictures resolve.
+    var baseHref = ""
 
     var script: String {
         "setPrefs(\(Int(XYZEditorStyle.clampedFontSize(fontSize))), \(readableWidth));"
@@ -49,6 +54,8 @@ struct PreviewPrefs: Equatable {
 
 struct MarkdownWebView: View {
     var html: String
+    /// The note's folder. Relative image and link paths resolve against it.
+    var baseDirectory: URL?
     var host: PreviewWebHost
     var scrollLink: EditorScrollLink
     @Environment(\.colorScheme) private var colorScheme
@@ -56,7 +63,11 @@ struct MarkdownWebView: View {
     @AppStorage(XYZEditorStyle.readableWidthKey) private var readableWidth = false
 
     var body: some View {
-        let prefs = PreviewPrefs(fontSize: fontSize, readableWidth: readableWidth)
+        let prefs = PreviewPrefs(
+            fontSize: fontSize,
+            readableWidth: readableWidth,
+            baseHref: LocalAssets.baseHref(for: baseDirectory)
+        )
         #if os(macOS)
         MacMarkdownWebView(html: html, theme: colorScheme == .dark ? "dark" : "light", prefs: prefs, host: host, scrollLink: scrollLink)
         #else
@@ -338,6 +349,7 @@ private enum PreviewWebViewFactory {
     static func make() -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        configuration.setURLSchemeHandler(LocalAssetSchemeHandler.shared, forURLScheme: LocalAssets.scheme)
         #if os(macOS)
         let webView = XYZPreviewWebView(frame: .zero, configuration: configuration)
         #else
@@ -358,6 +370,7 @@ private enum PreviewWebViewFactory {
 
 final class PreviewWebCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
     private let css = PreviewStyles.load()
+    var openFile: ((URL) -> Void)?
     private var didStartLoad = false
     private var isReady = false
     private var pendingHTML: String?
@@ -454,7 +467,11 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate, WKScriptMessa
     ) {
         if navigationAction.navigationType == .linkActivated {
             if let url = navigationAction.request.url {
-                Self.openIfSafe(url)
+                if let file = LocalAssets.fileURL(for: url) {
+                    openFile?(file)
+                } else {
+                    Self.openIfSafe(url)
+                }
             }
             decisionHandler(.cancel)
             return
@@ -479,11 +496,16 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate, WKScriptMessa
             appliedTheme = theme
             script += "setTheme(\(PreviewPage.javaScriptLiteral(theme)));"
         }
+        var replaced = false
         if pendingPrefs != appliedPrefs {
+            if pendingPrefs.baseHref != appliedPrefs?.baseHref {
+                // Pictures resolve when they load. Lay the content out again under the new folder.
+                script += "setBase(\(PreviewPage.javaScriptLiteral(pendingPrefs.baseHref)));"
+                appliedHTML = nil
+            }
             appliedPrefs = pendingPrefs
             script += pendingPrefs.script
         }
-        var replaced = false
         if let html = pendingHTML, html != appliedHTML {
             appliedHTML = html
             replaced = true
@@ -665,6 +687,26 @@ private enum PreviewWebChrome {
     #endif
 }
 
+private enum PreviewScripts {
+    /// highlight.js 11.11.1, common languages (BSD-3-Clause). Read once; every page inlines it.
+    static let highlight: String = {
+        guard let url = Bundle.main.url(forResource: "highlight.min", withExtension: "js"),
+              let script = try? String(contentsOf: url, encoding: .utf8) else {
+            return ""
+        }
+        return script
+    }()
+}
+
+private enum HTMLAttribute {
+    static func escape(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+    }
+}
+
 private enum PreviewStyles {
     static func load() -> String {
         if let url = Bundle.main.url(forResource: "Preview", withExtension: "css"),
@@ -685,6 +727,7 @@ private enum PreviewPage {
         <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+        <base id="xyz-base" href="\(HTMLAttribute.escape(prefs.baseHref))">
         <style>
         \(css)
         \(PreviewWebChrome.canvasCSS())
@@ -693,6 +736,9 @@ private enum PreviewPage {
         <body>
         <article id="content">\(html)</article>
         <script>
+        \(PreviewScripts.highlight)
+        </script>
+        <script>
         var xyzPinned = 0;
         var xyzPinUntil = 0;
         function setContent(html) {
@@ -700,7 +746,49 @@ private enum PreviewPage {
           if (node) node.innerHTML = html;
           xyzPinned = 0;
           xyzPinUntil = 0;
+          xyzDecorate();
         }
+        function setBase(href) {
+          var base = document.getElementById("xyz-base");
+          if (base) base.setAttribute("href", href);
+        }
+        if (window.hljs) hljs.configure({ignoreUnescapedHTML: true});
+        // Code colors for fenced blocks that name a language, and the alt text for a picture that cannot load.
+        function xyzDecorate() {
+          var root = document.getElementById("content");
+          if (!root) return;
+          var images = root.querySelectorAll("img");
+          for (var i = 0; i < images.length; i++) {
+            images[i].addEventListener("error", xyzMissingImage, {once: true});
+          }
+          if (!window.hljs) return;
+          var blocks = root.querySelectorAll("pre code[class*='language-']");
+          if (blocks.length > 400) return;
+          for (var j = 0; j < blocks.length; j++) {
+            try { hljs.highlightElement(blocks[j]); } catch (error) {}
+          }
+        }
+        function xyzMissingImage(event) {
+          var image = event.target;
+          var label = document.createElement("span");
+          label.className = "missing-image";
+          label.textContent = image.getAttribute("alt") || image.getAttribute("src") || "";
+          image.replaceWith(label);
+        }
+        // #fragment links scroll to the heading. The page's <base> would otherwise turn them into a navigation.
+        document.addEventListener("click", function(event) {
+          var link = event.target && event.target.closest ? event.target.closest("a[href]") : null;
+          if (!link) return;
+          var href = link.getAttribute("href") || "";
+          if (href.charAt(0) !== "#") return;
+          event.preventDefault();
+          var id = href.slice(1);
+          try { id = decodeURIComponent(id); } catch (error) {}
+          var target = document.getElementById(id) || document.getElementById(id.toLowerCase());
+          if (!target) return;
+          xyzPinned = 0;
+          target.scrollIntoView({block: "start"});
+        });
         function setTheme(theme) {
           document.documentElement.setAttribute("data-theme", theme);
         }
@@ -801,6 +889,7 @@ private enum PreviewPage {
         window.addEventListener("keydown", xyzUnpin);
         setTheme("\(themeName)");
         \(prefs.script)
+        xyzDecorate();
         xyzReport();
         </script>
         </body>

@@ -40,6 +40,8 @@ struct DocumentEditorView: View {
     #if os(macOS)
     @StateObject private var commands: DocumentCommandBridge
     #endif
+    @AppStorage(WordCountSetting.key) private var showsWordCount = false
+    @StateObject private var wordCount = WordCountModel()
 
     init(document: MarkdownFileDocument, isEditable: Bool, fileURL: URL? = nil) {
         self.document = document
@@ -65,7 +67,22 @@ struct DocumentEditorView: View {
             #endif
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if showsWordCount {
+                WordCountBar(stats: wordCount.stats)
+            }
+        }
         .background(Color.editorBackground)
+        .onAppear {
+            if showsWordCount {
+                wordCount.update(bridge.latestText, immediate: true)
+            }
+        }
+        .onChange(of: showsWordCount) { _, shown in
+            if shown {
+                wordCount.update(bridge.latestText, immediate: true)
+            }
+        }
         #if os(macOS)
         .frame(minWidth: 640, minHeight: 400)
         .background(
@@ -96,14 +113,29 @@ struct DocumentEditorView: View {
             onTextChange: { newText in
                 document.storeEditorText(newText)
                 bridge.send(newText)
+                if showsWordCount {
+                    wordCount.update(newText)
+                }
             }
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var preview: some View {
-        MarkdownPreview(bridge: bridge, host: webHost, scrollLink: scrollLink)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        MarkdownPreview(
+            bridge: bridge,
+            host: webHost,
+            scrollLink: scrollLink,
+            baseDirectory: fileURL?.deletingLastPathComponent()
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        #if os(macOS)
+        .onAppear {
+            webHost.openFile = { url in
+                NSDocumentController.shared.openDocument(withContentsOf: url, display: true) { _, _, _ in }
+            }
+        }
+        #endif
     }
 
     @ViewBuilder

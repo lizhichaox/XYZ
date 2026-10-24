@@ -184,6 +184,8 @@ enum WorkspaceChrome {
 private struct WorkspaceDetail: View {
     @ObservedObject var session: WorkspaceSession
     @Environment(\.undoManager) private var undoManager
+    @AppStorage(WordCountSetting.key) private var showsWordCount = false
+    @StateObject private var wordCount = WordCountModel()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -208,10 +210,27 @@ private struct WorkspaceDetail: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if showsWordCount && (showsEditor || showsReading) {
+                WordCountBar(stats: wordCount.stats)
+            }
+        }
         .background(Color.editorBackground)
+        .onAppear {
+            countWords(immediate: true)
+        }
         .onChange(of: session.buffer?.editorToken) { _, _ in
             session.previewBridge.send(session.buffer?.text ?? "")
+            countWords(immediate: true)
         }
+        .onChange(of: showsWordCount) { _, _ in
+            countWords(immediate: true)
+        }
+    }
+
+    private func countWords(immediate: Bool) {
+        guard showsWordCount, let text = session.buffer?.text else { return }
+        wordCount.update(text, immediate: immediate)
     }
 
     private var showsEditor: Bool {
@@ -266,7 +285,12 @@ private struct WorkspaceDetail: View {
     }
 
     private var preview: some View {
-        MarkdownPreview(bridge: session.previewBridge, host: session.previewHost, scrollLink: session.scrollLink)
+        MarkdownPreview(
+            bridge: session.previewBridge,
+            host: session.previewHost,
+            scrollLink: session.scrollLink,
+            baseDirectory: session.buffer?.url.deletingLastPathComponent()
+        )
     }
 
     private var editor: some View {
@@ -280,6 +304,9 @@ private struct WorkspaceDetail: View {
             onTextChange: { newText in
                 session.buffer?.userEdited(newText)
                 session.previewBridge.send(newText)
+                if showsWordCount {
+                    wordCount.update(newText)
+                }
             }
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)

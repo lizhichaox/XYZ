@@ -8,6 +8,13 @@
   --quote: #aeaeb2;
   --mark: rgba(11, 87, 208, 0.22);
   --canvas: #ffffff;
+  --code-keyword: #cf222e;
+  --code-string: #0a3069;
+  --code-number: #0550ae;
+  --code-comment: #6e7781;
+  --code-title: #8250df;
+  --code-type: #953800;
+  --code-tag: #116329;
 }
 
 :root[data-theme="dark"] {
@@ -19,6 +26,13 @@
   --quote: #8e8e93;
   --mark: rgba(140, 180, 255, 0.28);
   --canvas: #1e1e1e;
+  --code-keyword: #ff7b72;
+  --code-string: #a5d6ff;
+  --code-number: #79c0ff;
+  --code-comment: #8b949e;
+  --code-title: #d2a8ff;
+  --code-type: #ffa657;
+  --code-tag: #7ee787;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -31,6 +45,13 @@
     --quote: #8e8e93;
     --mark: rgba(140, 180, 255, 0.28);
     --canvas: #1e1e1e;
+    --code-keyword: #ff7b72;
+    --code-string: #a5d6ff;
+    --code-number: #79c0ff;
+    --code-comment: #8b949e;
+    --code-title: #d2a8ff;
+    --code-type: #ffa657;
+    --code-tag: #7ee787;
   }
 }
 
@@ -213,6 +234,29 @@ img, video {
   margin: 0.9em 0;
   border-radius: 8px;
 }
+
+/* A picture that cannot load shows its alt text. */
+.missing-image {
+  display: inline-block;
+  color: var(--muted);
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  padding: 0.1em 0.5em;
+  font-size: 0.92em;
+}
+
+/* highlight.js tokens, for fenced code that names its language. */
+.hljs-keyword, .hljs-selector-tag, .hljs-literal, .hljs-doctag, .hljs-meta .hljs-keyword { color: var(--code-keyword); }
+.hljs-string, .hljs-regexp, .hljs-meta .hljs-string, .hljs-char.escape_ { color: var(--code-string); }
+.hljs-number, .hljs-attr, .hljs-attribute, .hljs-variable, .hljs-template-variable, .hljs-selector-attr, .hljs-selector-class, .hljs-selector-id, .hljs-operator { color: var(--code-number); }
+.hljs-comment, .hljs-quote, .hljs-meta { color: var(--code-comment); }
+.hljs-title, .hljs-title.function_, .hljs-section { color: var(--code-title); }
+.hljs-type, .hljs-built_in, .hljs-title.class_, .hljs-symbol { color: var(--code-type); }
+.hljs-name, .hljs-tag, .hljs-selector-pseudo, .hljs-bullet, .hljs-addition { color: var(--code-tag); }
+.hljs-deletion { color: var(--code-keyword); }
+.hljs-emphasis { font-style: italic; }
+.hljs-strong { font-weight: 600; }
+.hljs-params { color: inherit; }
 
 pre.raw-html {
   color: var(--muted);

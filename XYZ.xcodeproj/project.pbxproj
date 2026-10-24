@@ -28,6 +28,9 @@
 		8C000000000000000000001A /* FormatMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B000000000000000000001A /* FormatMenu.swift */; };
 		8C000000000000000000001B /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B000000000000000000001B /* AppSettings.swift */; };
 		8C000000000000000000001C /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B000000000000000000001C /* SettingsView.swift */; };
+		8C000000000000000000001D /* LocalAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B000000000000000000001D /* LocalAssets.swift */; };
+		8C000000000000000000001E /* WordCountBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B000000000000000000001E /* WordCountBar.swift */; };
+		8C000000000000000000001F /* highlight.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 8B000000000000000000001F /* highlight.min.js */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -58,6 +61,9 @@
 		8B000000000000000000001A /* FormatMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FormatMenu.swift; sourceTree = "<group>"; };
 		8B000000000000000000001B /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
 		8B000000000000000000001C /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		8B000000000000000000001D /* LocalAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalAssets.swift; sourceTree = "<group>"; };
+		8B000000000000000000001E /* WordCountBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordCountBar.swift; sourceTree = "<group>"; };
+		8B000000000000000000001F /* highlight.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = highlight.min.js; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -114,6 +120,7 @@
 				8B0000000000000000000004 /* XYZMacEditor.swift */,
 				8B0000000000000000000005 /* XYZIOSEditor.swift */,
 				8B000000000000000000001A /* FormatMenu.swift */,
+				8B000000000000000000001E /* WordCountBar.swift */,
 			);
 			path = Editor;
 			sourceTree = "<group>";
@@ -123,6 +130,7 @@
 			children = (
 				8B0000000000000000000006 /* MarkdownPreview.swift */,
 				8B0000000000000000000007 /* MarkdownWebView.swift */,
+				8B000000000000000000001D /* LocalAssets.swift */,
 			);
 			path = Preview;
 			sourceTree = "<group>";
@@ -165,6 +173,7 @@
 			children = (
 				8B0000000000000000000008 /* Assets.xcassets */,
 				8B0000000000000000000009 /* Preview.css */,
+				8B000000000000000000001F /* highlight.min.js */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -235,6 +244,7 @@
 			files = (
 				8C0000000000000000000008 /* Assets.xcassets in Resources */,
 				8C0000000000000000000009 /* Preview.css in Resources */,
+				8C000000000000000000001F /* highlight.min.js in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -263,6 +273,8 @@
 				8C000000000000000000001A /* FormatMenu.swift in Sources */,
 				8C000000000000000000001B /* AppSettings.swift in Sources */,
 				8C000000000000000000001C /* SettingsView.swift in Sources */,
+				8C000000000000000000001D /* LocalAssets.swift in Sources */,
+				8C000000000000000000001E /* WordCountBar.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

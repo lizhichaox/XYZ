@@ -62,6 +62,11 @@ final class WorkspaceSession: ObservableObject {
         guard !didStart else { return }
         didStart = true
         accessStarted = rootURL.startAccessingSecurityScopedResource()
+        previewHost.openFile = { [weak self] url in
+            MainActor.assumeIsolated {
+                self?.openLinked(url)
+            }
+        }
         if let saved = UserDefaults.standard.stringArray(forKey: Self.expansionKey(for: rootURL)) {
             expanded = Set(saved.filter { !$0.isEmpty && !WorkspaceContentSearch.shouldSkipRelativePath($0) })
         }
@@ -155,6 +160,17 @@ final class WorkspaceSession: ObservableObject {
 
     func focusSearch() {
         focusSearchHandler?()
+    }
+
+    /// A link in Reading. Files in this folder open here; anything else goes to its default app.
+    func openLinked(_ url: URL) {
+        let root = rootURL.standardizedFileURL.path
+        let path = url.standardizedFileURL.path
+        guard path.hasPrefix(root + "/") else {
+            NSWorkspace.shared.open(url)
+            return
+        }
+        openRelative(String(path.dropFirst(root.count + 1)))
     }
 
     func openRelative(_ relativePath: String) {
