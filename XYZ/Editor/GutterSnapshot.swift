@@ -30,7 +30,6 @@ enum GutterSnapshotCheck {
             fflush(stdout)
         }
         let sidebar = SidebarColumnFitCheck.run()
-        // Clicks and divider drags are logged. They are not a gate until a run shows each one.
         let gestures = runAcceptanceGestures()
         if let gestures {
             print("GUTTER_GESTURE_FAIL \(gestures)")
@@ -2065,6 +2064,7 @@ enum GutterSnapshotCheck {
     }
 
     /// A file cell can be wider than the sidebar. Its midpoint then lies over the editor, so a window hit test never reaches the row.
+    /// The disclosure triangle is narrow and already expands when the window delivers the click, so that path stays.
     private static func trackingClick(_ outline: NSOutlineView, row: Int, disclosure: Bool) -> Bool {
         guard let window = outline.window, row >= 0, row < outline.numberOfRows else { return false }
         outline.scrollRowToVisible(row)
@@ -2077,6 +2077,9 @@ enum GutterSnapshotCheck {
             ? NSPoint(x: target.midX, y: target.midY)
             : NSPoint(x: min(target.maxX - 4, target.minX + 28), y: target.midY)
         let point = outline.convert(local, to: nil)
+        if disclosure {
+            return postUpThenDown(window: window, point: point, clickCount: 1)
+        }
         guard let down = mouseEvent(.leftMouseDown, at: point, window: window, clickCount: 1, eventNumber: 0),
               let up = mouseEvent(.leftMouseUp, at: point, window: window, clickCount: 1, eventNumber: 0) else { return false }
         NSApp.postEvent(up, atStart: true)
