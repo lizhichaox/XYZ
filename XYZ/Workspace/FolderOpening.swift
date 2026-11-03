@@ -11,9 +11,23 @@ enum FolderOpening {
     private static var didInstallEarly = false
     private static var didHookOpenDocument = false
     private static var didHookOpenPanel = false
+    /// Set after folder windows are restored, so DocumentGroup's launch Open panel does not also appear.
+    private static var suppressDocumentOpenPanel = false
 
     static var openDocumentHooked: Bool { didHookOpenDocument }
     static var openPanelHooked: Bool { didHookOpenPanel }
+
+    /// One automatic document Open panel is cancelled. File → Open Folder is left alone.
+    static func suppressNextAutomaticDocumentOpenPanel() {
+        suppressDocumentOpenPanel = true
+        for window in NSApp.windows {
+            guard let panel = window as? NSOpenPanel, panel.isVisible, panel.canChooseFiles else { continue }
+            panel.cancel(nil)
+            suppressDocumentOpenPanel = false
+            WorkspaceLog.panelCancelled(kind: "document-open-after-restore")
+            return
+        }
+    }
 
     static func installEarly() {
         guard !didInstallEarly else { return }
@@ -45,6 +59,10 @@ enum FolderOpening {
         let began = hook(cls, NSSelectorFromString("beginWithCompletionHandler:")) { original, selector in
             let block: @convention(block) (AnyObject, AnyObject?) -> Void = { panel, handler in
                 if let open = panel as? NSOpenPanel {
+                    if suppressAutomaticDocumentOpen(open) {
+                        finishOpenPanel(handler, response: NSApplication.ModalResponse.cancel.rawValue)
+                        return
+                    }
                     noteOpenPanel(open, via: "begin")
                 }
                 let call = unsafeBitCast(original, to: (@convention(c) (AnyObject, Selector, AnyObject?) -> Void).self)
@@ -55,6 +73,10 @@ enum FolderOpening {
         let sheet = hook(cls, NSSelectorFromString("beginSheetModalForWindow:completionHandler:")) { original, selector in
             let block: @convention(block) (AnyObject, AnyObject, AnyObject?) -> Void = { panel, window, handler in
                 if let open = panel as? NSOpenPanel {
+                    if suppressAutomaticDocumentOpen(open) {
+                        finishOpenPanel(handler, response: NSApplication.ModalResponse.cancel.rawValue)
+                        return
+                    }
                     noteOpenPanel(open, via: "sheet")
                 }
                 let call = unsafeBitCast(
@@ -68,6 +90,9 @@ enum FolderOpening {
         let modal = hook(cls, NSSelectorFromString("runModal")) { original, selector in
             let block: @convention(block) (AnyObject) -> Int = { panel in
                 if let open = panel as? NSOpenPanel {
+                    if suppressAutomaticDocumentOpen(open) {
+                        return NSApplication.ModalResponse.cancel.rawValue
+                    }
                     noteOpenPanel(open, via: "runModal")
                 }
                 let call = unsafeBitCast(original, to: (@convention(c) (AnyObject, Selector) -> Int).self)
@@ -139,6 +164,20 @@ enum FolderOpening {
         } else {
             DispatchQueue.main.async { _ = open() }
         }
+    }
+
+    /// True once, for the document Open panel DocumentGroup shows at launch after folder windows were restored.
+    private static func suppressAutomaticDocumentOpen(_ panel: NSOpenPanel) -> Bool {
+        guard suppressDocumentOpenPanel, panel.canChooseFiles else { return false }
+        suppressDocumentOpenPanel = false
+        WorkspaceLog.panelCancelled(kind: "document-open-after-restore")
+        return true
+    }
+
+    private static func finishOpenPanel(_ handler: AnyObject?, response: Int) {
+        guard let handler else { return }
+        let finish = unsafeBitCast(handler, to: (@convention(block) (Int) -> Void).self)
+        finish(response)
     }
 
     /// Logs the panel that is about to appear, after the document panel has been allowed to choose folders.

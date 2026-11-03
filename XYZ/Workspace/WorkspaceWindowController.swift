@@ -182,18 +182,20 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
                 bookmark = nil
                 WorkspaceLog.bookmarkFailed(action: "save", path: url.path, error: error)
             }
-            MainActor.assumeIsolated {
-                open(url: url, bookmark: bookmark, fresh: fresh)
+            MainActor.assumeIsolated { () -> Void in
+                _ = open(url: url, bookmark: bookmark, fresh: fresh)
             }
         }
     }
 
-    static func open(bookmark: WorkspaceBookmark, fresh: Bool = false, tabs: WorkspaceWindowState? = nil) {
+    @discardableResult
+    static func open(bookmark: WorkspaceBookmark, fresh: Bool = false, tabs: WorkspaceWindowState? = nil) -> WorkspaceWindowController? {
         do {
             let url = try WorkspaceBookmarks.resolve(bookmark.data)
-            _ = open(url: url, bookmark: bookmark.data, fresh: fresh, tabs: tabs)
+            return open(url: url, bookmark: bookmark.data, fresh: fresh, tabs: tabs)
         } catch {
             WorkspaceLog.bookmarkFailed(action: "restore", path: bookmark.name, error: error)
+            return nil
         }
     }
 
@@ -260,16 +262,22 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
         return true
     }
 
-    static func restore() {
+    /// The number of folder windows that actually opened.
+    @discardableResult
+    static func restore() -> Int {
         let stored = WorkspaceLibrary.shared.windows
         WorkspaceLog.restoreStarted(count: stored.count)
+        var opened = 0
         for item in stored {
-            open(
+            if open(
                 bookmark: item.bookmark,
                 fresh: true,
                 tabs: WorkspaceWindowState(tabs: item.tabs, activePath: item.activePath)
-            )
+            ) != nil {
+                opened += 1
+            }
         }
+        return opened
     }
 
     static func prepareForQuit() {
@@ -322,8 +330,8 @@ enum WorkspaceFolderDrop {
                 WorkspaceLog.externalOpenFolder(source: "window-drop", path: url.path)
                 let bookmark = WorkspaceBookmarks.capture(url)
                 DispatchQueue.main.async {
-                    MainActor.assumeIsolated {
-                        WorkspaceWindowController.open(url: url, bookmark: bookmark)
+                    MainActor.assumeIsolated { () -> Void in
+                        _ = WorkspaceWindowController.open(url: url, bookmark: bookmark)
                     }
                 }
             }
@@ -354,8 +362,11 @@ final class XYZAppDelegate: NSObject, NSApplicationDelegate {
             EditorMenuSupport.install()
             EscapeKey.install()
         }
-        MainActor.assumeIsolated {
+        let restored = MainActor.assumeIsolated {
             WorkspaceWindowController.restore()
+        }
+        if restored > 0 {
+            FolderOpening.suppressNextAutomaticDocumentOpenPanel()
         }
         FileMenuCheck.finishIfRequested()
         #if DEBUG
@@ -386,8 +397,8 @@ final class XYZAppDelegate: NSObject, NSApplicationDelegate {
         WorkspaceLog.externalOpen(source: "open-file", urlCount: 1, folderCount: isFolder ? 1 : 0)
         guard isFolder else { return false }
         WorkspaceLog.externalOpenFolder(source: "open-file", path: url.path)
-        MainActor.assumeIsolated {
-            WorkspaceWindowController.open(url: url)
+        MainActor.assumeIsolated { () -> Void in
+            _ = WorkspaceWindowController.open(url: url)
         }
         return true
     }
