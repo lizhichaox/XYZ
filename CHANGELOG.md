@@ -2,7 +2,7 @@
 
 ## 0.5.27
 
-- Opening a file keeps the real text view. The editor pane has a layer so the text view's layer is in the window, and those layers use the view's flip. The caret, selection, scrolling, find, and the Reading page stay on their own views. The file column keeps the width left after the sidebar. The window check first reads a normal text control. A blank file still fails.
+- Opening a file uses the text view construction from the last revision whose folder window showed the note. The layer overrides added after that revision are gone. The caret, selection, scrolling, find, and the Reading page stay on their own views. The file column keeps the width left after the sidebar. The window check first reads a normal text control, then types into the real editor and undoes. A blank file still fails.
 
 ## 0.5.26
 

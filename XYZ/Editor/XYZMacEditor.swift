@@ -595,9 +595,6 @@ private struct FindScan {
         }
         editorPane?.noteTextLayout()
         alignIfReady()
-        if window != nil {
-            flipOwnedLayers()
-        }
     }
 
     /// Turns numbers on or off on this view. Called from SwiftUI updates, including a mode
@@ -630,11 +627,6 @@ private struct FindScan {
         var widthChanged = false
         if style.wraps {
             textContainer?.widthTracksTextView = true
-            isHorizontallyResizable = false
-            if frame.height > 1, frame.width > clip + 0.5 {
-                setFrameSize(NSSize(width: clip, height: frame.height))
-                widthChanged = true
-            }
             let next = max(1, clip - 1)
             if abs((textContainer?.containerSize.width ?? 0) - next) > 0.5 {
                 textContainer?.containerSize = NSSize(width: next, height: CGFloat.greatestFiniteMagnitude)
@@ -798,33 +790,6 @@ private struct FindScan {
         guard window != nil else { return }
         layoutSubtreeIfNeeded()
         alignIfReady()
-        joinWindowLayer()
-    }
-
-    /// The glyphs are already in this view. A flipped text view inside the folder window
-    /// leaves them on an unflipped layer, so the window shows the numbers and not the note.
-    /// The text view stays the editor: caret, selection, scrolling, and find are unchanged.
-    func joinWindowLayer() {
-        guard window != nil else { return }
-        wantsLayer = true
-        if let scroll = enclosingScrollView {
-            scroll.wantsLayer = true
-            scroll.contentView.drawsBackground = false
-        }
-        textLayoutManager?.textViewportLayoutController.layoutViewport()
-        flipOwnedLayers()
-        needsDisplay = true
-    }
-
-    /// TextKit rebuilds the content layer after the text view's own layer is configured.
-    private func flipOwnedLayers() {
-        var pending: [NSView] = [self]
-        while let view = pending.popLast() {
-            if view.isFlipped, let layer = view.layer, !layer.isGeometryFlipped {
-                layer.isGeometryFlipped = true
-            }
-            pending.append(contentsOf: view.subviews)
-        }
     }
 
     func scrollAnchor() -> EditorScrollAnchor {
@@ -999,10 +964,6 @@ final class EditorPane: NSView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        // The text view's layer has the glyphs. Without a layer on this pane, that
-        // layer is not in the window. Subviews keep their own layers.
-        wantsLayer = true
-        canDrawSubviewsIntoLayer = false
         gutter.translatesAutoresizingMaskIntoConstraints = true
         scrollView.translatesAutoresizingMaskIntoConstraints = true
         addSubview(gutter)
@@ -1136,7 +1097,7 @@ struct XYZMacEditor: NSViewRepresentable {
     var onTextChange: (String) -> Void
 
     func makeNSView(context: Context) -> EditorPane {
-        let textView = Self.makeTextKit2View()
+        let textView = XYZMacTextView(usingTextLayoutManager: true)
         textView.isRichText = true
         textView.importsGraphics = false
         textView.allowsImageEditing = false
@@ -1203,24 +1164,10 @@ struct XYZMacEditor: NSViewRepresentable {
         context.coordinator.restyle(edited: nil)
         context.coordinator.observeScroll(of: scrollView)
         applyWrap(textView: textView, scrollView: scrollView, wraps: style.wraps)
-        // Leave `layoutManager` unread. On this path it installs TextKit 1 and the assert
-        // in a debug build is the crash the hosted check hit. Release builds kept editing
-        // and drew no wrapped line numbers.
+        // Same construction as 0147da3, the last revision whose folder window showed the note.
+        textView.layoutManager?.allowsNonContiguousLayout = true
         noteHostedTextSystem(textView, stage: "make")
         return pane
-    }
-
-    /// `init(frame:)` is the text view a titled window actually shows. The capture control
-    /// read that text. `init(usingTextLayoutManager:)` kept the glyphs on a layer the folder
-    /// window did not draw. The caret, selection, scrolling, and find stay on this view.
-    private static func makeTextKit2View() -> XYZMacTextView {
-        let textView = XYZMacTextView(frame: .zero)
-        if ProcessInfo.processInfo.arguments.contains(GutterSnapshotCheck.argument) {
-            let how = textView.textLayoutManager == nil ? "textkit1" : "convenience"
-            print("GUTTER_PROD stage=init path=\(how)")
-            fflush(stdout)
-        }
-        return textView
     }
 
     private func noteHostedTextSystem(_ textView: XYZMacTextView, stage: String) {
@@ -1259,11 +1206,9 @@ struct XYZMacEditor: NSViewRepresentable {
         scrollView.contentView.contentInsets = NSEdgeInsets()
         scrollView.clipsToBounds = true
         scrollView.drawsBackground = true
-        scrollView.wantsLayer = true
         scrollView.contentView.clipsToBounds = true
         scrollView.contentView.drawsBackground = false
         textView.clipsToBounds = true
-        textView.joinWindowLayer()
         textView.documentUndoManager = undoManager
         scrollLink.capture = { [weak textView] in
             textView?.scrollAnchor() ?? EditorScrollAnchor(fraction: 0, probe: "", line: 1)

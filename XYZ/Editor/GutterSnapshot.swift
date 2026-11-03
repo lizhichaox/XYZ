@@ -656,9 +656,6 @@ enum GutterSnapshotCheck {
             let words = recognizedText(in: screen ?? windowImage)
             let chain = layerChain(from: textView)
             let viewNames = textView.subviews.map { NSStringFromClass(type(of: $0)) }.joined(separator: ",")
-            textView.joinWindowLayer()
-            textView.displayIfNeeded()
-            window.displayIfNeeded()
             let box = textView.convert(textView.bounds, to: nil)
             let visible = textView.visibleRect
             let clipY = textView.enclosingScrollView?.contentView.bounds.origin.y ?? -1
@@ -675,6 +672,9 @@ enum GutterSnapshotCheck {
                 if !recognized {
                     return "window \(label): composited window did not show the fixture words evidence=missing body=\(String(bodyWords.prefix(80)))"
                 }
+                if let interaction = exerciseEditor(textView, window: window) {
+                    return "window \(label): \(interaction)"
+                }
                 let numbers = pane.gutter.testingSnapshot().rows.filter(\.shows).map(\.line)
                 if numbers.first != 1 {
                     return "window \(label): gutter numbered \(numbers)"
@@ -690,6 +690,26 @@ enum GutterSnapshotCheck {
             return readingFailure
         }
         return failure
+    }
+
+    /// Types into the real text view, checks the caret, then undoes. The note on screen is unchanged.
+    private static func exerciseEditor(_ textView: XYZMacTextView, window: NSWindow) -> String? {
+        let original = textView.string
+        window.makeFirstResponder(textView)
+        textView.setSelectedRange(NSRange(location: 0, length: 0))
+        textView.insertText("Z", replacementRange: NSRange(location: 0, length: 0))
+        if !textView.string.hasPrefix("Z") || textView.string.dropFirst() != original {
+            return "typing did not change the text view"
+        }
+        if textView.selectedRange().location != 1 {
+            return "the caret did not follow the typed character"
+        }
+        textView.undoManager?.undo()
+        if textView.string != original {
+            textView.string = original
+            return "undo did not restore the note"
+        }
+        return nil
     }
 
     @MainActor
