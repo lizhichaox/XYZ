@@ -423,7 +423,7 @@ private struct WorkspaceDetail: View {
 
     private var statusSnapshot: EditorStatusSnapshot {
         guard session.buffer != nil else { return .empty }
-        let caretValue: EditorCaret? = showsText ? caret : nil
+        let caretValue: EditorCaret? = isEditing ? caret : nil
         let encoding: TextEncoding? = showsText ? session.buffer?.encoding : nil
         let ending: LineEnding? = showsText ? session.buffer?.lineEnding : nil
         let words: TextStatistics? = (format.isProse && !isReadOnly) ? wordCount.stats : nil
