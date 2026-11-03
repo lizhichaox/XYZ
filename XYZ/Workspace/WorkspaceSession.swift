@@ -226,8 +226,18 @@ final class WorkspaceSession: ObservableObject {
         expanded.contains(path)
     }
 
+    /// Set by an explicit reveal. The sidebar consumes it once. A later refresh must not expand again.
+    var pendingSidebarReveal = false
+
+    func consumeSidebarReveal() -> Bool {
+        let reveal = pendingSidebarReveal
+        pendingSidebarReveal = false
+        return reveal
+    }
+
     /// Expand every folder above a file so the outline can select and scroll to it.
     func revealAncestors(of relativePath: String) {
+        pendingSidebarReveal = true
         let chain = WorkspacePaths.ancestors(of: relativePath)
         guard !chain.isEmpty else { return }
         var next = expanded

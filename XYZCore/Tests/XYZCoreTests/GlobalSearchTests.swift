@@ -65,6 +65,19 @@ final class GlobalSearchTests: XCTestCase {
         XCTAssertEqual(OutlineDisclosure.shift(proposedX: 16), OutlineDisclosure.inset)
     }
 
+    func testCollapseStaysCollapsedWhileAChildIsOpen() {
+        let nested = "Notes/Day/note.md"
+        XCTAssertEqual(
+            SidebarReveal.ancestorsToExpand(of: nested, explicitReveal: false),
+            []
+        )
+        XCTAssertEqual(
+            SidebarReveal.ancestorsToExpand(of: nested, explicitReveal: true),
+            ["Notes", "Notes/Day"]
+        )
+        XCTAssertTrue(SidebarReveal.ancestorsToExpand(of: "", explicitReveal: true).isEmpty)
+    }
+
     func testExplorerSectionCollapsesAndCountsFiles() {
         XCTAssertFalse(ExplorerSection.toggle(true))
         XCTAssertTrue(ExplorerSection.toggle(false))

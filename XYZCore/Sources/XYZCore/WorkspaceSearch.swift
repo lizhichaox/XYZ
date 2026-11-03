@@ -26,6 +26,16 @@ public enum OutlineDisclosure {
     }
 }
 
+/// Parents to open so a file can be selected in the sidebar.
+/// A refresh that is not an explicit reveal returns nothing, so collapsing a folder stays collapsed
+/// while a file inside it is the open tab.
+public enum SidebarReveal {
+    public static func ancestorsToExpand(of path: String, explicitReveal: Bool) -> [String] {
+        guard explicitReveal, !path.isEmpty else { return [] }
+        return WorkspacePaths.ancestors(of: path)
+    }
+}
+
 /// The Explorer section for the open folder. Collapsed hides the file list and stays that way for the session.
 public enum ExplorerSection {
     public static func toggle(_ expanded: Bool) -> Bool { !expanded }

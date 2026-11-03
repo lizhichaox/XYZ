@@ -613,25 +613,32 @@ struct WorkspaceSidebar: NSViewRepresentable {
             } else {
                 current = nil
             }
+            let explicitReveal = session.consumeSidebarReveal()
             guard current != path else { return }
             suppressSelection = true
             defer { suppressSelection = false }
             let filePath = path
             outline.openRelativePath = filePath
-            guard let filePath else {
+            guard session.rootExpanded, let filePath else {
                 outline.deselectAll(nil)
                 outline.enumerateAvailableRowViews { rowView, _ in rowView.needsDisplay = true }
                 return
             }
-            outline.animatesDisclosure = false
-            var parent = WorkspacePaths.parent(of: filePath)
-            while !parent.isEmpty {
-                if let item = nodeByPath[parent] {
-                    outline.expandItem(item, expandChildren: false)
+            let parents = SidebarReveal.ancestorsToExpand(
+                of: filePath,
+                explicitReveal: explicitReveal
+            )
+            if !parents.isEmpty {
+                outline.animatesDisclosure = false
+                suppressExpansionWrite = true
+                for parent in parents {
+                    if let item = nodeByPath[parent] {
+                        outline.expandItem(item, expandChildren: false)
+                    }
                 }
-                parent = WorkspacePaths.parent(of: parent)
+                suppressExpansionWrite = false
+                outline.animatesDisclosure = true
             }
-            outline.animatesDisclosure = true
             guard let item = nodeByPath[filePath] else { return }
             let row = outline.row(forItem: item)
             guard row >= 0 else { return }

@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.18
+
+- Collapsing a folder in Explorer stays collapsed while a file inside it is open. Opening a file still reveals it. The folder section header still hides the whole list, and that choice lasts for the session.
+
 ## 0.5.17
 
 - Find (⌘F) is a compact bar at the top right of the note, in Reading and in Editing. It fills from the selection, shows `n of m`, highlights every match, and marks the current one. ⌘G, ⇧⌘G, Return, and Shift-Return move through the matches and say when the search wraps. Match case, whole word, and regex stay on while they are pressed. ⌥⌘F adds Replace and Replace All in Editing. Esc closes the bar.
