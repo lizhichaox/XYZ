@@ -75,7 +75,7 @@ final class LineNumberGutter: NSView {
         for row in placed.rows {
             if row.y > bounds.maxY || row.y + row.height < 0 { continue }
             if row.line == caretLine {
-                NSColor.xyzInk.withAlphaComponent(0.08).setFill()
+                NSColor.xyzCurrentLine.setFill()
                 NSRect(x: 0, y: row.y, width: bounds.width, height: max(row.height, 1)).fill()
             }
             let label = String(row.line) as NSString

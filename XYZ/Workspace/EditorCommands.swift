@@ -1559,38 +1559,16 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
     }
 
     private func paletteBackground(content: NSView) -> NSView {
-        let reduceTransparency = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
-        let increaseContrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
-        if #available(macOS 26, *), !reduceTransparency, !increaseContrast {
-            let glass = NSGlassEffectView()
-            glass.cornerRadius = 16
-            glass.style = .regular
-            content.translatesAutoresizingMaskIntoConstraints = false
-            glass.contentView = content
-            NSLayoutConstraint.activate([
-                content.leadingAnchor.constraint(equalTo: glass.leadingAnchor),
-                content.trailingAnchor.constraint(equalTo: glass.trailingAnchor),
-                content.topAnchor.constraint(equalTo: glass.topAnchor),
-                content.bottomAnchor.constraint(equalTo: glass.bottomAnchor),
-            ])
-            return glass
-        }
-        let effect = NSVisualEffectView()
-        effect.material = .hudWindow
-        effect.blendingMode = .behindWindow
-        effect.state = .active
-        effect.wantsLayer = true
-        effect.layer?.cornerRadius = 16
-        effect.layer?.masksToBounds = true
+        let plate = PopupSurface()
         content.translatesAutoresizingMaskIntoConstraints = false
-        effect.addSubview(content)
+        plate.addSubview(content)
         NSLayoutConstraint.activate([
-            content.leadingAnchor.constraint(equalTo: effect.leadingAnchor),
-            content.trailingAnchor.constraint(equalTo: effect.trailingAnchor),
-            content.topAnchor.constraint(equalTo: effect.topAnchor),
-            content.bottomAnchor.constraint(equalTo: effect.bottomAnchor),
+            content.leadingAnchor.constraint(equalTo: plate.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: plate.trailingAnchor),
+            content.topAnchor.constraint(equalTo: plate.topAnchor),
+            content.bottomAnchor.constraint(equalTo: plate.bottomAnchor),
         ])
-        return effect
+        return plate
     }
 
     private func reloadRows() {
@@ -1711,7 +1689,7 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
     private func highlighted(_ string: String, indices: [Int], dimDirectory: Bool) -> NSAttributedString {
         let text = NSMutableAttributedString(string: string, attributes: [
             .font: NSFont.systemFont(ofSize: 13),
-            .foregroundColor: NSColor.labelColor,
+            .foregroundColor: NSColor.xyzInk,
         ])
         if dimDirectory {
             let ns = string as NSString
@@ -1719,7 +1697,7 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
             if slash.location != NSNotFound {
                 text.addAttribute(
                     .foregroundColor,
-                    value: NSColor.tertiaryLabelColor,
+                    value: NSColor.xyzSecondaryText,
                     range: NSRange(location: 0, length: NSMaxRange(slash))
                 )
             }
@@ -1731,7 +1709,7 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
             let piece = String(character) as NSString
             if wanted.contains(offset) {
                 text.addAttributes([
-                    .foregroundColor: NSColor.labelColor,
+                    .foregroundColor: NSColor.xyzInk,
                     .font: emphasis,
                 ], range: NSRange(location: location, length: piece.length))
             }
@@ -1741,7 +1719,7 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
     }
 }
 
-/// Grey selection, so the palette stays in the black, white, and grey range.
+/// Accent tint on the selected row. The plate behind it is white in light mode.
 private final class PaletteRowView: NSTableRowView {
     static let identifier = NSUserInterfaceItemIdentifier("xyz.palette.row")
 
@@ -1792,7 +1770,7 @@ private final class PaletteCell: NSTableCellView {
         titleField.translatesAutoresizingMaskIntoConstraints = false
         shortcutField.alignment = .right
         shortcutField.font = .systemFont(ofSize: 12)
-        shortcutField.textColor = .secondaryLabelColor
+        shortcutField.textColor = .xyzSecondaryText
         shortcutField.translatesAutoresizingMaskIntoConstraints = false
         shortcutField.setContentHuggingPriority(.required, for: .horizontal)
         shortcutField.setContentCompressionResistancePriority(.required, for: .horizontal)
@@ -1891,7 +1869,10 @@ final class GoToLinePanel: NSObject, NSTextFieldDelegate {
         panel.isReleasedWhenClosed = false
         panel.hidesOnDeactivate = true
         panel.titlebarAppearsTransparent = true
-        panel.backgroundColor = .xyzEditor
+        panel.titlebarSeparatorStyle = .none
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = true
         panel.isRestorable = false
         panel.isExcludedFromWindowsMenu = true
         panel.delegate = self
@@ -1903,14 +1884,15 @@ final class GoToLinePanel: NSObject, NSTextFieldDelegate {
         field.action = #selector(commit(_:))
         field.delegate = self
         field.translatesAutoresizingMaskIntoConstraints = false
-        panel.contentView?.addSubview(field)
-        if let content = panel.contentView {
-            NSLayoutConstraint.activate([
-                field.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 16),
-                field.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -16),
-                field.centerYAnchor.constraint(equalTo: content.centerYAnchor),
-            ])
-        }
+        let plate = PopupSurface()
+        panel.contentView = plate
+        plate.addSubview(field)
+        field.textColor = .xyzInk
+        NSLayoutConstraint.activate([
+            field.leadingAnchor.constraint(equalTo: plate.leadingAnchor, constant: 16),
+            field.trailingAnchor.constraint(equalTo: plate.trailingAnchor, constant: -16),
+            field.centerYAnchor.constraint(equalTo: plate.centerYAnchor),
+        ])
     }
 
     private func present() {

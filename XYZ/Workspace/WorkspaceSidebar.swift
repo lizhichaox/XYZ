@@ -572,6 +572,7 @@ struct WorkspaceSidebar: NSViewRepresentable {
             guard let outline else { return }
             suppressSelection = true
             suppressExpansionWrite = true
+            outline.animatesDisclosure = false
             NSAnimationContext.beginGrouping()
             NSAnimationContext.current.duration = 0
             outline.reloadData()
@@ -587,6 +588,7 @@ struct WorkspaceSidebar: NSViewRepresentable {
                 }
             }
             NSAnimationContext.endGrouping()
+            outline.animatesDisclosure = true
             suppressExpansionWrite = false
             suppressSelection = false
             if let path = session.pendingEditPath, nodeByPath[path] != nil {
@@ -608,11 +610,13 @@ struct WorkspaceSidebar: NSViewRepresentable {
             suppressSelection = true
             defer { suppressSelection = false }
             let filePath = path
+            outline.openRelativePath = filePath
             guard let filePath else {
                 outline.deselectAll(nil)
                 outline.enumerateAvailableRowViews { rowView, _ in rowView.needsDisplay = true }
                 return
             }
+            outline.animatesDisclosure = false
             var parent = WorkspacePaths.parent(of: filePath)
             while !parent.isEmpty {
                 if let item = nodeByPath[parent] {
@@ -620,6 +624,7 @@ struct WorkspaceSidebar: NSViewRepresentable {
                 }
                 parent = WorkspacePaths.parent(of: parent)
             }
+            outline.animatesDisclosure = true
             guard let item = nodeByPath[filePath] else { return }
             let row = outline.row(forItem: item)
             guard row >= 0 else { return }
@@ -939,6 +944,7 @@ fileprivate final class SidebarRootHeader: NSView {
     var onMenu: ((NSEvent) -> Void)?
     private let chevron = NSImageView()
     private let label = NSTextField(labelWithString: "")
+    private var shownExpanded: Bool?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -979,13 +985,27 @@ fileprivate final class SidebarRootHeader: NSView {
         let font = NSFont.systemFont(ofSize: 11, weight: .semibold)
         label.attributedStringValue = NSAttributedString(string: name.localizedUppercase, attributes: [
             .font: font,
-            .foregroundColor: NSColor.secondaryLabelColor,
+            .foregroundColor: NSColor.xyzSecondaryText,
             .kern: 0.6,
         ])
-        let symbol = expanded ? "chevron.down" : "chevron.right"
+        if chevron.image == nil {
+            chevron.image = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: nil)
+            chevron.wantsLayer = true
+        }
+        chevron.contentTintColor = .xyzSecondaryText
         let description = expanded ? String(localized: "Collapse") : String(localized: "Expand")
-        chevron.image = NSImage(systemSymbolName: symbol, accessibilityDescription: description)
-        chevron.contentTintColor = .secondaryLabelColor
+        chevron.setAccessibilityLabel(description)
+        let angle: CGFloat = expanded ? 90 : 0
+        if shownExpanded == nil {
+            chevron.frameCenterRotation = angle
+        } else if shownExpanded != expanded {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = 0.16
+                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+                chevron.animator().frameCenterRotation = angle
+            }
+        }
+        shownExpanded = expanded
         toolTip = path
         setAccessibilityLabel(name)
         setAccessibilityHelp(path)
@@ -1124,13 +1144,32 @@ fileprivate final class SidebarOutlineView: NSOutlineView {
     var onCollapse: ((Any) -> Void)?
     var onActivate: (() -> Void)?
 
+    var animatesDisclosure = true
+    var openRelativePath: String?
+
     override func expandItem(_ item: Any?, expandChildren: Bool) {
-        super.expandItem(item, expandChildren: expandChildren)
+        if animatesDisclosure {
+            NSAnimationContext.beginGrouping()
+            NSAnimationContext.current.duration = 0.16
+            NSAnimationContext.current.allowsImplicitAnimation = true
+            super.expandItem(item, expandChildren: expandChildren)
+            NSAnimationContext.endGrouping()
+        } else {
+            super.expandItem(item, expandChildren: expandChildren)
+        }
         if let item { onExpand?(item) }
     }
 
     override func collapseItem(_ item: Any?, collapseChildren: Bool) {
-        super.collapseItem(item, collapseChildren: collapseChildren)
+        if animatesDisclosure {
+            NSAnimationContext.beginGrouping()
+            NSAnimationContext.current.duration = 0.16
+            NSAnimationContext.current.allowsImplicitAnimation = true
+            super.collapseItem(item, collapseChildren: collapseChildren)
+            NSAnimationContext.endGrouping()
+        } else {
+            super.collapseItem(item, collapseChildren: collapseChildren)
+        }
         if let item { onCollapse?(item) }
     }
 
@@ -1143,7 +1182,7 @@ fileprivate final class SidebarOutlineView: NSOutlineView {
     private func drawIndentGuides() {
         let rowRange = rows(in: visibleRect)
         guard rowRange.length > 0, indentationPerLevel > 0 else { return }
-        NSColor.separatorColor.withAlphaComponent(0.9).setStroke()
+        NSColor.xyzDivider.setStroke()
         let step = indentationPerLevel
         for row in rowRange.location..<(rowRange.location + rowRange.length) {
             let level = level(forRow: row)
@@ -1293,7 +1332,8 @@ fileprivate final class SidebarRowView: NSTableRowView {
         guard let outline = enclosingOutline else { return }
         let row = outline.row(for: self)
         guard row >= 0 else { return }
-        if outline.selectedRow == row {
+        let open = (outline.item(atRow: row) as? SidebarNode)?.relativePath == outline.openRelativePath
+        if open || outline.selectedRow == row {
             NSColor.xyzSelection.setFill()
             bounds.fill()
         } else if outline.hoveredRowIndex == row {
@@ -1327,9 +1367,9 @@ fileprivate final class SidebarRowCell: NSTableCellView {
         icon.translatesAutoresizingMaskIntoConstraints = false
         label.translatesAutoresizingMaskIntoConstraints = false
         icon.imageScaling = .scaleProportionallyDown
-        let config = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
+        let config = NSImage.SymbolConfiguration(pointSize: 12, weight: .medium)
         icon.symbolConfiguration = config
-        icon.contentTintColor = .secondaryLabelColor
+        icon.contentTintColor = .xyzSecondaryText
         label.lineBreakMode = .byTruncatingTail
         label.maximumNumberOfLines = 1
         label.cell?.truncatesLastVisibleLine = true
@@ -1395,7 +1435,7 @@ fileprivate final class SidebarRowCell: NSTableCellView {
     }
 
     private func refreshColors() {
-        // The row draws a grey bar, so the text stays the normal label color.
+        // The open file is an accent tint, so the name stays ink.
         if let node = rowNode {
             let symbol = WorkspaceFileSymbolChoice.symbol(
                 name: node.name,
@@ -1403,8 +1443,8 @@ fileprivate final class SidebarRowCell: NSTableCellView {
                 isExpanded: rowExpanded
             )
             icon.image = Self.image(symbol)
-            let base: NSColor = node.isHidden ? .secondaryLabelColor : .labelColor
-            icon.contentTintColor = .secondaryLabelColor
+            let base: NSColor = node.isHidden ? .xyzSecondaryText : .xyzInk
+            icon.contentTintColor = .xyzSecondaryText
             label.attributedStringValue = Self.nameText(
                 node.name,
                 base: base,

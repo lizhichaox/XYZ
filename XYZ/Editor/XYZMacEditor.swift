@@ -559,7 +559,7 @@ private struct FindScan {
         let y = textContainerOrigin.y + CGFloat(max(0, line - 1)) * box
         let band = NSRect(x: 0, y: y, width: bounds.width, height: box)
         guard band.intersects(rect) else { return }
-        NSColor.xyzInk.withAlphaComponent(0.08).setFill()
+        NSColor.xyzCurrentLine.setFill()
         band.fill()
     }
 
@@ -576,7 +576,11 @@ private struct FindScan {
         let face = font ?? NSFont.systemFont(ofSize: style.fontSize)
         let step = max(6, ("  " as NSString).size(withAttributes: [.font: face]).width)
         let originX = textContainerOrigin.x
-        NSColor.xyzSecondaryText.withAlphaComponent(0.45).setStroke()
+        if effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua {
+            NSColor.xyzSecondaryText.withAlphaComponent(0.45).setStroke()
+        } else {
+            NSColor.xyzDivider.setStroke()
+        }
         let path = NSBezierPath()
         for line in first...last {
             let start = index.starts[line - 1]

@@ -239,7 +239,7 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
         chips = titles.enumerated().map { index, title in
             let button = NSButton(title: title, target: self, action: #selector(chipClicked(_:)))
             button.tag = index
-            button.bezelStyle = .recessed
+            button.isBordered = false
             button.setButtonType(.pushOnPushOff)
             button.controlSize = .small
             button.font = .systemFont(ofSize: 11, weight: .medium)
@@ -304,22 +304,16 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
             empty.centerYAnchor.constraint(equalTo: scroll.centerYAnchor),
         ])
 
-        let effect = NSVisualEffectView()
-        effect.material = .popover
-        effect.blendingMode = .behindWindow
-        effect.state = .active
-        effect.wantsLayer = true
-        effect.layer?.cornerRadius = 12
-        effect.layer?.masksToBounds = true
+        let plate = PopupSurface()
         stack.translatesAutoresizingMaskIntoConstraints = false
-        effect.addSubview(stack)
+        plate.addSubview(stack)
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: effect.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: effect.trailingAnchor),
-            stack.topAnchor.constraint(equalTo: effect.topAnchor),
-            stack.bottomAnchor.constraint(equalTo: effect.bottomAnchor),
+            stack.leadingAnchor.constraint(equalTo: plate.leadingAnchor),
+            stack.trailingAnchor.constraint(equalTo: plate.trailingAnchor),
+            stack.topAnchor.constraint(equalTo: plate.topAnchor),
+            stack.bottomAnchor.constraint(equalTo: plate.bottomAnchor),
         ])
-        panel.contentView = effect
+        panel.contentView = plate
         updateChips()
         return panel
     }
@@ -498,7 +492,7 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
         for button in chips {
             let on = button.tag == scope.rawValue
             button.state = on ? .on : .off
-            button.contentTintColor = on ? .labelColor : .secondaryLabelColor
+            button.contentTintColor = on ? .xyzAccent : .xyzSecondaryText
         }
     }
 

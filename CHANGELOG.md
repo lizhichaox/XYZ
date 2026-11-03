@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.16
+
+- Light mode is white. The editor, Reading, both sidebars, the tab row, the title bar, breadcrumbs, and the status bar are `#FFFFFF`. Hairlines (`#E5E5E5`) separate them. There is no grey fill. A selected row is the blue accent at 14% with ink text. Code in Reading sits on white with a hairline. Dark mode is unchanged.
+- Reading headings have a steadier gap, lists are a little tighter, rules are hairlines, pictures stay within the page with a small corner radius, and a task checkbox is a read-only box with an accent check.
+- Explorer rows stay about 22 points. Icons are secondary-colored symbols. The folder chevron turns when the tree opens or closes. The open file's row keeps the accent tint.
+- The status bar is compact, white in light mode, with a hairline along the top and secondary text.
+- ⌘K, ⌘P, Find, and Go to Line use the same white plate, a hairline, and a soft shadow.
+
 ## 0.5.15
 
 - A new window's sidebar opens near 260 points, and it will not grow past about 40% of the window on its own.

@@ -250,7 +250,7 @@ extension Color {
         #endif
     }
 
-    /// Sidebar and status bar. A step off the editor, in both appearances.
+    /// Sidebar and status bar. Light is white, the same as the editor. Dark is a step under it.
     static var sidebarBackground: Color {
         #if os(macOS)
         Color(nsColor: .xyzSidebar)
@@ -263,6 +263,8 @@ extension Color {
     static var xyzAccent: Color { Color(nsColor: .xyzAccent) }
     static var xyzInk: Color { Color(nsColor: .xyzInk) }
     static var xyzSecondaryText: Color { Color(nsColor: .xyzSecondaryText) }
+    static var xyzSelection: Color { Color(nsColor: .xyzSelection) }
+    static var xyzDivider: Color { Color(nsColor: .xyzDivider) }
     #endif
 }
 
@@ -284,9 +286,11 @@ extension NSColor {
         xyzDynamic(light: xyzSRGB(255, 255, 255), dark: xyzSRGB(30, 30, 30))
     }
 
-    /// Sidebars and the status bar. Light `#F8F8F8`, dark `#181818`.
+    /// Sidebars, the status bar, and the title-bar field in light mode.
+    /// Light is white (`#FFFFFF`), the same as the editor. Dark stays `#181818`.
+    /// Hairlines separate those areas. There is no grey sidebar fill.
     static var xyzSidebar: NSColor {
-        xyzDynamic(light: xyzSRGB(248, 248, 248), dark: xyzSRGB(24, 24, 24))
+        xyzDynamic(light: xyzSRGB(255, 255, 255), dark: xyzSRGB(24, 24, 24))
     }
 
     /// Body text. Light `#1F1F1F`, dark `#D4D4D4`.
@@ -304,13 +308,55 @@ extension NSColor {
         xyzSRGB(0, 120, 212)
     }
 
-    /// Selected row. Accent at 14%, not a grey slab.
+    /// Selected row. Accent at 14% with ink text. Not a grey slab.
     static var xyzSelection: NSColor {
         xyzAccent.withAlphaComponent(0.14)
     }
 
+    /// Hairline between white surfaces. Light `#E5E5E5`, dark `#2B2B2B`.
     static var xyzDivider: NSColor {
         xyzDynamic(light: xyzSRGB(229, 229, 229), dark: xyzSRGB(43, 43, 43))
+    }
+
+    /// Editing's current line. Light is accent at 6%. Dark keeps the quiet ink band.
+    static var xyzCurrentLine: NSColor {
+        xyzDynamic(
+            light: xyzSRGB(0, 120, 212).withAlphaComponent(0.06),
+            dark: xyzSRGB(212, 212, 212).withAlphaComponent(0.08)
+        )
+    }
+}
+
+/// White in light mode, the editor color in dark, with a hairline and the panel's shadow.
+final class PopupSurface: NSView {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.cornerRadius = 12
+        layer?.borderWidth = 1
+        layer?.masksToBounds = true
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        paint()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        paint()
+    }
+
+    func paint() {
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer?.backgroundColor = NSColor.xyzEditor.cgColor
+            layer?.borderColor = NSColor.xyzDivider.cgColor
+        }
     }
 }
 #endif

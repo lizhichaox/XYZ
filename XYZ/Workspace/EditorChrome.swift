@@ -123,7 +123,7 @@ struct EditorFindBar: View {
         .padding(.horizontal, 10)
         .padding(.vertical, 6)
         .background(Color.editorBackground)
-        .overlay(alignment: .bottom) { Rectangle().fill(Color.primary.opacity(0.12)).frame(height: 1) }
+        .overlay(alignment: .bottom) { Rectangle().fill(Color.xyzDivider).frame(height: 1) }
         .onAppear { focused = true }
         .onExitCommand { model.dismiss() }
         .onChange(of: model.pattern) { _, _ in model.scheduleRefresh() }
@@ -208,9 +208,9 @@ struct EditorTabBar: View {
             }
         }
         .frame(height: 35)
-        .background(Color.primary.opacity(0.04))
+        .background(Color.editorBackground)
         .overlay(alignment: .bottom) {
-            Rectangle().fill(Color.primary.opacity(0.12)).frame(height: 1)
+            Rectangle().fill(Color.xyzDivider).frame(height: 1)
         }
         .background(ScrollElasticityNone())
     }
@@ -261,7 +261,7 @@ private struct EditorTabItem: View {
             }
         }
         .overlay(alignment: .trailing) {
-            Rectangle().fill(Color.primary.opacity(0.12)).frame(width: 1)
+            Rectangle().fill(Color.xyzDivider).frame(width: 1)
         }
         .onHover { hovering = $0 }
         .overlay(TabMiddleClick(tabID: tab.id, action: close))
@@ -303,7 +303,7 @@ private struct EditorTabItem: View {
             .accessibilityLabel(String(localized: "Close Tab"))
         } else {
             Circle()
-                .fill(tab.isDirty ? Color.primary.opacity(0.55) : Color.clear)
+                .fill(tab.isDirty ? Color.xyzInk.opacity(0.72) : Color.clear)
                 .frame(width: 7, height: 7)
                 .frame(width: 16, height: 16)
                 .accessibilityLabel(tab.isDirty ? String(localized: "Unsaved") : "")
@@ -445,7 +445,7 @@ struct EditorBreadcrumb: View {
         } label: {
             Text(crumb.name)
                 .font(.system(size: 12, weight: emphasized ? .medium : .regular))
-                .foregroundStyle(emphasized ? Color.primary : Color.secondary)
+                .foregroundStyle(emphasized ? Color.xyzInk : Color.xyzSecondaryText)
                 .lineLimit(1)
         }
         .menuStyle(.borderlessButton)
@@ -514,7 +514,7 @@ struct EditorStatusBar: View {
         .background(Color.sidebarBackground)
         .overlay(StatusBarMarker())
         .overlay(alignment: .top) {
-            Rectangle().fill(Color.primary.opacity(0.12)).frame(height: 1)
+            Rectangle().fill(Color.xyzDivider).frame(height: 1)
         }
     }
 
@@ -682,7 +682,7 @@ struct OutlinePane: View {
                                     } label: {
                                         Text(entry.title)
                                             .font(.system(size: 12, weight: active ? .semibold : .regular))
-                                            .foregroundStyle(.primary)
+                                            .foregroundStyle(Color.xyzInk)
                                             .lineLimit(1)
                                             .truncationMode(.tail)
                                             .frame(maxWidth: .infinity, minHeight: 22, alignment: .leading)
@@ -691,7 +691,7 @@ struct OutlinePane: View {
                                 }
                                 .padding(.leading, 8 + CGFloat(min(entry.depth, 6)) * 12)
                                 .padding(.trailing, 8)
-                                .background(active ? Color.primary.opacity(0.12) : Color.clear)
+                                .background(active ? Color.xyzSelection : Color.clear)
                                 .id(entry.id)
                                 .help(String(format: String(localized: "Ln %lld, Col %lld"), Int64(entry.line), Int64(1)))
                             }
@@ -883,18 +883,19 @@ struct TabSwitchPicker: View {
                     }
                     .padding(.horizontal, 10)
                     .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
-                    .background(offset == index ? Color.primary.opacity(0.12) : Color.clear)
+                    .background(offset == index ? Color.xyzSelection : Color.clear)
                 }
                 .buttonStyle(.plain)
             }
         }
         .frame(width: 420)
         .padding(.vertical, 6)
-        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .background(Color.editorBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .stroke(Color.primary.opacity(0.12), lineWidth: 1)
+                .stroke(Color.xyzDivider, lineWidth: 1)
         )
+        .shadow(color: Color.black.opacity(0.12), radius: 18, y: 8)
     }
 
     private func name(_ path: String) -> String {
