@@ -47,6 +47,7 @@ protocol EditorCommandTarget: AnyObject {
     func paletteOpen(fileID: String, newWindow: Bool)
     func toggleSidebar()
     func focusFilter()
+    func replaceInFolder(pattern: String, replacement: String)
     func toggleHiddenFiles()
     func newFile()
     func newFolder()
@@ -84,6 +85,7 @@ extension EditorCommandTarget {
     var supportsWorkspaceFiles: Bool { false }
     func toggleSidebar() {}
     func focusFilter() {}
+    func replaceInFolder(pattern: String, replacement: String) {}
     func toggleHiddenFiles() {}
     func newFile() {}
     func newFolder() {}
@@ -115,6 +117,7 @@ final class EditorCommands: NSObject {
     weak var target: EditorCommandTarget?
     weak var hostWindow: NSWindow?
     private let palette = CommandPaletteController()
+    private let globalSearch = GlobalSearchController()
     private var keyMonitor: Any?
 
     func installKeyMonitor() {
@@ -490,6 +493,37 @@ final class EditorCommands: NSObject {
         target?.focusFilter()
     }
 
+    func toggleGlobalSearch(_ session: WorkspaceSession) {
+        globalSearch.toggle(session: session)
+    }
+
+    @objc func replaceInFolder(_ sender: Any?) {
+        guard target?.supportsWorkspaceFiles == true, target?.editorIsEditing == true else {
+            NSSound.beep()
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = String(localized: "Replace in Folder")
+        alert.informativeText = String(localized: "Replace text in every text file in this folder. You can undo each file.")
+        let find = NSTextField(frame: NSRect(x: 0, y: 32, width: 260, height: 24))
+        find.placeholderString = String(localized: "Find")
+        let replacement = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        replacement.placeholderString = String(localized: "Replace")
+        let box = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 56))
+        box.addSubview(find)
+        box.addSubview(replacement)
+        alert.accessoryView = box
+        alert.addButton(withTitle: String(localized: "Replace All"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        let pattern = find.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !pattern.isEmpty else {
+            NSSound.beep()
+            return
+        }
+        target?.replaceInFolder(pattern: pattern, replacement: replacement.stringValue)
+    }
+
     @objc func toggleHidden(_ sender: Any?) {
         target?.toggleHiddenFiles()
     }
@@ -523,6 +557,8 @@ final class EditorCommands: NSObject {
         case "xyz.outline":
             menuItem.state = UserDefaults.standard.bool(forKey: OutlineSetting.key) ? .on : .off
             return target?.supportsWorkspaceFiles == true
+        case "xyz.edit.replaceFolder":
+            return target?.supportsWorkspaceFiles == true && target?.editorIsEditing == true
         case "xyz.workspace.hidden":
             let shown = target?.showsHiddenFiles == true
             menuItem.title = shown ? String(localized: "Hide Hidden Files") : String(localized: "Show Hidden Files")
@@ -661,6 +697,7 @@ enum EditorMenuSupport {
         let down = String(Character(UnicodeScalar(UInt32(NSDownArrowFunctionKey))!))
         let up = String(Character(UnicodeScalar(UInt32(NSUpArrowFunctionKey))!))
         let specs: [(String, String, String, NSEvent.ModifierFlags, Selector)] = [
+            ("xyz.edit.replaceFolder", String(localized: "Replace in Folder…"), "", [], #selector(EditorCommands.replaceInFolder(_:))),
             ("xyz.edit.duplicateDown", String(localized: "Duplicate Line"), down, [.shift, .option], #selector(XYZMacTextView.xyzDuplicateLineDown(_:))),
             ("xyz.edit.duplicateUp", String(localized: "Duplicate Line Above"), up, [.shift, .option], #selector(XYZMacTextView.xyzDuplicateLineUp(_:))),
             ("xyz.edit.moveUp", String(localized: "Move Line Up"), up, [.option], #selector(XYZMacTextView.xyzMoveLineUp(_:))),
@@ -691,7 +728,7 @@ enum EditorMenuSupport {
                 action: spec.4,
                 in: menu
             )
-            entry.target = nil
+            entry.target = spec.0 == "xyz.edit.replaceFolder" ? EditorCommands.shared : nil
             place(entry, after: previous, in: menu)
             previous = entry
         }

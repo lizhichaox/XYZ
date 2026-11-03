@@ -479,12 +479,30 @@ final class XYZMacTextView: NSTextView {
     }
 
     /// Go to Heading, or Go to Line. The caret sits on that line and column, and the line is at the top.
-    func jump(toLine line: Int, column: Int = 1) {
+    func jump(toLine line: Int, column: Int = 1, selecting needle: String? = nil) {
         let length = (string as NSString).length
         let location = min(max(0, GoToPosition.utf16Offset(in: string, line: line, column: column)), length)
-        setSelectedRange(NSRange(location: location, length: 0))
+        if let needle, !needle.isEmpty {
+            select(needle, onLineAt: location)
+        } else {
+            setSelectedRange(NSRange(location: location, length: 0))
+        }
         window?.makeFirstResponder(self)
         reveal(EditorScrollAnchor(fraction: 0, probe: "", line: line))
+    }
+
+    /// Selects the first case-insensitive match on the line. The caret stays on the line when there is none.
+    private func select(_ needle: String, onLineAt location: Int) {
+        let ns = string as NSString
+        guard ns.length > 0 else { return }
+        let probe = min(max(0, location), ns.length - 1)
+        let lineRange = ns.lineRange(for: NSRange(location: probe, length: 0))
+        let found = ns.range(of: needle, options: [.caseInsensitive], range: lineRange)
+        if found.location != NSNotFound {
+            setSelectedRange(found)
+        } else {
+            setSelectedRange(NSRange(location: min(location, ns.length), length: 0))
+        }
     }
 
     /// Remember the line and align on the next layout that has a window and a real inset.
@@ -699,6 +717,9 @@ struct XYZMacEditor: NSViewRepresentable {
         scrollLink.revealLine = { [weak textView] line in
             textView?.jump(toLine: line)
         }
+        scrollLink.revealMatch = { [weak textView] line, needle in
+            textView?.jump(toLine: line, selecting: needle)
+        }
         scrollLink.revealPosition = { [weak textView] line, column in
             textView?.jump(toLine: line, column: column)
         }
@@ -752,7 +773,7 @@ struct XYZMacEditor: NSViewRepresentable {
             textView.reveal(anchor)
         }
         if let queued = scrollLink.takeQueuedEditorReveal() {
-            textView.jump(toLine: queued.line, column: queued.column)
+            textView.jump(toLine: queued.line, column: queued.column, selecting: queued.needle)
         }
     }
 

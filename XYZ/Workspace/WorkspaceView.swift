@@ -622,17 +622,12 @@ final class WorkspaceCommandBridge: ObservableObject, EditorCommandTarget {
     }
 
     func focusFilter() {
-        let hidden = columnVisibility.wrappedValue == .detailOnly
-        if hidden {
-            columnVisibility.wrappedValue = .all
-        }
-        if hidden {
-            DispatchQueue.main.async { [weak session] in
-                session?.focusSearch()
-            }
-        } else {
-            session?.focusSearch()
-        }
+        guard let session else { return }
+        EditorCommands.shared.toggleGlobalSearch(session)
+    }
+
+    func replaceInFolder(pattern: String, replacement: String) {
+        session?.replaceInFolder(pattern: pattern, replacement: replacement, undoManager: NSApp.keyWindow?.undoManager)
     }
 
     func toggleHiddenFiles() {

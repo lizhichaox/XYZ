@@ -108,6 +108,7 @@ final class WorkspaceSession: ObservableObject {
     private var didStart = false
     private var buffers: [String: WorkspaceFileBuffer] = [:]
     private var pendingRevealLine: Int?
+    private var pendingRevealNeedle: String?
     private var reloadTasks: [String: Task<Void, Never>] = [:]
     private var loadGeneration: [String: Int] = [:]
     private var indexTask: Task<Void, Never>?
@@ -266,6 +267,24 @@ final class WorkspaceSession: ObservableObject {
             return
         }
         openRelative(String(path.dropFirst(root.count + 1)))
+    }
+
+    func recentOpenPaths() -> [String] {
+        tabMRU.order(open: tabStrip.tabs.map(\.id))
+    }
+
+    func openSearchHit(relativePath: String, line: Int, needle: String) {
+        pendingRevealNeedle = needle
+        openRelative(relativePath, pin: true, line: line)
+        if pendingRevealLine == nil {
+            pendingRevealNeedle = nil
+        }
+    }
+
+    /// Folder replace from the Edit menu. The count is confirmed before any file changes.
+    func replaceInFolder(pattern: String, replacement: String, undoManager: UndoManager?) {
+        let query = FindQuery(pattern: pattern.trimmingCharacters(in: .whitespacesAndNewlines))
+        startFolderReplace(query: query, replacement: replacement, undoManager: undoManager)
     }
 
     func openRelative(_ relativePath: String, pin: Bool = true, line: Int? = nil) {
@@ -686,6 +705,7 @@ final class WorkspaceSession: ObservableObject {
 
     private func show(_ open: WorkspaceFileBuffer) {
         let same = buffer === open
+        let wasSource = viewMode == .source
         buffer = open
         selectedPath = open.relativePath
         previewBridge.send(open.text)
@@ -694,7 +714,21 @@ final class WorkspaceSession: ObservableObject {
             viewMode = tab.mode
         }
         guard let line = pendingRevealLine else { return }
+        let needle = pendingRevealNeedle
         pendingRevealLine = nil
+        pendingRevealNeedle = nil
+        if let needle, !needle.isEmpty {
+            var strip = tabStrip
+            strip.setMode(id: open.relativePath, .source)
+            tabStrip = strip
+            viewMode = .source
+            scrollLink.storeQueuedReveal(line, editorOnly: true, needle: needle)
+            if same && wasSource {
+                scrollLink.revealMatch?(line, needle)
+                scrollLink.clearQueuedReveal()
+            }
+            return
+        }
         if same {
             scrollLink.revealLine(line)
         } else {
@@ -948,12 +982,37 @@ final class WorkspaceSession: ObservableObject {
 
     /// Replace every match in the folder. Only while Editing. The alert confirms the count. Each file is its own undo.
     func replaceAllInFolder(undoManager: UndoManager?) {
+        startFolderReplace(query: contentQuery, replacement: folderReplacement, undoManager: undoManager)
+    }
+
+    /// Content hits for the ⌘K panel. Skips hidden files when they are hidden, and skips binary and huge files.
+    func searchPanelContents(query: String) async -> (hits: [WorkspaceContentHit], more: Int, capped: Bool) {
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !needle.isEmpty else { return ([], 0, false) }
+        let showsHidden = showsHiddenFiles
+        let files = indexedEntries.filter { entry in
+            !entry.isDirectory
+                && !WorkspaceContentSearch.shouldSkipRelativePath(entry.relativePath)
+                && (showsHidden || !entry.isHidden)
+        }
+        let cap = 48
+        let found = await Self.searchContents(
+            files: files,
+            root: rootURL,
+            query: FindQuery(pattern: needle),
+            include: "",
+            exclude: "",
+            cap: cap
+        )
+        let shown = Array(found.prefix(12))
+        return (shown, found.count - shown.count, found.count >= cap)
+    }
+
+    private func startFolderReplace(query: FindQuery, replacement: String, undoManager: UndoManager?) {
         guard let buffer, EditorModeChoice.isEditing(viewMode, access: Self.access(of: buffer)) else {
             NSSound.beep()
             return
         }
-        let query = contentQuery
-        let replacement = folderReplacement
         let include = includeGlob
         let exclude = excludeGlob
         guard !query.pattern.isEmpty else {
@@ -1105,12 +1164,13 @@ final class WorkspaceSession: ObservableObject {
         root: URL,
         query: FindQuery,
         include: String,
-        exclude: String
+        exclude: String,
+        cap: Int = WorkspaceContentSearch.hitLimit
     ) async -> [WorkspaceContentHit] {
         await Task.detached(priority: .utility) {
             var found: [WorkspaceContentHit] = []
             for entry in files {
-                if Task.isCancelled || found.count >= WorkspaceContentSearch.hitLimit { break }
+                if Task.isCancelled || found.count >= cap { break }
                 guard PathGlob.allows(entry.relativePath, include: include, exclude: exclude) else { continue }
                 let url = entry.relativePath.split(separator: "/").reduce(root) {
                     $0.appendingPathComponent(String($1))
@@ -1125,7 +1185,7 @@ final class WorkspaceSession: ObservableObject {
                 }
                 guard let data = try? WorkspaceFileCoordination.readData(at: url),
                       let decoded = TextBytes.decode(data, allowLegacy: FileFormats.isTextualName(entry.name)) else { continue }
-                let room = min(3, WorkspaceContentSearch.hitLimit - found.count)
+                let room = min(3, cap - found.count)
                 found.append(contentsOf: WorkspaceContentSearch.hits(
                     in: decoded.text,
                     relativePath: entry.relativePath,

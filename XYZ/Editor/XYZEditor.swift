@@ -109,6 +109,8 @@ final class EditorScrollLink {
     var capture: () -> EditorScrollAnchor = { EditorScrollAnchor(fraction: 0, probe: "") }
     /// Go to Heading. The surface on screen (the editor or Reading) sets this when it updates.
     var revealLine: (Int) -> Void = { _ in }
+    /// A search hit. The source editor selects the matched text on that line.
+    var revealMatch: ((Int, String) -> Void)?
     /// Go to Line. The source editor sets this. Reading does not.
     var revealPosition: (Int, Int) -> Void = { _, _ in }
     private var pending: (anchor: EditorScrollAnchor, destination: EditorViewMode)?
@@ -117,14 +119,15 @@ final class EditorScrollLink {
         var line: Int
         var column: Int
         var editorOnly: Bool
+        var needle: String?
     }
 
     private var queuedReveal: QueuedCaret?
 
     /// Remember a source line to show once the editor for that file is on screen.
     /// `editorOnly` keeps Reading from consuming a Go to Line request.
-    func storeQueuedReveal(_ line: Int, column: Int = 1, editorOnly: Bool = false) {
-        queuedReveal = QueuedCaret(line: line, column: max(1, column), editorOnly: editorOnly)
+    func storeQueuedReveal(_ line: Int, column: Int = 1, editorOnly: Bool = false, needle: String? = nil) {
+        queuedReveal = QueuedCaret(line: line, column: max(1, column), editorOnly: editorOnly, needle: needle)
     }
 
     func takeQueuedReveal() -> Int? {
@@ -133,10 +136,10 @@ final class EditorScrollLink {
         return queued.line
     }
 
-    func takeQueuedEditorReveal() -> (line: Int, column: Int)? {
+    func takeQueuedEditorReveal() -> (line: Int, column: Int, needle: String?)? {
         guard let queued = queuedReveal else { return nil }
         queuedReveal = nil
-        return (queued.line, queued.column)
+        return (queued.line, queued.column, queued.needle)
     }
 
     func clearQueuedReveal() {
