@@ -999,6 +999,10 @@ final class EditorPane: NSView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
+        // The text view's layer has the glyphs. Without a layer on this pane, that
+        // layer is not in the window. Subviews keep their own layers.
+        wantsLayer = true
+        canDrawSubviewsIntoLayer = false
         gutter.translatesAutoresizingMaskIntoConstraints = true
         scrollView.translatesAutoresizingMaskIntoConstraints = true
         addSubview(gutter)

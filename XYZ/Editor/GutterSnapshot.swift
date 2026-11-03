@@ -662,7 +662,8 @@ enum GutterSnapshotCheck {
             let box = textView.convert(textView.bounds, to: nil)
             let visible = textView.visibleRect
             let clipY = textView.enclosingScrollView?.contentView.bounds.origin.y ?? -1
-            print("GUTTER_WINDOW label=\(label) words=\(String(words.prefix(180))) body=\(String(bodyWords.prefix(120))) storage=\(stored) layer=\(textView.layer == nil ? 0 : 1) screen=\(screen == nil ? 0 : 1) chain=\(chain) views=\(viewNames) geom=\(Int(box.width))x\(Int(box.height))@\(Int(box.minX)),\(Int(box.minY)) visY=\(Int(visible.origin.y)) visH=\(Int(visible.height)) clipY=\(Int(clipY)) flip=\(textView.layer?.isGeometryFlipped == true ? 1 : 0)")
+            let rooted = layerReachesWindow(textView, window: window)
+            print("GUTTER_WINDOW label=\(label) words=\(String(words.prefix(180))) body=\(String(bodyWords.prefix(120))) storage=\(stored) layer=\(textView.layer == nil ? 0 : 1) screen=\(screen == nil ? 0 : 1) chain=\(chain) views=\(viewNames) geom=\(Int(box.width))x\(Int(box.height))@\(Int(box.minX)),\(Int(box.minY)) visY=\(Int(visible.origin.y)) visH=\(Int(visible.height)) clipY=\(Int(clipY)) flip=\(textView.layer?.isGeometryFlipped == true ? 1 : 0) root=\(rooted ? 1 : 0)")
             fflush(stdout)
             saveShot(image, name: "editing-\(label).png")
             if let paneImage = compositedImage(of: pane) {
@@ -816,6 +817,18 @@ enum GutterSnapshotCheck {
             return image
         }
         return compositedImage(of: content)
+    }
+
+    private static func layerReachesWindow(_ view: NSView, window: NSWindow) -> Bool {
+        guard let root = window.contentView?.layer else { return false }
+        var layer = view.layer
+        var hops = 0
+        while let current = layer, hops < 30 {
+            if current === root { return true }
+            layer = current.superlayer
+            hops += 1
+        }
+        return false
     }
 
     private static func layerChain(from view: NSView) -> String {
