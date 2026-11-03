@@ -2,7 +2,7 @@
 
 ## 0.5.27
 
-- The editor file is back to the revision whose folder window showed the note. Later edits in that file are not part of this build. The caret, selection, scrolling, find, and the Reading page stay on their own views. The file column keeps the width left after the sidebar. The window check first reads a normal text control, then types into the real editor and undoes. A blank file still fails.
+- The editor file is back to the revision whose folder window showed the note. The debug assertion that stopped the run before the window was pictured is not included. The caret, selection, scrolling, find, and the Reading page stay on their own views. The file column keeps the width left after the sidebar. The window check first reads a normal text control, then types into the real editor and undoes. A blank file still fails.
 
 ## 0.5.26
 

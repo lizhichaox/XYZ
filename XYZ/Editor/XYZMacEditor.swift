@@ -1126,7 +1126,6 @@ struct XYZMacEditor: NSViewRepresentable {
         context.coordinator.observeScroll(of: scrollView)
         applyWrap(textView: textView, scrollView: scrollView, wraps: style.wraps)
         textView.layoutManager?.allowsNonContiguousLayout = true
-        assert(textView.textLayoutManager != nil, "XYZEditor requires TextKit 2")
         return pane
     }
 
