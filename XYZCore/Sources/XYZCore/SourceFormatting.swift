@@ -7,7 +7,7 @@ public enum SourceListKind: Equatable, Sendable {
     case task
 }
 
-/// Line formats for the Format menu: headings, quotes, lists, code blocks, tables, and links.
+/// Line edits for headings, quotes, lists, code blocks, tables, and links.
 ///
 /// Each command is one undoable replacement over the lines the selection touches, like the
 /// typing behavior above. Lines inside a code fence are left alone.

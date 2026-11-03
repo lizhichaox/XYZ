@@ -66,18 +66,10 @@ final class XYZMacTextView: NSTextView {
         if EditorCommands.shared.handleKeyEquivalent(event) {
             return true
         }
-        // Format shortcuts work here even while SwiftUI is rebuilding the main menu.
-        if let item = FormatMenu.item(matching: event), isEditable, allowsMarkup {
-            NSApp.sendAction(item.action, to: self, from: item.menuItem())
-            return true
-        }
         return super.performKeyEquivalent(with: event)
     }
 
     override func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        if let action = menuItem.action, FormatMenu.actions.contains(action) {
-            return isEditable && allowsMarkup
-        }
         if let action = menuItem.action, LineEditMenu.actions.contains(action) {
             guard isEditable else { return false }
             if action == #selector(xyzToggleComment(_:)) {

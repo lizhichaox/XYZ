@@ -8,7 +8,7 @@ New documents are Markdown (`.md`). The app also opens and saves `.markdown` and
 
 ## What you see
 
-- A proportional text editor in the system font (SF Pro, with PingFang SC for Chinese), 16pt, with a line box about 1.7 times the font size so wrapped lines and hard returns share one rhythm. The text uses the width of the pane, with side padding that stays between 24 and 64 points. Markdown markers are tinted and headings are slightly larger. Settings chooses the font (Default or Monospaced) and the size, and can limit the line width (see Settings below). On the Mac the view is an `NSTextView`; on iOS it is a `UITextView`. Both use TextKit 2. In a Markdown file, Return continues a list (and leaves the list on an empty item), Tab and Shift-Tab indent it, and the Format menu edits Markdown (see Format below). Other files, such as `.txt`, `.gitignore`, or source code, are plain text: no heading sizes or tinted markers, and none of those edits. Spell checking is on for Markdown and `.txt` only, so config files and code are not underlined.
+- A proportional text editor in the system font (SF Pro, with PingFang SC for Chinese), 16pt, with a line box about 1.7 times the font size so wrapped lines and hard returns share one rhythm. The text uses the width of the pane, with side padding that stays between 24 and 64 points. Markdown markers are tinted and headings are slightly larger. Settings chooses the font (Default or Monospaced) and the size, and can limit the line width (see Settings below). On the Mac the view is an `NSTextView`; on iOS it is a `UITextView`. Both use TextKit 2. In a Markdown file, Return continues a list (and leaves the list on an empty item), and Tab and Shift-Tab indent it. Other files, such as `.txt`, `.gitignore`, or source code, are plain text: no heading sizes or tinted markers, and none of those edits. Spell checking is on for Markdown and `.txt` only, so config files and code are not underlined.
 - A file opens in Reading. Markdown Reading is the rendered note. Other text Reading is the colored source, and it cannot be edited. ⌘/ switches to Editing, which shows line numbers and a highlight on the current line. ⌘/ again returns to Reading. The choice is not saved. The reading and editing surface has no buttons of its own, and the window has no toolbar. ⌘B toggles the sidebar. View → Toggle Sidebar is the same command.
 - On iPhone and iPad the same two modes are in the View menu.
 - Reading renders headings, emphasis, lists, task lists, links, pictures, tables, code, and blockquotes. Wide tables scroll sideways inside the page. Fenced code that names its language is colored. Pictures with a relative path load from the note's folder. A `#fragment` link scrolls to the heading with that id, and a relative link opens the file it names. The page uses the same side padding as the editor, a line height of 1.75, and hanging punctuation where the system supports it. It follows light and dark mode. Code uses one monospace face in both.
@@ -22,22 +22,6 @@ The View menu lists Source and Reading. ⌘/ is Source Code Mode, as in [Typora'
 ⌘P is Quick Open. An empty field lists files opened in that folder, most recent first. Typing matches any file, and the matched characters are semibold. A leading `>` lists commands (view modes, Go to Heading, sidebar, new file, new folder, Open Folder, Reveal in Finder, Copy Path, Copy Relative Path, Close Tab, Reload, About XYZ) and shows each shortcut on the right. A leading `@` lists the note's headings, deeper ones indented; View → Go to Heading… (⌘R) opens the palette that way. Choosing a heading puts the caret on it in Source, or scrolls Reading to it. ↑ and ↓, or ⌃P and ⌃N, move the selection. Return runs it. ⌘Return opens a file in a new window. Esc or a click outside dismisses the palette. It is not a button on the note.
 
 The sidebar filter is a native search field. On macOS 26 and later the command palette uses Liquid Glass when Reduce Transparency and Increase Contrast are off. Earlier systems keep a sidebar material and a material palette.
-
-## Format
-
-The Format menu edits the Markdown source. Its items are enabled while a Markdown editor has focus, and dimmed in Reading and in plain text. Shortcuts follow Typora where macOS leaves them free; headings use ⌥⌘ because ⌘1 to ⌘9 stay with window tabs. Bold has no shortcut, because ⌘B toggles the sidebar.
-
-| Item | Shortcut | Item | Shortcut |
-|---|---|---|---|
-| Bold | | Quote | ⌥⌘Q |
-| Italic | ⌘I | Bulleted List | ⌥⌘U |
-| Strikethrough | ⇧⌘X | Numbered List | ⌥⌘O |
-| Inline Code | ⌃` | Task List | ⌥⌘X |
-| Link | ⌘K | Code Block | ⌥⌘C |
-| Heading → Paragraph | ⌥⌘0 | Table | |
-| Heading → Heading 1 to 6 | ⌥⌘1 to ⌥⌘6 | | |
-
-Inline formats wrap the selection, or unwrap it when it is already wrapped. Line formats apply to every line the selection touches: choosing the level a heading already has, or a list kind the lines already are, turns it off. A numbered list is renumbered from 1. Link wraps the selection as `[text]()` with the caret in the parentheses; a selected web address becomes the destination instead. Code Block fences the lines and leaves the caret where the language goes. Lines inside a code fence are left alone. Each command is one undo step.
 
 ## Settings
 
@@ -60,7 +44,7 @@ The interface is in English and Simplified Chinese, from `XYZ/Resources/Localiza
 - `TextDocument` reads and writes UTF-8.
 - `MarkdownFileDocument` is the `ReferenceFileDocument` the document scene saves. The text view keeps the buffer; SwiftUI is not given a new string on every keystroke.
 - `MarkdownParser` builds the syntax tree. `HTMLRenderer` only walks a tree, and gives headings GitHub-style ids. `MarkdownHTML` is the small public wrapper.
-- `SourceEditing` holds the typing and Format edits as pure functions from text and selection to one replacement.
+- `SourceEditing` holds list continuation and indent as pure functions from text and selection to one replacement.
 - `MarkdownOutline` lists headings with their source lines. `TextStatistics` counts words and characters.
 
 The app target is shared SwiftUI. `XYZMacEditor` and `XYZIOSEditor` are the platform text views. They share `XYZEditor` / `XYZTextEditing`. The Mac editor applies light heading and marker styling in the text storage without putting those attributes in the saved file. Find and replace, and large-file updates, can still land on `textLayoutManager`.

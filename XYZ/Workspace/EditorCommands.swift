@@ -634,7 +634,7 @@ enum EditorMenuSupport {
         if let file = fileMenu(in: main) {
             ensureFileItems(in: file)
         }
-        FormatMenu.ensure(in: main)
+        FormatMenu.removeMarkdownItems(from: main)
         if let edit = editMenu(in: main) {
             ensureEditItems(in: edit)
         }
@@ -693,6 +693,10 @@ enum EditorMenuSupport {
             let flags = item.keyEquivalentModifierMask.intersection(.deviceIndependentFlagsMask)
             let key = item.keyEquivalent.lowercased()
             if key == "b", flags == .command, item.title != String(localized: "Toggle Sidebar") {
+                item.keyEquivalent = ""
+                item.keyEquivalentModifierMask = []
+            }
+            if key == "i", flags == .command, item.title == String(localized: "Italic") {
                 item.keyEquivalent = ""
                 item.keyEquivalentModifierMask = []
             }
