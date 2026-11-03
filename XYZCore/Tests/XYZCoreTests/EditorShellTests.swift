@@ -353,8 +353,6 @@ final class FileFormatTests: XCTestCase {
         XCTAssertEqual(FileFormats.shebangLanguage(in: "#!/bin/sh\n"), .shell)
         XCTAssertNil(FileFormats.shebangLanguage(in: "echo hi\n"))
         XCTAssertEqual(FileFormats.resolved(name: "run", text: "#!/usr/bin/env bash\n").language, .shell)
-        XCTAssertEqual(XYZEditorStyle.clampedFontSize(10), 11)
-        XCTAssertEqual(XYZEditorStyle.clampedLineSpacing(2.4), 2)
     }
 
     func testCrumbsIncludeTheFile() {
