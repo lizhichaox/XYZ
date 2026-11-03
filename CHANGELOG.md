@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.24
+
+- Editing shows its line-number gutter in the real window, with wrapping on or off. The scroll view no longer sits on top of it, and a blank first draw is painted again after the text has laid out.
+- `-XYZCheckGutter` mounts the same SwiftUI editor the window uses and checks that the gutter is attached, visible, painted, and numbered from source lines.
+
 ## 0.5.23
 
 - Line wrapping no longer turns visual rows into source line numbers. Editing numbers follow newline boundaries, and only the first fragment of a wrapped line is numbered. The current-line band uses that same fragment.

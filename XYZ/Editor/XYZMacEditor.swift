@@ -600,13 +600,12 @@ private struct FindScan {
     /// Turns numbers on or off on this view. Called from SwiftUI updates, including a mode
     /// change on a text view that is already on screen.
     func syncLineNumbers(_ show: Bool) {
-        if showsLineNumbers != show {
-            showsLineNumbers = show
+        let turnedOn = showsLineNumbers != show
+        showsLineNumbers = show
+        if turnedOn {
             showViewport()
-        } else if show {
-            editorPane?.needsLayout = true
-            editorPane?.gutter.needsDisplay = true
         }
+        editorPane?.revealGutter()
     }
 
     /// TextKit 2 only draws the laid-out viewport. A mode change has to ask for it again.
@@ -990,6 +989,12 @@ final class EditorPane: NSView {
         clamping = true
         clampAboveStatusBar()
         clamping = false
+        revealGutter()
+    }
+
+    /// Puts the gutter beside the text and above the scroll view. A scroll view that still
+    /// fills the pane covers the numbers, which is what the standalone harness never did.
+    func revealGutter() {
         let show = gutter.textView?.showsLineNumbers == true
         gutter.isHidden = !show
         let width: CGFloat
@@ -1000,12 +1005,21 @@ final class EditorPane: NSView {
         }
         let gutterFrame = NSRect(x: 0, y: 0, width: width, height: bounds.height)
         let scrollFrame = NSRect(x: width, y: 0, width: max(1, bounds.width - width), height: bounds.height)
-        let frameChanged = gutter.frame != gutterFrame || scrollView.frame != scrollFrame
         if gutter.frame != gutterFrame { gutter.frame = gutterFrame }
         if scrollView.frame != scrollFrame { scrollView.frame = scrollFrame }
-        if frameChanged {
-            gutter.noteGeometryChanged()
+        if gutter.superview === self, subviews.last !== gutter {
+            addSubview(gutter, positioned: .above, relativeTo: scrollView)
         }
+        gutter.noteGeometryChanged()
+        XYZDiagnostics.gutterMount(
+            wrap: gutter.textView?.style.wraps == true,
+            enabled: show,
+            attached: gutter.superview != nil,
+            hidden: gutter.isHidden,
+            width: gutter.frame.width,
+            height: gutter.frame.height,
+            scrollX: scrollView.frame.minX
+        )
     }
 
     /// The hosting view includes the status bar. Keep this pane above that bar.

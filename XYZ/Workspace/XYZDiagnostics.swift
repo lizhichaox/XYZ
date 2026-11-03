@@ -94,8 +94,28 @@ enum XYZDiagnostics {
         guard signature != lastGutterSignature else { return }
         lastGutterSignature = signature
         drawLogs += 1
-        note("gutter labels mode=\(mode) wrap=\(wrap ? 1 : 0) count=\(lines) pairs=\(pairs) api=\(api)")
+        let reason = lines == 0 ? api : "painted"
+        note("gutter state mode=\(mode) wrap=\(wrap ? 1 : 0) enabled=1 attached=1 hidden=0 api=\(api) count=\(lines) pairs=\(pairs) reason=\(reason)")
     }
+
+    static func gutterMount(
+        wrap: Bool,
+        enabled: Bool,
+        attached: Bool,
+        hidden: Bool,
+        width: CGFloat,
+        height: CGFloat,
+        scrollX: CGFloat
+    ) {
+        guard enabledDiagnostics else { return }
+        let signature = "mount|\(wrap ? 1 : 0)|\(enabled ? 1 : 0)|\(attached ? 1 : 0)|\(hidden ? 1 : 0)|\(Int(width.rounded()))|\(Int(height.rounded()))|\(Int(scrollX.rounded()))"
+        guard signature != lastGutterSignature else { return }
+        lastGutterSignature = signature
+        let reason = !attached ? "not-attached" : (hidden || width < 8 || height < 8 ? "not-visible" : "mounted")
+        note("gutter state mode=editing wrap=\(wrap ? 1 : 0) enabled=\(enabled ? 1 : 0) attached=\(attached ? 1 : 0) hidden=\(hidden ? 1 : 0) w=\(Int(width.rounded())) h=\(Int(height.rounded())) scrollX=\(Int(scrollX.rounded())) count=0 pairs= reason=\(reason)")
+    }
+
+    private static var enabledDiagnostics: Bool { enabled }
 
     static func keyDown(code: UInt16, before: Int, after: Int) {
         note("keyDown code=\(code) editorLen \(before)->\(after)")

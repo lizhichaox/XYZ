@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import SwiftUI
 import WebKit
 import XYZCore
 
@@ -15,8 +16,10 @@ enum GutterSnapshotCheck {
         let wrapped = rendered == nil ? renderWrappedSourceLines() : nil
         stage(wrapped == nil ? "reading-lines" : "wrap-failed")
         let reading = wrapped == nil && rendered == nil ? renderReadingSourceLines() : nil
-        stage(reading == nil ? "search" : "reading-lines-failed")
-        let failure = rendered ?? wrapped ?? reading ?? SearchTypingCheck.run() ?? EscapeCrashCheck.run() ?? SidebarColumnFitCheck.run()
+        stage(reading == nil ? "production" : "reading-lines-failed")
+        let production = reading == nil && wrapped == nil && rendered == nil ? renderProductionEditors() : nil
+        stage(production == nil ? "search" : "production-failed")
+        let failure = rendered ?? wrapped ?? reading ?? production ?? SearchTypingCheck.run() ?? EscapeCrashCheck.run() ?? SidebarColumnFitCheck.run()
         stage("done")
         if let failure {
             print("GUTTER_MISSING \(failure)")
@@ -39,6 +42,128 @@ enum GutterSnapshotCheck {
             if let failure = render(appearance: name, editing: true) { return failure }
         }
         return nil
+    }
+
+    /// The SwiftUI editor inside a real window, the path the harness skipped.
+    private static func renderProductionEditors() -> String? {
+        if let failure = renderProductionEditor(wraps: true) { return failure }
+        if let failure = renderProductionEditor(wraps: false) { return failure }
+        return nil
+    }
+
+    private static func renderProductionEditor(wraps: Bool) -> String? {
+        let text = "one\n" + String(repeating: "wrap ", count: 24) + "\n\nfour\n"
+        var style = XYZEditorStyle()
+        style.wraps = wraps
+        style.fontSize = 16
+        style.monospaced = true
+        style.latin = "menlo"
+        let editor = MainActor.assumeIsolated {
+            XYZMacEditor(
+                text: text,
+                isEditable: true,
+                undoManager: nil,
+                reloadToken: 1,
+                style: style,
+                scrollLink: EditorScrollLink(),
+                markup: false,
+                spellCheck: false,
+                syntax: .plain,
+                lineNumbers: true,
+                find: nil,
+                onSelection: nil,
+                onTextChange: { _ in }
+            )
+        }
+        let host = NSHostingView(rootView: editor)
+        let width: CGFloat = wraps ? 240 : 520
+        host.frame = NSRect(x: 0, y: 0, width: width, height: 480)
+        let window = NSWindow(
+            contentRect: host.frame,
+            styleMask: [.titled, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        let start = Date()
+        while Date().timeIntervalSince(start) < 0.8 {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+        }
+        host.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+        guard let pane = findPane(in: host) else {
+            return "production wrap=\(wraps ? 1 : 0): EditorPane was not mounted evidence=missing"
+        }
+        let gutter = pane.gutter
+        let attached = gutter.superview === pane
+        print("GUTTER_PROD wrap=\(wraps ? 1 : 0) hidden=\(gutter.isHidden ? 1 : 0) attached=\(attached ? 1 : 0) w=\(Int(gutter.frame.width.rounded())) h=\(Int(gutter.frame.height.rounded())) scrollX=\(Int(pane.scrollView.frame.minX.rounded()))")
+        fflush(stdout)
+        if !attached {
+            return "production wrap=\(wraps ? 1 : 0): gutter is not attached"
+        }
+        if gutter.isHidden || gutter.frame.width < 20 || gutter.frame.height < 40 {
+            return "production wrap=\(wraps ? 1 : 0): gutter not visible w=\(gutter.frame.width) h=\(gutter.frame.height) hidden=\(gutter.isHidden)"
+        }
+        if pane.scrollView.frame.minX + 1 < gutter.frame.maxX {
+            return "production wrap=\(wraps ? 1 : 0): scroll view covers the gutter scrollX=\(pane.scrollView.frame.minX) gutterMaxX=\(gutter.frame.maxX)"
+        }
+        window.displayIfNeeded()
+        guard let rep = bitmap(of: pane) else {
+            return "production wrap=\(wraps ? 1 : 0): could not paint the window"
+        }
+        let sample = gutter.convert(gutter.bounds, to: pane)
+        let background = NSColor.xyzEditor
+        var plate = background
+        let appearance = window.appearance ?? NSAppearance(named: .aqua)!
+        appearance.performAsCurrentDrawingAppearance {
+            plate = background.usingColorSpace(.deviceRGB) ?? background
+        }
+        let ink = nonBackgroundPixels(in: rep, rect: sample, background: plate)
+        if ink < 30 {
+            return "production wrap=\(wraps ? 1 : 0): gutter painted \(ink) contrasting pixels evidence=missing"
+        }
+        let snapshot = gutter.testingSnapshot()
+        let numbered = snapshot.rows.filter(\.shows).map(\.line)
+        print("GUTTER_PROD_LABELS wrap=\(wraps ? 1 : 0) api=\(snapshot.api) numbered=\(numbered) visual=\(snapshot.rows.count)")
+        fflush(stdout)
+        if numbered.first != 1 {
+            return "production wrap=\(wraps ? 1 : 0): numbered \(numbered) api=\(snapshot.api)"
+        }
+        if numbered != Array(1...numbered.count) {
+            return "production wrap=\(wraps ? 1 : 0): numbered \(numbered) is not a source prefix"
+        }
+        if wraps && snapshot.rows.count <= numbered.count {
+            return "production wrap=1: long line did not wrap visual=\(snapshot.rows.count)"
+        }
+        return nil
+    }
+
+    private static func findPane(in view: NSView) -> EditorPane? {
+        if let pane = view as? EditorPane { return pane }
+        for child in view.subviews {
+            if let found = findPane(in: child) { return found }
+        }
+        return nil
+    }
+
+    private static func bitmap(of view: NSView) -> NSBitmapImageRep? {
+        let bounds = view.bounds
+        guard bounds.width > 1, bounds.height > 1,
+              let rep = NSBitmapImageRep(
+                bitmapDataPlanes: nil,
+                pixelsWide: max(1, Int(bounds.width)),
+                pixelsHigh: max(1, Int(bounds.height)),
+                bitsPerSample: 8,
+                samplesPerPixel: 4,
+                hasAlpha: true,
+                isPlanar: false,
+                colorSpaceName: .deviceRGB,
+                bytesPerRow: 0,
+                bitsPerPixel: 0
+              ) else { return nil }
+        view.cacheDisplay(in: bounds, to: rep)
+        return rep
     }
 
     /// Narrow editor, known source. Numbered labels must be the newline lines, in order.

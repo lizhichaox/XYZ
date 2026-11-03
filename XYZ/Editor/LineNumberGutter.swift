@@ -52,6 +52,7 @@ final class LineNumberGutter: NSView {
     }
 
     private var geometryKey = ""
+    private var emptyPaintRetries = 0
 
     private var cachedIndex: LineIndex?
 
@@ -113,6 +114,17 @@ final class LineNumberGutter: NSView {
                 pairs.append("\(row.line):\(Int(textY.rounded()))")
             }
             drawn += 1
+        }
+        if drawn == 0, lines.count > 0, textView.showsLineNumbers, emptyPaintRetries < 8 {
+            emptyPaintRetries += 1
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.geometryKey = ""
+                self.textView?.showViewport()
+                self.needsDisplay = true
+            }
+        } else if drawn > 0 {
+            emptyPaintRetries = 0
         }
         XYZDiagnostics.gutterDraw(
             dirty: dirtyRect,
