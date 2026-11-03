@@ -1003,6 +1003,41 @@ enum PreviewPage {
           }
           return leaves;
         }
+        // The first visual line of the block, not the block box. A heading's border box
+        // starts at the line box's top, and a small number pinned there sits above the glyphs.
+        function xyzFirstTextRow(element) {
+          var block = element.getBoundingClientRect();
+          var text = null;
+          var walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null);
+          while (walker.nextNode()) {
+            var value = walker.currentNode.nodeValue || "";
+            var ink = false;
+            for (var c = 0; c < value.length; c++) {
+              var code = value.charCodeAt(c);
+              if (code !== 32 && code !== 9 && code !== 10 && code !== 13) { ink = true; break; }
+            }
+            if (ink) {
+              text = walker.currentNode;
+              break;
+            }
+          }
+          if (!text) {
+            var parent = element.parentElement || element;
+            var fontSize = parseFloat(window.getComputedStyle(parent).fontSize) || 16;
+            var line = parseFloat(window.getComputedStyle(element).lineHeight);
+            if (!(line > 0)) line = fontSize * 1.7;
+            return {top: block.top, height: Math.min(Math.max(block.height, 1), line), blockTop: block.top, blockHeight: block.height};
+          }
+          var range = document.createRange();
+          range.selectNodeContents(text);
+          var rects = range.getClientRects();
+          for (var r = 0; r < rects.length; r++) {
+            if (rects[r].height >= 1 && rects[r].width >= 1) {
+              return {top: rects[r].top, height: rects[r].height, blockTop: block.top, blockHeight: block.height};
+            }
+          }
+          return {top: block.top, height: Math.max(block.height, 1), blockTop: block.top, blockHeight: block.height};
+        }
         function xyzLayoutGutter() {
           var host = document.getElementById("xyz-gutter");
           if (!host) {
@@ -1020,18 +1055,21 @@ enum PreviewPage {
           var content = document.getElementById("content");
           if (!content) return;
           var gutterRect = host.getBoundingClientRect();
+          var numberHeight = parseFloat(window.getComputedStyle(host).fontSize) || 12;
+          var minGap = Math.max(8, numberHeight - 1);
           var leaves = xyzLeafBlocks(content);
           var placed = [];
           var lastY = -100000;
-          var gap = 12;
           for (var i = 0; i < leaves.length; i++) {
             var start = parseInt(leaves[i].getAttribute("data-line"), 10) || 0;
             if (start < 1) continue;
-            var rect = leaves[i].getBoundingClientRect();
-            if (rect.height < 1 && rect.width < 1) continue;
-            var y = Math.round(rect.top - gutterRect.top);
-            if (y < lastY + gap) continue;
-            placed.push({line: start, y: y});
+            var row = xyzFirstTextRow(leaves[i]);
+            if (row.height < 1 && row.blockHeight < 1) continue;
+            // Center the number on that first row. A wrapped block keeps the number there,
+            // not in the middle of every visual row.
+            var y = Math.round(row.top - gutterRect.top + (row.height - numberHeight) / 2);
+            if (y < lastY + minGap) continue;
+            placed.push({line: start, y: y, mid: row.top - gutterRect.top + row.height / 2});
             lastY = y;
           }
           var parts = [];
@@ -1049,7 +1087,18 @@ enum PreviewPage {
             label.setAttribute("data-source-line", String(placed[n].line));
             label.textContent = String(placed[n].line);
             label.style.top = placed[n].y + "px";
+            label.setAttribute("data-row-mid", String(placed[n].mid));
             host.appendChild(label);
+          }
+          // font-size is only the estimate. The placed box is what the reader sees.
+          var drawn = host.children;
+          for (var d = 0; d < drawn.length; d++) {
+            var item = drawn[d];
+            var mid = parseFloat(item.getAttribute("data-row-mid"));
+            if (isNaN(mid)) continue;
+            var box = item.getBoundingClientRect();
+            var current = (box.top - gutterRect.top) + box.height / 2;
+            item.style.top = Math.round(parseFloat(item.style.top) + (mid - current)) + "px";
           }
           xyzMarkCurrentLine();
           var handlers = window.webkit && window.webkit.messageHandlers;

@@ -3,7 +3,8 @@
 ## 0.5.24
 
 - Editing shows its line-number gutter in the real window, with wrapping on or off. The hosted editor stays on TextKit 2. Reading `layoutManager` was installing TextKit 1, and a wrapped gutter then had no fragments to number.
-- `-XYZCheckGutter` mounts `XYZMacEditor` in a window, the path the detached pane never took, and checks attachment, visible bounds, paint, and source line numbers with wrapping on and off, including a Reading-to-Editing toggle.
+- Reading numbers sit on the first text row. A large heading's number is centered on that row, not on the top edge of the heading block. A wrapped paragraph or heading keeps the number on its first row.
+- `-XYZCheckGutter` mounts `XYZMacEditor` in a window and checks the Editing gutter for wrap on and off. It also compares Reading numbers with the rendered first text row at two text sizes.
 
 ## 0.5.23
 
