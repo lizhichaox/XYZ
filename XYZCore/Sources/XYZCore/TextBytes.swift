@@ -4,7 +4,7 @@ import Foundation
 ///
 /// The editor works in Unicode. A save writes this encoding back, including a byte-order mark
 /// when the file had one.
-public enum TextEncoding: String, Equatable, Sendable {
+public enum TextEncoding: String, Equatable, Sendable, CaseIterable {
     case utf8
     case utf8BOM
     case utf16LE
@@ -27,7 +27,7 @@ public enum TextEncoding: String, Equatable, Sendable {
 }
 
 /// The line ending a file uses. The editor stores `\n` and writes this back.
-public enum LineEnding: String, Equatable, Sendable {
+public enum LineEnding: String, Equatable, Sendable, CaseIterable {
     case lf
     case crlf
     case cr
@@ -97,6 +97,11 @@ public enum TextBytes {
             lineEnding: endings.ending,
             mixedLineEndings: endings.mixed
         )
+    }
+
+    /// False when `encoding` cannot hold every character, as with Chinese in Windows-1252.
+    public static func canStore(_ text: String, as encoding: TextEncoding) -> Bool {
+        encode(text, encoding: encoding, lineEnding: .lf) != nil
     }
 
     public static func encode(_ text: String, encoding: TextEncoding, lineEnding: LineEnding) -> Data? {

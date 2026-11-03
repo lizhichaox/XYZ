@@ -226,3 +226,35 @@ final class FileFormatTests: XCTestCase {
         XCTAssertTrue(spans.contains { $0.kind == .string })
     }
 }
+
+final class FileOutlineTests: XCTestCase {
+    func testMarkdownHeadingsKeepLevelAndLine() {
+        let entries = FileOutline.entries(in: "# A\n\n## B\n", language: .markdown)
+        XCTAssertEqual(entries.map(\.title), ["A", "B"])
+        XCTAssertEqual(entries.map(\.depth), [0, 1])
+        XCTAssertEqual(entries.map(\.line), [1, 3])
+    }
+
+    func testJSONKeysNestAndSkipStringsThatAreValues() {
+        let text = "{\n  \"a\": 1,\n  \"b\": {\n    \"c\": \"func hidden\"\n  }\n}\n"
+        let entries = FileOutline.entries(in: text, language: .json)
+        XCTAssertEqual(entries.map(\.title), ["a", "b", "c"])
+        XCTAssertEqual(entries.map(\.depth), [0, 0, 1])
+        XCTAssertEqual(entries.map(\.line), [2, 3, 4])
+    }
+
+    func testSwiftDeclarationsSkipCommentsAndKeepIndent() {
+        let text = "// func hidden\nstruct Box {\n    public func open() {}\n}\n"
+        let entries = FileOutline.entries(in: text, language: .swift)
+        XCTAssertEqual(entries.map(\.title), ["Box", "open"])
+        XCTAssertGreaterThan(entries[1].depth, entries[0].depth)
+        XCTAssertEqual(entries[1].line, 3)
+    }
+
+    func testWindows1252RejectsCharactersItCannotStore() {
+        XCTAssertTrue(TextBytes.canStore("Hi é", as: .windows1252))
+        XCTAssertFalse(TextBytes.canStore("你好", as: .windows1252))
+        XCTAssertTrue(TextBytes.canStore("你好", as: .utf8))
+        XCTAssertTrue(TextBytes.canStore("你好", as: .utf16LE))
+    }
+}
