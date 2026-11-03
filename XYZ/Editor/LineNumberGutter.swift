@@ -272,14 +272,20 @@ final class LineNumberGutter: NSView {
         let glyphs = layout.glyphRange(for: container)
         var rows: [Row] = []
         var previous: Int?
-        layout.enumerateLineFragments(forGlyphRange: glyphs) { rect, _, _, glyphRange, _ in
-            let chars = layout.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
-            let line = lines.line(at: max(0, chars.location))
+        layout.enumerateLineFragments(forGlyphRange: glyphs) { _, usedRect, _, glyphRange, _ in
+            guard glyphRange.length > 0 else { return }
+            let index = layout.characterIndexForGlyph(at: glyphRange.location)
+            let top = origin.y + usedRect.minY
+            guard top + usedRect.height > visible.minY - 1, top < visible.maxY + 1 else { return }
+            let line = lines.line(at: max(0, index))
             let shows = previous != line
             previous = line
-            let y = origin.y + rect.minY - visible.minY
-            guard y + rect.height > -rect.height, y < visible.height + rect.height else { return }
-            rows.append(Row(line: line, showsNumber: shows, y: y, height: max(rect.height, 1)))
+            rows.append(Row(
+                line: line,
+                showsNumber: shows,
+                y: top - visible.minY,
+                height: max(usedRect.height, 1)
+            ))
         }
         return rows
     }
