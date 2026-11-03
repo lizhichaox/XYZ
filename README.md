@@ -38,7 +38,7 @@ XYZ → Settings… is one pane:
 - Appearance: System, Light, or Dark, for the whole app.
 - Language: System, English, or 简体中文. It sets the app's own language list; XYZ uses the new language after it restarts, and Restart Now does that.
 - Text: Latin (System, SF Mono, Menlo, or JetBrains Mono) and Chinese (PingFang SC, Songti SC, or Heiti SC) are chosen separately. Size is 11 to 24 pt, shared by Editing and Reading. Line spacing is 1.0 to 2.0. Limit line width keeps a line near 42 em (about 42 Chinese characters) in wide windows. View → Zoom In (⌘+), Zoom Out (⌘−), and Actual Size (⌘0) step the size.
-- Text also has Show line numbers, on by default: Source numbers each line of the file in the left padding, right-aligned against the text, and a wrapped line keeps its number on its first row. View → Show Line Numbers is the same switch.
+- Editing numbers each source line. A wrapped row keeps that number on its first fragment and does not add one. Reading does not show line numbers.
 - View: Show word count. A quiet line under the note shows the count and the reading time. Chinese and Japanese count by character, other languages by word. View → Show Word Count is the same switch.
 
 Esc closes the topmost popup wherever focus is, including the find field and the Reading page: the find bar, folder search, the command palette, Go to Line, the ⌃Tab switcher (Esc cancels it), a status-bar menu, Settings, About, or a confirmation (Cancel, or OK when that is the only button). Focus then returns to the editor. An input method that is still composing keeps Esc.

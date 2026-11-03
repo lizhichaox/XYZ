@@ -1157,7 +1157,6 @@ private struct WorkspaceDetail: View {
     @StateObject private var wordCount = WordCountModel()
     @State private var caret = EditorCaret()
     @State private var surfaceDetail: String?
-    @AppStorage(XYZEditorStyle.readingLineNumbersKey) private var readingLineNumbers = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1334,11 +1333,7 @@ private struct WorkspaceDetail: View {
     }
 
     private var showsEditorLineNumbers: Bool {
-        EditorModeChoice.showsLineNumbers(
-            mode: session.viewMode,
-            access: fileAccess,
-            readingNumbers: readingLineNumbers
-        )
+        EditorModeChoice.showsLineNumbers(mode: session.viewMode, access: fileAccess)
     }
 
     @ViewBuilder

@@ -58,8 +58,8 @@ struct PreviewPrefs: Equatable {
         let latinCSS = PreviewPage.javaScriptLiteral(PreviewFontCSS.latin(latin))
         let cjkCSS = PreviewPage.javaScriptLiteral(PreviewFontCSS.cjk(cjk))
         let monoCSS = PreviewPage.javaScriptLiteral(PreviewFontCSS.mono(latin))
-        let numbers = lineNumbers ? "true" : "false"
-        return "setPrefs(\(size), \(readableWidth), \(spacing), \(latinCSS), \(cjkCSS), \(monoCSS)); setLineNumbers(\(numbers));"
+        _ = lineNumbers
+        return "setPrefs(\(size), \(readableWidth), \(spacing), \(latinCSS), \(cjkCSS), \(monoCSS)); setLineNumbers(false);"
     }
 }
 
@@ -99,7 +99,6 @@ struct MarkdownWebView: View {
     @AppStorage(XYZEditorStyle.latinFontKey) private var latinFont = "system"
     @AppStorage(XYZEditorStyle.cjkFontKey) private var cjkFont = "pingfang"
     @AppStorage(XYZEditorStyle.readableWidthKey) private var readableWidth = false
-    @AppStorage(XYZEditorStyle.readingLineNumbersKey) private var readingLineNumbers = false
 
     var body: some View {
         let prefs = PreviewPrefs(
@@ -108,7 +107,7 @@ struct MarkdownWebView: View {
             latin: latinFont,
             cjk: cjkFont,
             readableWidth: readableWidth,
-            lineNumbers: readingLineNumbers,
+            lineNumbers: false,
             baseHref: LocalAssets.baseHref(for: baseDirectory)
         )
         #if os(macOS)
@@ -984,8 +983,9 @@ enum PreviewPage {
         var xyzGutterTimer = 0;
         var xyzGutterSignature = "";
         function setLineNumbers(on) {
-          document.documentElement.setAttribute("data-lines", on ? "true" : "false");
-          xyzScheduleGutter();
+          document.documentElement.removeAttribute("data-lines");
+          var host = document.getElementById("xyz-gutter");
+          if (host) host.remove();
         }
         function xyzScheduleGutter() {
           if (xyzGutterTimer) return;

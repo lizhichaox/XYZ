@@ -3,6 +3,7 @@
 ## 0.5.26
 
 - Editing draws the document text in the real window, not only into an offscreen bitmap. TextKit 2 puts the body in fragment subviews. A layer-backed SwiftUI window was compositing the text view's layer without those subviews, so the gutter showed and the page stayed white. `cacheDisplay` still called `draw` and counted that ink.
+- Reading has no line numbers. The Reading setting and its gutter are gone, and a saved "on" value does not bring them back. Editing numbers are the source lines. Wrapping does not change them: only the first fragment of a source line is numbered.
 - The line-number check opens a normal folder window on a synthetic file, switches Reading to Editing, and reads the composited text with text recognition. A blank document must not pass. Shots of that window are saved for light and dark.
 
 ## 0.5.25

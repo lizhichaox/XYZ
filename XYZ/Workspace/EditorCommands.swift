@@ -587,16 +587,6 @@ final class EditorCommands: NSObject {
         target?.findModel?.perform?(.previous)
     }
 
-    @objc func toggleLineNumbers(_ sender: Any?) {
-        let defaults = UserDefaults.standard
-        defaults.set(!Self.showsReadingLineNumbers, forKey: XYZEditorStyle.readingLineNumbersKey)
-    }
-
-    /// Off unless turned on. Editing always shows numbers.
-    private static var showsReadingLineNumbers: Bool {
-        UserDefaults.standard.bool(forKey: XYZEditorStyle.readingLineNumbersKey)
-    }
-
     @objc func toggleWordCount(_ sender: Any?) {
         let defaults = UserDefaults.standard
         defaults.set(!defaults.bool(forKey: WordCountSetting.key), forKey: WordCountSetting.key)
@@ -690,9 +680,6 @@ final class EditorCommands: NSObject {
             return target?.editorCanToggle == true
         case "xyz.goToHeading":
             return target?.editorHasOpenFile == true
-        case "xyz.lineNumbers":
-            menuItem.state = Self.showsReadingLineNumbers ? .on : .off
-            return true
         case "xyz.wordWrap":
             let wrapped = UserDefaults.standard.object(forKey: XYZEditorStyle.wordWrapKey) as? Bool ?? true
             menuItem.state = wrapped ? .on : .off
@@ -975,7 +962,7 @@ enum EditorMenuSupport {
     }
 
     private static func ensureViewItems(in menu: NSMenu) {
-        for identifier in ["xyz.mode.coding", "xyz.mode.preview", "xyz.mode.toggleReading"] {
+        for identifier in ["xyz.mode.coding", "xyz.mode.preview", "xyz.mode.toggleReading", "xyz.lineNumbers"] {
             if let item = menu.items.first(where: { $0.identifier?.rawValue == identifier }) {
                 menu.removeItem(item)
             }
@@ -987,7 +974,6 @@ enum EditorMenuSupport {
             ("xyz.zoomIn", String(localized: "Zoom In"), "+", .command, #selector(EditorCommands.zoomIn(_:))),
             ("xyz.zoomOut", String(localized: "Zoom Out"), "-", .command, #selector(EditorCommands.zoomOut(_:))),
             ("xyz.actualSize", String(localized: "Actual Size"), "0", .command, #selector(EditorCommands.actualSize(_:))),
-            ("xyz.lineNumbers", String(localized: "Show Line Numbers in Reading"), "", [], #selector(EditorCommands.toggleLineNumbers(_:))),
             ("xyz.wordWrap", String(localized: "Wrap Lines"), "z", .option, #selector(EditorCommands.toggleWordWrap(_:))),
             ("xyz.wordCount", String(localized: "Show Word Count"), "", [], #selector(EditorCommands.toggleWordCount(_:))),
             ("xyz.outline", String(localized: "Show/Hide Outline"), "b", [.command, .option], #selector(EditorCommands.toggleOutline(_:))),
@@ -997,7 +983,7 @@ enum EditorMenuSupport {
             if spec.0 == "xyz.zoomIn" {
                 previous = divider(after: previous, in: menu, identifier: "xyz.zoom.divider")
             }
-            if spec.0 == "xyz.lineNumbers" {
+            if spec.0 == "xyz.wordWrap" {
                 previous = divider(after: previous, in: menu, identifier: "xyz.wordCount.divider")
             }
             let item = item(

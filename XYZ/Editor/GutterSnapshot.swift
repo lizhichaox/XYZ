@@ -802,10 +802,11 @@ enum GutterSnapshotCheck {
         let loaded = waiter.wait(seconds: 8)
         guard loaded else { return "reading: web view did not finish loading" }
         let script = """
-        xyzLayoutGutter();
-        Array.from(document.querySelectorAll('#xyz-gutter .xyz-ln')).map(function(node) {
-          return node.getAttribute('data-source-line') + ':' + Math.round(parseFloat(node.style.top) || 0);
-        }).join(',');
+        setLineNumbers(true);
+        if (typeof xyzLayoutGutter === "function") xyzLayoutGutter();
+        var labels = document.querySelectorAll("#xyz-gutter .xyz-ln").length;
+        var pad = Math.round(parseFloat(getComputedStyle(document.body).paddingLeft) || 0);
+        labels + ":" + pad;
         """
         var output = ""
         var finished = false
@@ -821,187 +822,17 @@ enum GutterSnapshotCheck {
             RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
         }
         guard finished else { return "reading: gutter script did not return" }
-        print("GUTTER_READING pairs=\(output) sourceLines=\(sourceLines)")
+        print("GUTTER_READING gutter=\(output) sourceLines=\(sourceLines)")
         fflush(stdout)
         if output.hasPrefix("error") { return "reading: \(output)" }
-        let labels = output.split(separator: ",").compactMap { piece -> (Int, Int)? in
-            let parts = piece.split(separator: ":")
-            guard parts.count == 2, let line = Int(parts[0]), let y = Int(parts[1]) else { return nil }
-            return (line, y)
+        if output != "0:0" {
+            return "reading: gutter is still present \(output)"
         }
-        if labels.isEmpty { return "reading: no labels evidence=missing output=\(output)" }
-        var previousY = Int.min
-        for label in labels {
-            if label.0 < 1 || label.0 > sourceLines {
-                return "reading: line \(label.0) is not a source line (1...\(sourceLines))"
-            }
-            if label.1 <= previousY {
-                return "reading: y does not increase \(labels)"
-            }
-            previousY = label.1
-        }
-        let lines = labels.map(\.0)
-        if !lines.contains(1) { return "reading: missing the heading source line 1 in \(lines)" }
-        if lines.count > sourceLines { return "reading: more labels than source lines \(lines)" }
         return nil
     }
 
-    /// The number's center sits on the first text row, including a large heading and a wrapped paragraph.
+    /// Reading no longer draws a gutter. An explicit request must not bring it back.
     private static func renderReadingAlignment() -> String? {
-        let heading = "标题 Heading wraps onto a second visual row in this narrow column"
-        let paragraph = "段落 " + String(repeating: "paragraph body ", count: 18)
-        let markdown = "# \(heading)\n\n\(paragraph)\n\n- alpha item\n- 第二项\n"
-        let html = MarkdownHTML.render(markdown)
-        let sourceLines = LineIndex(markdown).count
-        let page = PreviewPage.shell(css: PreviewStyles.load(), html: html, theme: "light", prefs: PreviewPrefs(lineNumbers: true))
-        let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 280, height: 720))
-        let window = NSWindow(
-            contentRect: web.frame,
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        window.contentView = web
-        let waiter = ReadingLineWaiter()
-        web.navigationDelegate = waiter
-        web.loadHTMLString(page, baseURL: nil)
-        guard waiter.wait(seconds: 8) else { return "reading-align: web view did not finish loading" }
-        let script = """
-        function xyzInk(value) {
-          for (var i = 0; i < value.length; i++) {
-            var code = value.charCodeAt(i);
-            if (code !== 32 && code !== 9 && code !== 10 && code !== 13) return true;
-          }
-          return false;
-        }
-        function xyzRow(element) {
-          var block = element.getBoundingClientRect();
-          var walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null);
-          var text = null;
-          while (walker.nextNode()) {
-            if (xyzInk(walker.currentNode.nodeValue || "")) { text = walker.currentNode; break; }
-          }
-          var top = block.top;
-          var height = block.height;
-          if (text) {
-            var range = document.createRange();
-            range.selectNodeContents(text);
-            var rects = range.getClientRects();
-            for (var r = 0; r < rects.length; r++) {
-              if (rects[r].height >= 1 && rects[r].width >= 1) {
-                top = rects[r].top;
-                height = rects[r].height;
-                break;
-              }
-            }
-          }
-          return {top: top, height: height, blockTop: block.top, blockHeight: block.height};
-        }
-        function xyzLeaf(line) {
-          var all = document.querySelectorAll("[data-line]");
-          for (var i = 0; i < all.length; i++) {
-            if ((parseInt(all[i].getAttribute("data-line"), 10) || 0) !== line) continue;
-            if (all[i].querySelector("[data-line]")) continue;
-            return all[i];
-          }
-          return null;
-        }
-        function xyzCollect(size) {
-          setPrefs(size, false, 1.7, "", "", "");
-          xyzLayoutGutter();
-          var labels = document.querySelectorAll("#xyz-gutter .xyz-ln");
-          var parts = [];
-          for (var i = 0; i < labels.length; i++) {
-            var label = labels[i];
-            var line = parseInt(label.getAttribute("data-source-line"), 10) || 0;
-            var leaf = xyzLeaf(line);
-            if (!leaf) { parts.push(line + ":missing:0:0:0:0:0:0"); continue; }
-            var row = xyzRow(leaf);
-            var box = label.getBoundingClientRect();
-            var mid = box.top + box.height / 2;
-            var rowMid = row.top + row.height / 2;
-            var blockMid = row.blockTop + row.blockHeight / 2;
-            parts.push([
-              line,
-              leaf.tagName.toLowerCase(),
-              Math.round(mid - rowMid),
-              Math.round(row.height),
-              Math.round(row.blockHeight),
-              Math.round(box.top - row.blockTop),
-              Math.round(mid - blockMid),
-              Math.round(box.right)
-            ].join(":"));
-          }
-          return parts.join(",");
-        }
-        xyzCollect(16) + "||" + xyzCollect(22);
-        """
-        let output = evaluate(web, script) ?? ""
-        if output.isEmpty || output.hasPrefix("error") {
-            return "reading-align: \(output.isEmpty ? "script did not return" : output)"
-        }
-        print("GUTTER_READING_ALIGN \(output)")
-        fflush(stdout)
-        let chunks = output.components(separatedBy: "||")
-        if chunks.count != 2 {
-            return "reading-align: expected two font sizes, got \(output)"
-        }
-        for (index, chunk) in chunks.enumerated() {
-            let size = index == 0 ? 16 : 22
-            if let failure = checkReadingAlignment(chunk, size: size, sourceLines: sourceLines) {
-                return failure
-            }
-        }
-        return nil
-    }
-
-    private static func checkReadingAlignment(_ chunk: String, size: Int, sourceLines: Int) -> String? {
-        let rows = chunk.split(separator: ",").map(String.init).filter { !$0.isEmpty }
-        if rows.isEmpty { return "reading-align size=\(size): no labels evidence=missing" }
-        var sawHeading = false
-        var sawWrapped = false
-        var rights: [Int] = []
-        var lines: [Int] = []
-        for row in rows {
-            let parts = row.split(separator: ":").map(String.init)
-            guard parts.count == 8,
-                  let line = Int(parts[0]),
-                  let delta = Int(parts[2]),
-                  let rowH = Int(parts[3]),
-                  let blockH = Int(parts[4]),
-                  let drop = Int(parts[5]),
-                  let blockDelta = Int(parts[6]),
-                  let right = Int(parts[7]) else {
-                return "reading-align size=\(size): bad row \(row)"
-            }
-            let tag = parts[1]
-            if line < 1 || line > sourceLines {
-                return "reading-align size=\(size): line \(line) is not a source line"
-            }
-            if lines.contains(line) {
-                return "reading-align size=\(size): line \(line) is numbered twice"
-            }
-            lines.append(line)
-            if abs(delta) > 3 {
-                return "reading-align size=\(size): \(tag) line \(line) center is \(delta)px off the first text row"
-            }
-            rights.append(right)
-            if tag == "h1", rowH >= 24, drop >= 4 {
-                sawHeading = true
-            }
-            if blockH >= rowH + rowH / 2, abs(blockDelta) > abs(delta) + rowH / 3 {
-                sawWrapped = true
-            }
-        }
-        if !sawHeading {
-            return "reading-align size=\(size): heading number is still on the block top \(rows)"
-        }
-        if !sawWrapped {
-            return "reading-align size=\(size): no wrapped block kept its number on the first row \(rows)"
-        }
-        if let first = rights.first, rights.contains(where: { abs($0 - first) > 1 }) {
-            return "reading-align size=\(size): gutter right edges differ \(rights)"
-        }
         return nil
     }
 

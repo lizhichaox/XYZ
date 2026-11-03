@@ -10,7 +10,6 @@ struct SettingsView: View {
     @AppStorage(XYZEditorStyle.latinFontKey) private var latinFont = "system"
     @AppStorage(XYZEditorStyle.cjkFontKey) private var cjkFont = "pingfang"
     @AppStorage(XYZEditorStyle.readableWidthKey) private var readableWidth = false
-    @AppStorage(XYZEditorStyle.readingLineNumbersKey) private var readingLineNumbers = false
     @AppStorage(XYZEditorStyle.wordWrapKey) private var wordWrap = true
     @AppStorage(WordCountSetting.key) private var showsWordCount = false
     @AppStorage(HiddenFilesSetting.key) private var showsHiddenFiles = true
@@ -77,11 +76,6 @@ struct SettingsView: View {
                 Toggle(isOn: $readableWidth) {
                     Text("Limit line width")
                     Text("Keeps lines at a comfortable length in wide windows, in Editing and Reading.")
-                }
-
-                Toggle(isOn: $readingLineNumbers) {
-                    Text("Show line numbers in Reading mode")
-                    Text("Editing always shows line numbers. Reading hides them unless this is on.")
                 }
 
                 Toggle(isOn: $wordWrap) {

@@ -326,33 +326,6 @@ pre.raw-html {
   color: inherit;
 }
 
-html[data-lines="true"] body {
-  padding-left: 3.4em;
-}
-
-#xyz-gutter {
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 3em;
-  overflow: visible;
-  pointer-events: none;
-  color: var(--muted);
-  font-size: 0.75em;
-  font-variant-numeric: tabular-nums;
-  font-family: var(--font-mono, ui-monospace, "SF Mono", Menlo), var(--font-cjk, "PingFang SC");
-}
-
-.xyz-ln {
-  position: absolute;
-  right: 0.7em;
-  line-height: 1;
-}
-
-.xyz-ln-current {
-  color: var(--text);
-}
-
 mark.xyz-find {
   background: rgba(0, 120, 212, 0.18);
   color: inherit;

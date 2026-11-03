@@ -265,10 +265,10 @@ final class EditorViewModeTests: XCTestCase {
         XCTAssertFalse(EditorModeChoice.isEditing(.reading, access: .source))
         XCTAssertTrue(EditorModeChoice.isEditing(.source, access: .source))
         XCTAssertFalse(EditorModeChoice.isEditing(.source, access: .locked))
-        XCTAssertTrue(EditorModeChoice.showsLineNumbers(mode: .source, access: .source, readingNumbers: false))
-        XCTAssertFalse(EditorModeChoice.showsLineNumbers(mode: .reading, access: .source, readingNumbers: false))
-        XCTAssertTrue(EditorModeChoice.showsLineNumbers(mode: .reading, access: .source, readingNumbers: true))
-        XCTAssertFalse(EditorModeChoice.showsLineNumbers(mode: .reading, access: .locked, readingNumbers: false))
+        XCTAssertTrue(EditorModeChoice.showsLineNumbers(mode: .source, access: .source))
+        XCTAssertFalse(EditorModeChoice.showsLineNumbers(mode: .reading, access: .source))
+        XCTAssertFalse(EditorModeChoice.showsLineNumbers(mode: .reading, access: .locked))
+        XCTAssertFalse(EditorModeChoice.showsLineNumbers(mode: .source, access: .locked))
     }
 
     func testDecodedPreviewBecomesSource() throws {

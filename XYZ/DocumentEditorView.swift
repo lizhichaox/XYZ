@@ -42,9 +42,6 @@ struct DocumentEditorView: View {
     @StateObject private var commands: DocumentCommandBridge
     #endif
     @AppStorage(WordCountSetting.key) private var showsWordCount = false
-    #if os(macOS)
-    @AppStorage(XYZEditorStyle.readingLineNumbersKey) private var readingLineNumbers = false
-    #endif
     @StateObject private var wordCount = WordCountModel()
 
     init(document: MarkdownFileDocument, isEditable: Bool, fileURL: URL? = nil) {
@@ -137,7 +134,7 @@ struct DocumentEditorView: View {
             forcesMonospace: documentFormat.usesCodeFont,
             onSelection: nil,
             onTextChange: storeEditorText,
-            lineNumbersVisible: viewMode == .source || readingLineNumbers,
+            lineNumbersVisible: viewMode == .source,
             find: commands.findModel
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)

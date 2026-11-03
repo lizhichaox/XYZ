@@ -71,15 +71,9 @@ public enum EditorModeChoice {
         mode == .source && access != .locked
     }
 
-    /// Editing always shows numbers. Reading shows them only when the setting is on.
-    public static func showsLineNumbers(
-        mode: EditorViewMode,
-        access: EditorFileAccess,
-        readingNumbers: Bool
-    ) -> Bool {
-        if access == .locked { return readingNumbers }
-        if mode == .source { return true }
-        return readingNumbers
+    /// Editing shows source line numbers. Reading never does, even if an old setting is on.
+    public static func showsLineNumbers(mode: EditorViewMode, access: EditorFileAccess) -> Bool {
+        mode == .source && access != .locked
     }
 }
 

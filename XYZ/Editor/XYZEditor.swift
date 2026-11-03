@@ -66,7 +66,7 @@ struct XYZEditorStyle: Equatable {
     static let readableWidthKey = "xyz.text.readableWidth"
     /// Line numbers beside Source. On unless turned off.
     static let lineNumbersKey = "xyz.editor.lineNumbers"
-    /// Line numbers while reading. Off unless turned on. Editing always shows them.
+    /// Old Reading line-number preference. It is not read. Reading has no gutter.
     static let readingLineNumbersKey = "xyz.editor.readingLineNumbers"
     /// Break long lines to the editor width. On unless turned off.
     static let wordWrapKey = "xyz.editor.wordWrap"
