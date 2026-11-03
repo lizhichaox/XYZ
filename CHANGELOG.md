@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.27
+
+- Opening a file shows its text again. The scroller was painting an opaque layer over the body, in Editing and in Reading for plain text and source. The clip only clips a clear layer, and the text view's layer sits in that clip. A blank file still fails the window check.
+
 ## 0.5.26
 
 - Editing draws the document text in the real window, not only into an offscreen bitmap. TextKit 2 puts the body in fragment subviews. A layer-backed SwiftUI window was compositing the text view's layer without those subviews, so the gutter showed and the page stayed white. `cacheDisplay` still called `draw` and counted that ink.

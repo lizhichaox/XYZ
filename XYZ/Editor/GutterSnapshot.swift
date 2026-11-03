@@ -453,12 +453,14 @@ enum GutterSnapshotCheck {
                     appearance: appearance,
                     appearanceName: appearanceName,
                     fileName: "fixture.md",
-                    requireBody: true
+                    requireBody: true,
+                    checkReading: wraps && appearance == .aqua
                 ) {
                     return failure
                 }
             }
         }
+        if let failure = renderSwitchedFile() { return failure }
         return renderDocumentWindow(
             fixture: "",
             wraps: true,
@@ -475,7 +477,8 @@ enum GutterSnapshotCheck {
         appearance: NSAppearance.Name,
         appearanceName: String,
         fileName: String,
-        requireBody: Bool
+        requireBody: Bool,
+        checkReading: Bool = false
     ) -> String? {
         let label = "\(appearanceName)-\(wraps ? "wrap" : "nowrap")-\(requireBody ? "body" : "blank")"
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("xyz-window-fixture", isDirectory: true)
@@ -510,9 +513,22 @@ enum GutterSnapshotCheck {
             window.appearance = NSAppearance(named: appearance)
             window.title = "XYZ"
             host.appearance = window.appearance
+            window.orderFrontRegardless()
             session.openRelative(fileName)
             if !waitForBuffer(session, containing: fixture, seconds: 4) {
                 return "window \(label): the file binding did not load storage=\((session.buffer?.text as NSString?)?.length ?? -1)"
+            }
+            if checkReading {
+                pump(1.2)
+                window.displayIfNeeded()
+                guard let shot = shownImage(of: window, content: host) else {
+                    return "window \(label): Reading capture is missing evidence=missing"
+                }
+                saveShot(shot, name: "window-\(label)-reading.png")
+                let heard = recognizedText(in: shot)
+                if !Self.showsFixture(heard) {
+                    return "window \(label): Reading did not show the open file evidence=missing words=\(String(heard.prefix(80)))"
+                }
             }
             session.selectViewMode(.source, source: "check")
             pump(0.4)
@@ -541,15 +557,17 @@ enum GutterSnapshotCheck {
                 return "window \(label): the document window has no composited layer evidence=missing"
             }
             let bodyWords = recognizedText(in: image)
-            let words = recognizedText(in: windowImage)
+            let screen = shownImage(of: window, content: host)
+            let words = recognizedText(in: screen ?? windowImage)
+            let chain = layerChain(from: textView)
             let viewNames = textView.subviews.map { NSStringFromClass(type(of: $0)) }.joined(separator: ",")
-            print("GUTTER_WINDOW label=\(label) words=\(String(words.prefix(180))) body=\(String(bodyWords.prefix(120))) storage=\(stored) layer=\(textView.layer == nil ? 0 : 1) views=\(viewNames)")
+            print("GUTTER_WINDOW label=\(label) words=\(String(words.prefix(180))) body=\(String(bodyWords.prefix(120))) storage=\(stored) layer=\(textView.layer == nil ? 0 : 1) screen=\(screen == nil ? 0 : 1) chain=\(chain) views=\(viewNames)")
             fflush(stdout)
             saveShot(image, name: "editing-\(label).png")
             if let paneImage = compositedImage(of: pane) {
                 saveShot(paneImage, name: "pane-\(label).png")
             }
-            saveShot(windowImage, name: "window-\(label).png")
+            saveShot(screen ?? windowImage, name: "window-\(label).png")
             let recognized = Self.showsFixture(words)
             if requireBody {
                 if !recognized {
@@ -584,6 +602,85 @@ enum GutterSnapshotCheck {
 
     private static func pump(_ seconds: TimeInterval) {
         RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(seconds))
+    }
+
+    /// One titled window, two files. The second file's words have to be the ones on screen.
+    private static func renderSwitchedFile() -> String? {
+        let first = "Glyphsample\nSecondline is the next source line\n中文短句\n"
+        let second = "Plainleaf\nOtherfile is the plain note\n"
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("xyz-window-switch", isDirectory: true)
+        let markdown = root.appendingPathComponent("fixture.md")
+        let plain = root.appendingPathComponent("plain.txt")
+        do {
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            try first.write(to: markdown, atomically: true, encoding: .utf8)
+            try second.write(to: plain, atomically: true, encoding: .utf8)
+        } catch {
+            return "window switch: could not write the synthetic files"
+        }
+        defer { try? FileManager.default.removeItem(at: root) }
+        return MainActor.assumeIsolated { () -> String? in
+            let session = WorkspaceSession(rootURL: root, bookmark: nil)
+            let controller = WorkspaceWindowController(session: session)
+            guard let window = controller.window, let host = window.contentView else {
+                return "window switch: the document window was not created"
+            }
+            window.orderFrontRegardless()
+            session.openRelative("fixture.md")
+            if !waitForBuffer(session, containing: first, seconds: 4) {
+                return "window switch: the markdown file did not load"
+            }
+            session.selectViewMode(.source, source: "check")
+            pump(0.5)
+            window.displayIfNeeded()
+            session.openRelative("plain.txt")
+            if !waitForBuffer(session, containing: second, seconds: 4) {
+                return "window switch: the plain file did not load storage=\((session.buffer?.text as NSString?)?.length ?? -1)"
+            }
+            pump(0.5)
+            host.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            guard let image = shownImage(of: window, content: host) else {
+                return "window switch: the document window has no composited layer evidence=missing"
+            }
+            let words = recognizedText(in: image)
+            saveShot(image, name: "window-switch-plain.png")
+            print("GUTTER_WINDOW label=switch words=\(String(words.prefix(160)))")
+            fflush(stdout)
+            let showsSecond = words.range(of: "Plainleaf", options: .caseInsensitive) != nil
+                && words.range(of: "Otherfile", options: .caseInsensitive) != nil
+            if !showsSecond {
+                return "window switch: the plain file was not on screen evidence=missing words=\(String(words.prefix(80)))"
+            }
+            if session.buffer?.text != second {
+                return "window switch: the open buffer is not the plain file"
+            }
+            session.shutdown()
+            return nil
+        }
+    }
+
+    /// The window server's picture of this window, or the composited content layer.
+    private static func shownImage(of window: NSWindow, content: NSView) -> CGImage? {
+        window.displayIfNeeded()
+        let number = CGWindowID(window.windowNumber)
+        if number != 0, let image = CGWindowListCreateImage(.null, .optionIncludingWindow, number, [.boundsIgnoreFraming, .bestResolution]), image.width > 20, image.height > 20 {
+            return image
+        }
+        return compositedImage(of: content)
+    }
+
+    private static func layerChain(from view: NSView) -> String {
+        var names: [String] = []
+        var layer = view.layer
+        var hops = 0
+        while let current = layer, hops < 8 {
+            let name = String(describing: type(of: current))
+            names.append(name)
+            layer = current.superlayer
+            hops += 1
+        }
+        return names.joined(separator: ">")
     }
 
     /// The layer tree a window composites. `cacheDisplay` is intentionally not used.

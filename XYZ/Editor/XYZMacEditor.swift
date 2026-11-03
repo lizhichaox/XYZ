@@ -52,34 +52,34 @@ final class XYZMacTextView: NSTextView {
 
     override func changeColor(_ sender: Any?) {}
 
-    /// TextKit 2 puts glyphs in fragment subviews that have their own layers.
-    /// `canDrawSubviewsIntoLayer` does not draw those subviews into the parent, and it
-    /// also keeps their layers out of the window, so the gutter shows and the page is blank.
-    /// The fragments stay in the layer tree. `draw` also paints them into this view, which
-    /// is the layer the window composites. `cacheDisplay` never needed either one.
+    /// The scroll view's own layer was an opaque page over the text. The gutter is drawn
+    /// into the pane, so the numbers showed and every file's body stayed blank. The clip
+    /// only clips. This view's layer sits in that clip, geometry-flipped like the text.
     func embedBodyInWindowLayer() {
+        clipsToBounds = true
         wantsLayer = true
         canDrawSubviewsIntoLayer = false
         layerContentsRedrawPolicy = .duringViewResize
-        clipsToBounds = false
         if let scroll = enclosingScrollView {
-            scroll.wantsLayer = true
+            scroll.wantsLayer = false
             scroll.canDrawSubviewsIntoLayer = false
-            scroll.contentView.wantsLayer = true
-            scroll.contentView.canDrawSubviewsIntoLayer = false
-            scroll.contentView.drawsBackground = false
-            scroll.contentView.layer?.backgroundColor = nil
+            scroll.drawsBackground = false
+            scroll.backgroundColor = .clear
+            let clip = scroll.contentView
+            clip.wantsLayer = true
+            clip.canDrawSubviewsIntoLayer = false
+            clip.drawsBackground = false
+            clip.backgroundColor = .clear
+            clip.layer?.backgroundColor = nil
+            clip.layer?.isOpaque = false
+            clip.layer?.isGeometryFlipped = clip.isFlipped
         }
+        layer?.isGeometryFlipped = isFlipped
+        editorPane?.wantsLayer = true
+        editorPane?.canDrawSubviewsIntoLayer = false
         guard window != nil else { return }
-        var ancestor: NSView? = superview
-        while let view = ancestor {
-            if view.canDrawSubviewsIntoLayer {
-                view.canDrawSubviewsIntoLayer = false
-            }
-            ancestor = view.superview
-        }
         textLayoutManager?.textViewportLayoutController.layoutViewport()
-        hideFragmentViews()
+        needsDisplay = true
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -1226,7 +1226,8 @@ struct XYZMacEditor: NSViewRepresentable {
 
         let pane = EditorPane()
         let scrollView = pane.scrollView
-        scrollView.drawsBackground = true
+        scrollView.drawsBackground = false
+        scrollView.backgroundColor = .clear
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
@@ -1238,15 +1239,16 @@ struct XYZMacEditor: NSViewRepresentable {
         scrollView.horizontalScrollElasticity = .none
         scrollView.contentView.automaticallyAdjustsContentInsets = false
         scrollView.contentView.contentInsets = NSEdgeInsets()
-        // The clip view must not paint an opaque layer over the text, and it must not
-        // claim the fragment views: that claim drops their layers from the window.
+        // The scroll view must not take an opaque layer. That layer is what the window
+        // shows instead of the text. The clip view only clips a clear layer.
         scrollView.clipsToBounds = true
-        scrollView.wantsLayer = true
+        scrollView.wantsLayer = false
         scrollView.canDrawSubviewsIntoLayer = false
         scrollView.contentView.clipsToBounds = true
         scrollView.contentView.wantsLayer = true
         scrollView.contentView.canDrawSubviewsIntoLayer = false
         scrollView.contentView.drawsBackground = false
+        scrollView.contentView.backgroundColor = .clear
         pane.attach(textView)
         textView.syncLineNumbers(lineNumbers)
         applyChrome(textView: textView, scrollView: scrollView, style: style)
@@ -1311,12 +1313,15 @@ struct XYZMacEditor: NSViewRepresentable {
         scrollView.contentView.automaticallyAdjustsContentInsets = false
         scrollView.contentView.contentInsets = NSEdgeInsets()
         scrollView.clipsToBounds = true
-        scrollView.wantsLayer = true
+        scrollView.wantsLayer = false
         scrollView.canDrawSubviewsIntoLayer = false
+        scrollView.drawsBackground = false
+        scrollView.backgroundColor = .clear
         scrollView.contentView.clipsToBounds = true
         scrollView.contentView.wantsLayer = true
         scrollView.contentView.canDrawSubviewsIntoLayer = false
         scrollView.contentView.drawsBackground = false
+        scrollView.contentView.backgroundColor = .clear
         textView.embedBodyInWindowLayer()
         textView.documentUndoManager = undoManager
         scrollLink.capture = { [weak textView] in
