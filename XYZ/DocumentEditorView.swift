@@ -112,27 +112,52 @@ struct DocumentEditorView: View {
     }
 
     private var editor: some View {
+        #if os(macOS)
+        macEditor
+        #else
+        iosEditor
+        #endif
+    }
+
+    #if os(macOS)
+    private var macEditor: some View {
         XYZEditor(
             text: document.text,
             isEditable: isEditable,
             undoManager: undoManager,
             scrollLink: scrollLink,
-            #if os(macOS)
             find: commands.findModel,
-            #endif
             markup: TextMarkup.allows(fileExtension: fileURL?.pathExtension),
             spellCheck: TextMarkup.isProse(fileExtension: fileURL?.pathExtension),
             syntax: documentFormat.language,
             forcesMonospace: documentFormat.usesCodeFont,
-            onTextChange: { newText in
-                document.storeEditorText(newText)
-                bridge.send(newText)
-                if showsWordCount {
-                    wordCount.update(newText)
-                }
-            }
+            onTextChange: storeEditorText
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+    #else
+    private var iosEditor: some View {
+        XYZEditor(
+            text: document.text,
+            isEditable: isEditable,
+            undoManager: undoManager,
+            scrollLink: scrollLink,
+            markup: TextMarkup.allows(fileExtension: fileURL?.pathExtension),
+            spellCheck: TextMarkup.isProse(fileExtension: fileURL?.pathExtension),
+            syntax: documentFormat.language,
+            forcesMonospace: documentFormat.usesCodeFont,
+            onTextChange: storeEditorText
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+    #endif
+
+    private func storeEditorText(_ newText: String) {
+        document.storeEditorText(newText)
+        bridge.send(newText)
+        if showsWordCount {
+            wordCount.update(newText)
+        }
     }
 
     private var preview: some View {
