@@ -247,8 +247,8 @@ extension XYZSplitView: NSSplitViewDelegate {
     }
 
     func splitView(_ splitView: NSSplitView, constrainSplitPosition proposedPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
-        let lower = splitView.splitView(splitView, constrainMinCoordinate: proposedPosition, ofSubviewAt: dividerIndex)
-        let upper = splitView.splitView(splitView, constrainMaxCoordinate: proposedPosition, ofSubviewAt: dividerIndex)
+        let lower = self.splitView(splitView, constrainMinCoordinate: proposedPosition, ofSubviewAt: dividerIndex)
+        let upper = self.splitView(splitView, constrainMaxCoordinate: proposedPosition, ofSubviewAt: dividerIndex)
         return min(max(proposedPosition, lower), max(lower, upper))
     }
 
