@@ -317,12 +317,7 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
             let files = await Task.detached(priority: .userInitiated) {
                 GlobalFileSearch.match(entries: entries, query: trimmed, showsHidden: showsHidden)
             }.value
-            let content: (hits: [WorkspaceContentHit], more: Int, capped: Bool)
-            if let session {
-                content = await session.searchPanelContents(query: trimmed)
-            } else {
-                content = ([], 0, false)
-            }
+            let content = await session?.searchPanelContents(query: trimmed) ?? (hits: [], more: 0, capped: false)
             guard !Task.isCancelled else { return }
             guard let self, self.generation == token else { return }
             self.fileHits = files.hits
