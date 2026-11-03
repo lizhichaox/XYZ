@@ -83,6 +83,45 @@ public enum TextFind {
         query.pattern.isEmpty || expression(for: query) != nil
     }
 
+    /// One find pass. Safe to run off the main thread. `line` is 1-based.
+    public static func scan(
+        text: String,
+        query: FindQuery,
+        selection: SourceRange,
+        forward: Bool,
+        stay: Bool
+    ) -> (matches: [FindMatch], count: Int, index: Int, invalid: Bool, range: SourceRange?, line: Int) {
+        let invalid = !query.pattern.isEmpty && !isValid(query)
+        let matches = self.matches(in: text, query: query)
+        guard !matches.isEmpty else {
+            return (matches, 0, 0, invalid, nil, 1)
+        }
+        let index: Int
+        if stay, let current = matches.firstIndex(where: {
+            $0.range.location == selection.location && $0.range.length == selection.length
+        }) {
+            index = current
+        } else if let stepped = step(from: selection, matches: matches, forward: forward) {
+            index = stepped
+        } else {
+            index = 0
+        }
+        let range = matches[index].range
+        return (matches, matches.count, index + 1, invalid, range, lineNumber(in: text, utf16: range.location))
+    }
+
+    public static func lineNumber(in text: String, utf16: Int) -> Int {
+        let ns = text as NSString
+        let end = min(max(0, utf16), ns.length)
+        guard end > 0 else { return 1 }
+        let prefix = ns.substring(with: NSRange(location: 0, length: end))
+        var line = 1
+        for scalar in prefix.unicodeScalars where scalar == "\n" {
+            line += 1
+        }
+        return line
+    }
+
     private static func expression(for query: FindQuery) -> NSRegularExpression? {
         var pattern = query.regex ? query.pattern : NSRegularExpression.escapedPattern(for: query.pattern)
         if query.wholeWord {

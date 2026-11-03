@@ -200,12 +200,12 @@ struct DocumentEditorView: View {
 
     #if os(macOS)
     private var macBody: some View {
-        VStack(spacing: 0) {
-            if let model = commands.findModel, model.visible {
-                EditorFindBar(model: model)
+        singleSurface
+            .overlay(alignment: .top) {
+                if let model = commands.findModel {
+                    FindBarHost(model: model)
+                }
             }
-            singleSurface
-        }
     }
 
     private var scrollLink: EditorScrollLink { commands.scrollLink }

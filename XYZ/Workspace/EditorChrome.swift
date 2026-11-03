@@ -30,6 +30,7 @@ final class EditorFindModel: ObservableObject {
     var language: SyntaxLanguage = .plain
     var perform: ((FindBarAction) -> Void)?
     var edit: (((String, SourceRange) -> SourceReplacement?) -> Void)?
+    private var searchTask: Task<Void, Never>?
 
     var query: FindQuery {
         FindQuery(pattern: pattern, matchCase: matchCase, wholeWord: wholeWord, regex: regex)
@@ -39,11 +40,32 @@ final class EditorFindModel: ObservableObject {
         visible = true
         if replace { showsReplace = true }
         perform?(.focus)
-        perform?(.refresh)
+        scheduleRefresh()
+    }
+
+    /// Match counting waits so the bar can appear, and a new keystroke drops the previous pass.
+    func scheduleRefresh() {
+        searchTask?.cancel()
+        searchTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(80))
+            guard !Task.isCancelled else { return }
+            perform?(.refresh)
+        }
     }
 
     func replacementText(for text: String, match: FindMatch) -> String {
         TextFind.replacement(in: text, match: match, query: query, with: replacement)
+    }
+}
+
+/// Subscribes to the find model without rebuilding the editor. The bar overlays the text.
+struct FindBarHost: View {
+    @ObservedObject var model: EditorFindModel
+
+    var body: some View {
+        if model.visible {
+            EditorFindBar(model: model)
+        }
     }
 }
 
@@ -94,10 +116,10 @@ struct EditorFindBar: View {
         .background(Color.editorBackground)
         .overlay(alignment: .bottom) { Rectangle().fill(Color.primary.opacity(0.12)).frame(height: 1) }
         .onAppear { focused = true }
-        .onChange(of: model.pattern) { _, _ in model.perform?(.refresh) }
-        .onChange(of: model.matchCase) { _, _ in model.perform?(.refresh) }
-        .onChange(of: model.wholeWord) { _, _ in model.perform?(.refresh) }
-        .onChange(of: model.regex) { _, _ in model.perform?(.refresh) }
+        .onChange(of: model.pattern) { _, _ in model.scheduleRefresh() }
+        .onChange(of: model.matchCase) { _, _ in model.scheduleRefresh() }
+        .onChange(of: model.wholeWord) { _, _ in model.scheduleRefresh() }
+        .onChange(of: model.regex) { _, _ in model.scheduleRefresh() }
         .onChange(of: model.focusToken) { _, _ in focused = true }
     }
 

@@ -342,9 +342,6 @@ private struct WorkspaceDetail: View {
                     }
                 }
             }
-            if let find, find.visible {
-                EditorFindBar(model: find)
-            }
             if let status = banner {
                 bannerView(status)
             }
@@ -355,6 +352,11 @@ private struct WorkspaceDetail: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .preference(key: EditorStatusKey.self, value: statusSnapshot)
         .background(Color.editorBackground)
+        .overlay(alignment: .top) {
+            if let find {
+                FindBarHost(model: find)
+            }
+        }
         .overlay(alignment: .top) {
             if let picker = session.tabSwitch {
                 TabSwitchPicker(paths: picker.paths, index: picker.index) { index in

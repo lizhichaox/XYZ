@@ -250,11 +250,11 @@ final class XYZMacTextView: NSTextView {
         guard let model = findModel else { return }
         switch action {
         case .refresh:
-            revealMatch(model, forward: true, stayIfAlreadyThere: true)
+            scheduleReveal(model, forward: true, stayIfAlreadyThere: true)
         case .next:
-            revealMatch(model, forward: true, stayIfAlreadyThere: false)
+            revealCached(model, forward: true, stayIfAlreadyThere: false)
         case .previous:
-            revealMatch(model, forward: false, stayIfAlreadyThere: false)
+            revealCached(model, forward: false, stayIfAlreadyThere: false)
         case .replaceOne:
             replaceCurrent(model)
         case .replaceAll:
@@ -265,7 +265,7 @@ final class XYZMacTextView: NSTextView {
             let ns = string as NSString
             model.pattern = ns.substring(with: NSRange(location: selected.location, length: selected.length))
             model.visible = true
-            revealMatch(model, forward: true, stayIfAlreadyThere: true)
+            model.scheduleRefresh()
         case .selectNextOccurrence:
             selectNextOccurrence()
         case .focus:
@@ -273,17 +273,89 @@ final class XYZMacTextView: NSTextView {
         }
     }
 
-    private func revealMatch(_ model: EditorFindModel, forward: Bool, stayIfAlreadyThere: Bool) {
-        let matches = TextFind.matches(in: string, query: model.query)
-        model.count = matches.count
-        model.regexInvalid = !model.pattern.isEmpty && !TextFind.isValid(model.query)
-        guard !matches.isEmpty else {
-            model.index = 0
+    private var findTask: Task<Void, Never>?
+    private var findGeneration = 0
+    private var cachedQuery: FindQuery?
+    private var cachedMatches: [FindMatch] = []
+
+    /// Counts matches off the main thread. A newer keystroke cancels this pass.
+    private func scheduleReveal(_ model: EditorFindModel, forward: Bool, stayIfAlreadyThere: Bool) {
+        findTask?.cancel()
+        let text = string
+        let query = model.query
+        let selection = sourceSelection()
+        findGeneration += 1
+        let token = findGeneration
+        findTask = Task { [weak self] in
+            let scanned = await Task.detached(priority: .userInitiated) {
+                FindScan.make(text: text, query: query, selection: selection, forward: forward, stay: stayIfAlreadyThere)
+            }.value
+            await MainActor.run { [weak self] in
+                guard let self, token == self.findGeneration else { return }
+                self.apply(scanned, model: model, query: query)
+            }
+        }
+    }
+
+    private func revealCached(_ model: EditorFindModel, forward: Bool, stayIfAlreadyThere: Bool) {
+        guard cachedQuery == model.query else {
+            scheduleReveal(model, forward: forward, stayIfAlreadyThere: stayIfAlreadyThere)
             return
         }
-        let selection = sourceSelection()
+        apply(FindScan.pick(text: string, matches: cachedMatches, query: model.query, selection: sourceSelection(), forward: forward, stay: stayIfAlreadyThere), model: model, query: model.query)
+    }
+
+    private func apply(_ scanned: FindScan, model: EditorFindModel, query: FindQuery) {
+        cachedQuery = query
+        cachedMatches = scanned.matches
+        model.count = scanned.count
+        model.regexInvalid = scanned.invalid
+        model.index = scanned.index
+        guard let range = scanned.range else { return }
+        let nsRange = NSRange(location: range.location, length: range.length)
+        setSelectedRange(nsRange)
+        reveal(EditorScrollAnchor(fraction: 0, probe: "", line: scanned.line))
+    }
+
+    private func revealMatch(_ model: EditorFindModel, forward: Bool, stayIfAlreadyThere: Bool) {
+        scheduleReveal(model, forward: forward, stayIfAlreadyThere: stayIfAlreadyThere)
+    }
+
+/// A find pass. The heavy scan runs off the main thread.
+private struct FindScan {
+    var matches: [FindMatch]
+    var count: Int
+    var index: Int
+    var invalid: Bool
+    var range: SourceRange?
+    var line: Int
+
+    static func make(text: String, query: FindQuery, selection: SourceRange, forward: Bool, stay: Bool) -> FindScan {
+        let result = TextFind.scan(text: text, query: query, selection: selection, forward: forward, stay: stay)
+        return FindScan(
+            matches: result.matches,
+            count: result.count,
+            index: result.index,
+            invalid: result.invalid,
+            range: result.range,
+            line: result.line
+        )
+    }
+
+    static func pick(
+        text: String,
+        matches: [FindMatch],
+        query: FindQuery,
+        selection: SourceRange,
+        forward: Bool,
+        stay: Bool
+    ) -> FindScan {
+        let invalid = !query.pattern.isEmpty && !TextFind.isValid(query)
+        guard !matches.isEmpty else {
+            return FindScan(matches: matches, count: 0, index: 0, invalid: invalid, range: nil, line: 1)
+        }
         let index: Int
-        if stayIfAlreadyThere, let current = matches.firstIndex(where: {
+        if stay, let current = matches.firstIndex(where: {
             $0.range.location == selection.location && $0.range.length == selection.length
         }) {
             index = current
@@ -292,13 +364,17 @@ final class XYZMacTextView: NSTextView {
         } else {
             index = 0
         }
-        model.index = index + 1
-        let match = matches[index]
-        let range = NSRange(location: match.range.location, length: match.range.length)
-        setSelectedRange(range)
-        scrollRangeToVisible(range)
-        window?.makeFirstResponder(self)
+        let range = matches[index].range
+        return FindScan(
+            matches: matches,
+            count: matches.count,
+            index: index + 1,
+            invalid: invalid,
+            range: range,
+            line: TextFind.lineNumber(in: text, utf16: range.location)
+        )
     }
+}
 
     private func replaceCurrent(_ model: EditorFindModel) {
         guard isEditable else { return }

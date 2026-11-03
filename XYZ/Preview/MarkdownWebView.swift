@@ -154,7 +154,6 @@ final class ReadingSurface: NSView, NSSearchFieldDelegate {
     private let findHost = NSView()
     private let findField = NSSearchField()
     private var webView: XYZPreviewWebView?
-    private var collapsed: NSLayoutConstraint?
     private var fieldTop: NSLayoutConstraint!
     private var fieldBottom: NSLayoutConstraint!
     private var backwards = false
@@ -171,19 +170,17 @@ final class ReadingSurface: NSView, NSSearchFieldDelegate {
         findField.setContentHuggingPriority(.required, for: .vertical)
         findField.setContentCompressionResistancePriority(.required, for: .vertical)
         findHost.setContentCompressionResistancePriority(.required, for: .vertical)
+        findHost.wantsLayer = true
+        findHost.layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
         findHost.addSubview(findField)
         addSubview(findHost)
-        let collapsed = findHost.heightAnchor.constraint(equalToConstant: 0)
-        self.collapsed = collapsed
         fieldTop = findField.topAnchor.constraint(equalTo: findHost.topAnchor, constant: 8)
         fieldBottom = findField.bottomAnchor.constraint(equalTo: findHost.bottomAnchor, constant: -8)
-        fieldTop.priority = NSLayoutConstraint.Priority(rawValue: 750)
-        fieldBottom.priority = NSLayoutConstraint.Priority(rawValue: 750)
         NSLayoutConstraint.activate([
             findHost.topAnchor.constraint(equalTo: topAnchor),
             findHost.leadingAnchor.constraint(equalTo: leadingAnchor),
             findHost.trailingAnchor.constraint(equalTo: trailingAnchor),
-            collapsed,
+            findHost.heightAnchor.constraint(equalToConstant: 36),
             fieldTop,
             fieldBottom,
             findField.leadingAnchor.constraint(equalTo: findHost.leadingAnchor, constant: 12),
@@ -205,11 +202,12 @@ final class ReadingSurface: NSView, NSSearchFieldDelegate {
         webView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(webView)
         NSLayoutConstraint.activate([
-            webView.topAnchor.constraint(equalTo: findHost.bottomAnchor),
+            webView.topAnchor.constraint(equalTo: topAnchor),
             webView.leadingAnchor.constraint(equalTo: leadingAnchor),
             webView.trailingAnchor.constraint(equalTo: trailingAnchor),
             webView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+        addSubview(findHost)
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -238,7 +236,7 @@ final class ReadingSurface: NSView, NSSearchFieldDelegate {
 
     func controlTextDidChange(_ obj: Notification) {
         backwards = false
-        runFind(fromStart: true)
+        scheduleFind(fromStart: true)
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
@@ -259,7 +257,7 @@ final class ReadingSurface: NSView, NSSearchFieldDelegate {
         window?.makeFirstResponder(findField)
         let length = (findField.stringValue as NSString).length
         findField.currentEditor()?.selectedRange = NSRange(location: 0, length: length)
-        if run { runFind(fromStart: fromStart) }
+        if run { scheduleFind(fromStart: fromStart) }
     }
 
     private func hideFind() {
@@ -267,12 +265,22 @@ final class ReadingSurface: NSView, NSSearchFieldDelegate {
         window?.makeFirstResponder(webView)
     }
 
+    private var findTask: Task<Void, Never>?
+
+    private func scheduleFind(fromStart: Bool) {
+        findTask?.cancel()
+        findTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(80))
+            guard !Task.isCancelled else { return }
+            runFind(fromStart: fromStart)
+        }
+    }
+
     private func setFindVisible(_ visible: Bool) {
         findHost.isHidden = !visible
-        collapsed?.isActive = !visible
-        let priority: NSLayoutConstraint.Priority = visible ? .required : NSLayoutConstraint.Priority(rawValue: 750)
-        fieldTop.priority = priority
-        fieldBottom.priority = priority
+        if visible {
+            addSubview(findHost)
+        }
     }
 
     /// `WKWebView.find(_:configuration:completionHandler:)` is public on macOS 11.
