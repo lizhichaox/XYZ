@@ -269,6 +269,29 @@ final class ReadingSurface: NSView, NSSearchFieldDelegate {
         }
     }
 
+    /// Esc from the window monitor. The web view does not forward the key to this field.
+    func dismissFindFromEscape() -> Bool {
+        guard !findHost.isHidden else { return false }
+        hideFind()
+        return true
+    }
+
+    static func dismissFind(in window: NSWindow?) -> Bool {
+        guard let content = window?.contentView else { return false }
+        return dismissFind(in: content)
+    }
+
+    private static func dismissFind(in view: NSView) -> Bool {
+        if view.isHidden { return false }
+        if let surface = view as? ReadingSurface, surface.dismissFindFromEscape() {
+            return true
+        }
+        for child in view.subviews {
+            if dismissFind(in: child) { return true }
+        }
+        return false
+    }
+
     private var findTask: Task<Void, Never>?
 
     private func scheduleFind(fromStart: Bool) {

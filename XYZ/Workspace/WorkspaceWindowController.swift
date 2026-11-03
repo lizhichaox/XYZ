@@ -318,6 +318,12 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
         persistOpenWindows()
     }
 
+    /// Backup for Esc when the key is not already consumed by the window monitor.
+    override func cancelOperation(_ sender: Any?) {
+        if EscapeKey.dismissTopmost() { return }
+        super.cancelOperation(sender)
+    }
+
     private static func persistOpenWindows() {
         let stored = controllers.compactMap { controller -> PersistedWorkspaceWindow? in
             guard let data = controller.session.bookmark else { return nil }

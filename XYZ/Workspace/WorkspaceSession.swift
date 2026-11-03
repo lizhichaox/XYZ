@@ -1077,7 +1077,7 @@ final class WorkspaceSession: ObservableObject {
         )
         alert.addButton(withTitle: String(localized: "Replace All"))
         alert.addButton(withTitle: String(localized: "Cancel"))
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        guard alert.runModalClosingOnEscape() == .alertFirstButtonReturn else { return }
         var skipped = 0
         for change in changes {
             if !applyFolderChange(change, undoManager: undoManager, restoring: false) {

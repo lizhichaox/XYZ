@@ -11,6 +11,7 @@
 - ⌘K lists more than a handful of matches in one file, and a “more” row when the rest are cut off. The query includes the last character typed.
 - Syntax coloring adds muted colors for strings, numbers, types, and, in config files, section headers and keys.
 - ⌘F shows the find bar immediately. Counting matches waits a moment and runs off the main thread, so a large file does not freeze the window. The bar sits over the text instead of pushing it down. Closing it only hides the bar. Closing a tab updates the tab strip first and swaps the file afterward, without recoloring the whole document.
+- Esc closes the topmost popup even when focus is in the find field, the editor, or the Reading page: the find bar, folder search, the command palette, Go to Line, the tab switcher (Esc cancels it), a status-bar menu, or a confirmation. Focus returns to the editor. An input method that is still composing keeps Esc.
 
 ## 0.5.0
 

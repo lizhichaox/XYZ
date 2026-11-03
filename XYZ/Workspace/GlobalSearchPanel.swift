@@ -32,6 +32,16 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
 
     var isOpen: Bool { panel?.isVisible == true }
 
+    func owns(_ window: NSWindow?) -> Bool {
+        window != nil && (window === panel || window === dim)
+    }
+
+    func closeIfOpen() -> Bool {
+        guard isOpen else { return false }
+        close()
+        return true
+    }
+
     func toggle(session: WorkspaceSession) {
         if isOpen {
             close()

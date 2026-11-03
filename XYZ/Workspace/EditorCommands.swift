@@ -2,6 +2,7 @@
 @preconcurrency import AppKit
 import os
 import SwiftUI
+import WebKit
 import XYZCore
 
 enum ViewModeLog {
@@ -234,6 +235,87 @@ final class EditorCommands: NSObject {
             return true
         }
         return false
+    }
+
+    /// The topmost editor popup: folder search, the palette (including Go to Line), the tab
+    /// switcher, the source find bar, then the Reading find bar. Esc cancels the switcher.
+    func dismissTransient() -> Bool {
+        let key = NSApp.keyWindow
+        if palette.owns(key) {
+            return palette.closeIfOpen()
+        }
+        if globalSearch.owns(key) {
+            return globalSearch.closeIfOpen()
+        }
+        if globalSearch.closeIfOpen() { return true }
+        if palette.closeIfOpen() { return true }
+        if cancelTabSwitchIfShowing() { return true }
+        if let find = target?.findModel, find.visible {
+            find.dismiss()
+            return true
+        }
+        if ReadingSurface.dismissFind(in: hostWindow ?? key) {
+            return true
+        }
+        return false
+    }
+
+    /// Esc while Control is held. Cancels the list and does not open the highlighted file.
+    func cancelTabSwitchIfShowing() -> Bool {
+        guard target?.isSwitchingTabs == true else { return false }
+        target?.cancelTabSwitch()
+        focusEditor()
+        return true
+    }
+
+    /// After a popup closes, the caret belongs in the editor that was underneath it.
+    func focusEditor() {
+        let preferred = hostWindow
+        let reading = target?.editorShowsRenderedReading == true
+        DispatchQueue.main.async { [weak self] in
+            let window = Self.editorWindow(preferred: preferred)
+            guard let window else { return }
+            if !window.isKeyWindow {
+                window.makeKeyAndOrderFront(nil)
+            }
+            self?.assignFirstResponder(in: window, preferWeb: reading && window === preferred)
+        }
+    }
+
+    private static func editorWindow(preferred: NSWindow?) -> NSWindow? {
+        if let preferred, preferred.isVisible, !EscapeKey.isRegistered(preferred) {
+            return preferred
+        }
+        if let main = NSApp.mainWindow, main.isVisible, !EscapeKey.isRegistered(main) {
+            return main
+        }
+        return WorkspaceWindowController.controllers.first { controller in
+            guard let window = controller.window else { return false }
+            return window.isVisible
+        }?.window
+    }
+
+    private func assignFirstResponder(in window: NSWindow, preferWeb: Bool) {
+        if preferWeb, let web = Self.firstVisible(WKWebView.self, in: window.contentView) {
+            window.makeFirstResponder(web)
+            return
+        }
+        if let text = Self.firstVisible(XYZMacTextView.self, in: window.contentView) {
+            window.makeFirstResponder(text)
+            return
+        }
+        if let web = Self.firstVisible(WKWebView.self, in: window.contentView) {
+            window.makeFirstResponder(web)
+        }
+    }
+
+    private static func firstVisible<T: NSView>(_ type: T.Type, in view: NSView?) -> T? {
+        guard let view, !view.isHidden else { return nil }
+        if view.isKind(of: type) { return view as? T }
+        for child in view.subviews {
+            if let found = firstVisible(type, in: child) { return found }
+        }
+        return nil
     }
 
     private var editorIsFirstResponder: Bool {
@@ -523,7 +605,7 @@ final class EditorCommands: NSObject {
         alert.accessoryView = box
         alert.addButton(withTitle: String(localized: "Replace All"))
         alert.addButton(withTitle: String(localized: "Cancel"))
-        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        guard alert.runModalClosingOnEscape() == .alertFirstButtonReturn else { return }
         let pattern = find.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !pattern.isEmpty else {
             NSSound.beep()
@@ -1470,6 +1552,16 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
             return String(format: String(localized: "Line %lld"), Int64(position.line))
         }
         return String(format: String(localized: "Line %lld, Column %lld"), Int64(position.line), Int64(position.column))
+    }
+
+    func owns(_ window: NSWindow?) -> Bool {
+        window != nil && window === panel
+    }
+
+    func closeIfOpen() -> Bool {
+        guard panel?.isVisible == true else { return false }
+        close()
+        return true
     }
 
     private func close() {

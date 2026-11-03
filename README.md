@@ -33,7 +33,7 @@ XYZ → Settings… is one pane:
 - Text also has Show line numbers, on by default: Source numbers each line of the file in the left padding, right-aligned against the text, and a wrapped line keeps its number on its first row. View → Show Line Numbers is the same switch.
 - View: Show word count. A quiet line under the note shows the count and the reading time. Chinese and Japanese count by character, other languages by word. View → Show Word Count is the same switch.
 
-Esc closes Settings, About, alerts (it picks Cancel, or OK when that is the only button), the command palette, and the find bars.
+Esc closes the topmost popup wherever focus is, including the find field and the Reading page: the find bar, folder search, the command palette, Go to Line, the ⌃Tab switcher (Esc cancels it), a status-bar menu, Settings, About, or a confirmation (Cancel, or OK when that is the only button). Focus then returns to the editor. An input method that is still composing keeps Esc.
 
 The interface is in English and Simplified Chinese, from `XYZ/Resources/Localizable.xcstrings`. Menu code finds the system menus by their actions rather than their titles, so it works in either language.
 
