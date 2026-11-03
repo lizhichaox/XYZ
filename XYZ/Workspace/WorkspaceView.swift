@@ -514,18 +514,20 @@ enum SidebarContentMeasure {
     private static let headerTracking: CGFloat = 0.6
 
     static func explorer(_ session: WorkspaceSession) -> CGFloat {
-        var widest = header(session.displayName)
-        guard session.rootExpanded else { return widest }
-        func walk(_ parent: String, depth: Int) {
-            for node in session.visibleChildren(of: parent) {
-                widest = max(widest, explorerRow(node.name, depth: depth))
-                if node.isDirectory, session.isExpanded(node.relativePath) {
-                    walk(node.relativePath, depth: depth + 1)
+        MainActor.assumeIsolated {
+            var widest = header(session.displayName)
+            guard session.rootExpanded else { return widest }
+            func walk(_ parent: String, depth: Int) {
+                for node in session.visibleChildren(of: parent) {
+                    widest = max(widest, explorerRow(node.name, depth: depth))
+                    if node.isDirectory, session.isExpanded(node.relativePath) {
+                        walk(node.relativePath, depth: depth + 1)
+                    }
                 }
             }
+            walk("", depth: 0)
+            return widest
         }
-        walk("", 0)
-        return widest
     }
 
     static func outline(_ entries: [OutlineEntry]) -> CGFloat {
