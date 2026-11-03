@@ -219,32 +219,35 @@ public enum TextBytes {
         var mixed: Bool
     }
 
+    /// Walks scalars, not `Character`s. On Apple platforms `"\r\n"` is one grapheme, so a
+    /// character scan never sees the carriage return and would save a CRLF file as LF.
     private static func splitEndings(_ text: String) -> EndingSplit {
         var lf = 0
         var crlf = 0
         var cr = 0
         var result = ""
-        result.reserveCapacity(text.count)
-        var index = text.startIndex
-        while index < text.endIndex {
-            let character = text[index]
-            if character == "\r" {
-                let next = text.index(after: index)
-                if next < text.endIndex, text[next] == "\n" {
+        result.reserveCapacity(text.utf8.count)
+        let scalars = text.unicodeScalars
+        var index = scalars.startIndex
+        while index < scalars.endIndex {
+            let scalar = scalars[index]
+            if scalar == "\r" {
+                let next = scalars.index(after: index)
+                if next < scalars.endIndex, scalars[next] == "\n" {
                     crlf += 1
                     result.append("\n")
-                    index = text.index(after: next)
+                    index = scalars.index(after: next)
                     continue
                 }
                 cr += 1
                 result.append("\n")
-            } else if character == "\n" {
+            } else if scalar == "\n" {
                 lf += 1
                 result.append("\n")
             } else {
-                result.append(character)
+                result.unicodeScalars.append(scalar)
             }
-            index = text.index(after: index)
+            index = scalars.index(after: index)
         }
         let kinds = [lf > 0, crlf > 0, cr > 0].filter { $0 }.count
         let ending: LineEnding
@@ -262,12 +265,12 @@ public enum TextBytes {
         guard ending != .lf else { return text }
         let unit = ending.characters
         var result = ""
-        result.reserveCapacity(text.count + text.count / 8)
-        for character in text {
-            if character == "\n" {
+        result.reserveCapacity(text.utf8.count + text.utf8.count / 8)
+        for scalar in text.unicodeScalars {
+            if scalar == "\n" {
                 result.append(unit)
-            } else if character != "\r" {
-                result.append(character)
+            } else if scalar != "\r" {
+                result.unicodeScalars.append(scalar)
             }
         }
         return result

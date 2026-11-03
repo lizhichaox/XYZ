@@ -28,6 +28,15 @@ final class TextBytesTests: XCTestCase {
         XCTAssertEqual(TextBytes.encode(decoded.text, encoding: .utf8, lineEnding: .crlf), original)
     }
 
+    func testCRIsNormalizedAndWrittenBack() throws {
+        let original = Data("a\rb\r".utf8)
+        let decoded = try XCTUnwrap(TextBytes.decode(original))
+        XCTAssertEqual(decoded.text, "a\nb\n")
+        XCTAssertEqual(decoded.lineEnding, .cr)
+        XCTAssertFalse(decoded.mixedLineEndings)
+        XCTAssertEqual(TextBytes.encode(decoded.text, encoding: .utf8, lineEnding: .cr), original)
+    }
+
     func testMixedEndingsKeepTheMostCommon() throws {
         let decoded = try XCTUnwrap(TextBytes.decode(Data("a\nb\r\nc\n".utf8)))
         XCTAssertEqual(decoded.text, "a\nb\nc\n")
@@ -199,6 +208,7 @@ final class FileFormatTests: XCTestCase {
         XCTAssertFalse(grid.truncated)
         let tabs = CSVText.parse("a\tb\n1\t2\n")
         XCTAssertEqual(tabs.rows, [["a", "b"], ["1", "2"]])
+        XCTAssertEqual(CSVText.parse("a,b\r\n1,2\r\n").rows, [["a", "b"], ["1", "2"]])
     }
 
     func testSyntaxColorsASwiftLine() {

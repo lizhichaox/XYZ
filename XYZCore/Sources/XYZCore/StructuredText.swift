@@ -45,9 +45,10 @@ public enum CSVText {
         var field = ""
         var inQuotes = false
         var total = 0
-        let characters = Array(text)
-        var index = 0
+        let scalars = text.unicodeScalars
+        var index = scalars.startIndex
         let cap = max(0, rowLimit)
+        let delimiterScalar = delimiter.unicodeScalars.first ?? ","
         func finishField() {
             row.append(field)
             field = ""
@@ -62,33 +63,36 @@ public enum CSVText {
                 rows.append(finished)
             }
         }
-        while index < characters.count {
-            let character = characters[index]
+        while index < scalars.endIndex {
+            let scalar = scalars[index]
             if inQuotes {
-                if character == "\"" {
-                    let next = index + 1
-                    if next < characters.count, characters[next] == "\"" {
+                if scalar == "\"" {
+                    let next = scalars.index(after: index)
+                    if next < scalars.endIndex, scalars[next] == "\"" {
                         field.append("\"")
                         index = next
                     } else {
                         inQuotes = false
                     }
                 } else {
-                    field.append(character)
+                    field.unicodeScalars.append(scalar)
                 }
-            } else if character == "\"" && field.isEmpty {
+            } else if scalar == "\"", field.isEmpty {
                 inQuotes = true
-            } else if character == delimiter {
+            } else if scalar == delimiterScalar {
                 finishField()
-            } else if character == "\n" || character == "\r" {
-                if character == "\r", index + 1 < characters.count, characters[index + 1] == "\n" {
-                    index += 1
+            } else if scalar == "\n" || scalar == "\r" {
+                if scalar == "\r" {
+                    let next = scalars.index(after: index)
+                    if next < scalars.endIndex, scalars[next] == "\n" {
+                        index = next
+                    }
                 }
                 finishRow()
             } else {
-                field.append(character)
+                field.unicodeScalars.append(scalar)
             }
-            index += 1
+            index = scalars.index(after: index)
         }
         if inQuotes || !field.isEmpty || !row.isEmpty {
             finishRow()
