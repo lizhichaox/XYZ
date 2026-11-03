@@ -662,7 +662,7 @@ struct WorkspaceSidebar: NSViewRepresentable {
 
         private func syncSelection(_ session: WorkspaceSession) {
             guard let outline, renamingPath == nil else { return }
-            let path = session.selectedPath
+            let path = session.buffer?.relativePath ?? session.selectedPath
             let current: String?
             if outline.selectedRow >= 0, let node = outline.item(atRow: outline.selectedRow) as? SidebarNode {
                 current = node.relativePath
@@ -672,11 +672,25 @@ struct WorkspaceSidebar: NSViewRepresentable {
             guard current != path else { return }
             suppressSelection = true
             defer { suppressSelection = false }
-            guard let path, let item = nodeByPath[path] else { return }
+            let filePath = path
+            guard let filePath else {
+                outline.deselectAll(nil)
+                outline.enumerateAvailableRowViews { rowView, _ in rowView.needsDisplay = true }
+                return
+            }
+            var parent = WorkspacePaths.parent(of: filePath)
+            while !parent.isEmpty {
+                if let item = nodeByPath[parent] {
+                    outline.expandItem(item, expandChildren: false)
+                }
+                parent = WorkspacePaths.parent(of: parent)
+            }
+            guard let item = nodeByPath[filePath] else { return }
             let row = outline.row(forItem: item)
             guard row >= 0 else { return }
             outline.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
             outline.scrollRowToVisible(row)
+            outline.enumerateAvailableRowViews { rowView, _ in rowView.needsDisplay = true }
         }
 
         private func refreshRow(_ node: SidebarNode) {
@@ -745,6 +759,8 @@ fileprivate final class SidebarColumnView: NSView {
         search.placeholderString = String(localized: "Filter")
         search.sendsSearchStringImmediately = true
         search.controlSize = .small
+        search.cell = PaddedSearchFieldCell(textCell: "")
+        search.placeholderString = String(localized: "Filter")
         search.focusRingType = .none
         search.setAccessibilityLabel(String(localized: "Filter files"))
         search.setContentHuggingPriority(.required, for: .vertical)
@@ -841,6 +857,17 @@ fileprivate final class SidebarColumnView: NSView {
         collapsedReplace = collapsed
         expandedReplace = expanded
         setReplaceVisible(false)
+    }
+
+    override func layout() {
+        super.layout()
+        let width = scroll.contentSize.width
+        guard width > 1, let column = outline.tableColumns.first else { return }
+        if abs(column.width - width) > 0.5 {
+            column.minWidth = width
+            column.maxWidth = width
+            column.width = width
+        }
     }
 
     /// Replace, include, and exclude stay out of the way until the filter has a query.
@@ -953,6 +980,16 @@ fileprivate final class SidebarRootHeader: NSView {
 
     override func rightMouseDown(with event: NSEvent) {
         onMenu?(event)
+    }
+}
+
+/// A little space between the magnifier and the placeholder.
+fileprivate final class PaddedSearchFieldCell: NSSearchFieldCell {
+    override func searchTextRect(forBounds rect: NSRect) -> NSRect {
+        var text = super.searchTextRect(forBounds: rect)
+        text.origin.x += 6
+        text.size.width = max(0, text.width - 6)
+        return text
     }
 }
 

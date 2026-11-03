@@ -5,6 +5,8 @@ public enum SyntaxTokenKind: Equatable, Sendable {
     case string
     case comment
     case number
+    case type
+    case key
 }
 
 /// One colored range, in UTF-16 offsets, matching `NSTextStorage`.
@@ -47,6 +49,8 @@ public enum SyntaxColoring {
         var keywords: Set<String>
         var markupTags: Bool
         var caseInsensitive: Bool = false
+        var properties: Bool = false
+        var types: Bool = false
     }
 
     private static func rules(for language: SyntaxLanguage) -> Rules? {
@@ -64,7 +68,8 @@ public enum SyntaxColoring {
                 quotes: ["\"", "'"],
                 tripleQuote: language == .python,
                 keywords: keywords(language),
-                markupTags: false
+                markupTags: false,
+                properties: language == .ini
             )
         case .html, .xml:
             return Rules(lineComments: [], blockComment: ("<!--", "-->"), quotes: ["\"", "'"], tripleQuote: false, keywords: [], markupTags: true)
@@ -79,7 +84,8 @@ public enum SyntaxColoring {
                 quotes: language == .go || language == .rust ? ["\"", "`"] : ["\"", "'"],
                 tripleQuote: language == .swift || language == .kotlin,
                 keywords: keywords(language),
-                markupTags: false
+                markupTags: false,
+                types: true
             )
         }
     }
@@ -105,6 +111,9 @@ public enum SyntaxColoring {
                 index = end
                 continue
             }
+            if rules.properties, atLineStart(ns, index), matchProperty(ns, at: &index, limit: limit, spans: &spans, emitFrom: emitFrom) {
+                continue
+            }
             if isIdentifierStart(character) {
                 let end = consumeIdentifier(ns, from: index, limit: limit)
                 let word = ns.substring(with: NSRange(location: index, length: end - index))
@@ -112,6 +121,8 @@ public enum SyntaxColoring {
                     || (rules.caseInsensitive && rules.keywords.contains(word.lowercased()))
                 if isKeyword {
                     emit(&spans, location: index, end: end, kind: .keyword, emitFrom: emitFrom)
+                } else if rules.types, isTypeName(word) {
+                    emit(&spans, location: index, end: end, kind: .type, emitFrom: emitFrom)
                 }
                 index = end
                 continue
@@ -236,6 +247,54 @@ public enum SyntaxColoring {
         guard end > location, end > emitFrom else { return }
         let start = max(location, emitFrom)
         spans.append(SyntaxSpan(location: start, length: end - start, kind: kind))
+    }
+
+    /// `[section]` or `key = value` on one line. The value is left for the string and number scanners.
+    private static func matchProperty(
+        _ ns: NSString,
+        at index: inout Int,
+        limit: Int,
+        spans: inout [SyntaxSpan],
+        emitFrom: Int
+    ) -> Bool {
+        let character = ns.character(at: index)
+        if character == 0x5B { // [
+            var end = index + 1
+            while end < limit {
+                let next = ns.character(at: end)
+                end += 1
+                if next == 0x5D || next == 0x0A || next == 0x0D { break }
+            }
+            emit(&spans, location: index, end: end, kind: .type, emitFrom: emitFrom)
+            index = end
+            return true
+        }
+        var cursor = index
+        var equals = -1
+        while cursor < limit {
+            let next = ns.character(at: cursor)
+            if next == 0x0A || next == 0x0D { break }
+            if next == 0x3D, equals < 0 { // =
+                equals = cursor
+                break
+            }
+            cursor += 1
+        }
+        guard equals > index else { return false }
+        emit(&spans, location: index, end: equals, kind: .key, emitFrom: emitFrom)
+        index = equals + 1
+        return true
+    }
+
+    private static func atLineStart(_ ns: NSString, _ index: Int) -> Bool {
+        if index == 0 { return true }
+        let previous = ns.character(at: index - 1)
+        return previous == 0x0A || previous == 0x0D
+    }
+
+    private static func isTypeName(_ word: String) -> Bool {
+        guard let first = word.unicodeScalars.first else { return false }
+        return CharacterSet.uppercaseLetters.contains(first)
     }
 
     private static func isNumberStart(_ ns: NSString, at index: Int) -> Bool {

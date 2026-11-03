@@ -11,13 +11,17 @@ enum FolderOpening {
     private static var didInstallEarly = false
     private static var didHookOpenDocument = false
     private static var didHookOpenPanel = false
-    /// Set after folder windows are restored, so DocumentGroup's launch Open panel does not also appear.
-    private static var suppressDocumentOpenPanel = false
+    /// True through launch, so DocumentGroup does not present an Open panel on its own.
+    private static var suppressDocumentOpenPanel = true
 
     static var openDocumentHooked: Bool { didHookOpenDocument }
     static var openPanelHooked: Bool { didHookOpenPanel }
 
     /// One automatic document Open panel is cancelled. File → Open Folder is left alone.
+    static func allowDocumentOpenPanels() {
+        suppressDocumentOpenPanel = false
+    }
+
     static func suppressNextAutomaticDocumentOpenPanel() {
         suppressDocumentOpenPanel = true
         for window in NSApp.windows {

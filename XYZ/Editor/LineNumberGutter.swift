@@ -76,6 +76,10 @@ final class LineNumberGutter: NSView {
             } else {
                 baseline = origin.y + frame.minY + font.ascender
             }
+            if line == caretLine {
+                NSColor.labelColor.withAlphaComponent(0.045).setFill()
+                NSRect(x: 0, y: origin.y + frame.minY, width: bounds.width, height: frame.height).fill()
+            }
             let label = String(line) as NSString
             let attributes = line == caretLine ? current : plain
             let width = label.size(withAttributes: attributes).width

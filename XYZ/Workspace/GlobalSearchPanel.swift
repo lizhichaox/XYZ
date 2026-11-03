@@ -313,11 +313,16 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
         let showsHidden = session.showsHiddenFiles
         task = Task { [weak self, weak session] in
             try? await Task.sleep(for: .milliseconds(100))
-            guard !Task.isCancelled else { return }
+            guard !Task.isCancelled, let self else { return }
+            let latest = self.currentQuery().trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !latest.isEmpty else {
+                self.showRecents()
+                return
+            }
             let files = await Task.detached(priority: .userInitiated) {
-                GlobalFileSearch.match(entries: entries, query: trimmed, showsHidden: showsHidden)
+                GlobalFileSearch.match(entries: entries, query: latest, showsHidden: showsHidden)
             }.value
-            let content = await session?.searchPanelContents(query: trimmed) ?? (hits: [], more: 0, capped: false)
+            let content = await session?.searchPanelContents(query: latest) ?? (hits: [], more: 0, capped: false)
             guard !Task.isCancelled else { return }
             guard let self, self.generation == token else { return }
             self.fileHits = files.hits
@@ -327,6 +332,13 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
             self.contentCapped = content.capped
             self.rebuild()
         }
+    }
+
+    private func currentQuery() -> String {
+        if let editor = search?.currentEditor() as? NSTextView {
+            return editor.string
+        }
+        return search?.stringValue ?? ""
     }
 
     private func showRecents() {

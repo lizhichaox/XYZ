@@ -26,7 +26,6 @@ struct WorkspaceView: View {
     @StateObject private var commands = WorkspaceCommandBridge()
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var titlebarInset: CGFloat = 0
-    @State private var status = EditorStatusSnapshot.empty
     @StateObject private var outline = OutlineModel()
     @AppStorage(HiddenFilesSetting.key) private var storedHiddenFiles = true
 
@@ -51,23 +50,23 @@ struct WorkspaceView: View {
                     .layoutPriority(1)
                     .background(Color.editorBackground)
             }
-            if status.visible {
+            if session.buffer != nil {
                 EditorStatusBar(
-                    caret: status.caret,
-                    encodingValue: status.encoding,
-                    lineEndingValue: status.lineEnding,
-                    mixedEndings: status.mixedEndings,
-                    typeName: status.typeName,
-                    words: status.words,
-                    showsReadingTime: status.showsReadingTime,
-                    detail: status.detail,
-                    onEncoding: encodingHandler,
-                    onLineEnding: endingHandler
+                    caret: showsStatusText ? session.caret : nil,
+                    encodingValue: showsStatusText ? session.buffer?.encoding : nil,
+                    lineEndingValue: showsStatusText ? session.buffer?.lineEnding : nil,
+                    mixedEndings: session.buffer?.mixedLineEndings == true,
+                    typeName: statusMode,
+                    words: nil,
+                    showsReadingTime: false,
+                    detail: nil,
+                    onEncoding: encodingChange,
+                    onLineEnding: endingChange
                 )
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding(.top, titlebarInset)
-        .onPreferenceChange(EditorStatusKey.self) { status = $0 }
         .frame(minWidth: 880, minHeight: 520)
         .background(Color.editorBackground)
         .background(WorkspaceWindowChrome(
@@ -96,14 +95,34 @@ struct WorkspaceView: View {
         )
     }
 
-    private var encodingHandler: ((TextEncoding) -> Void)? {
-        guard status.canEditEncoding else { return nil }
+    private var encodingChange: ((TextEncoding) -> Void)? {
+        guard statusEditing else { return nil }
         return { session.chooseEncoding($0) }
     }
 
-    private var endingHandler: ((LineEnding) -> Void)? {
-        guard status.canEditEnding else { return nil }
+    private var endingChange: ((LineEnding) -> Void)? {
+        guard statusEditing else { return nil }
         return { session.chooseLineEnding($0) }
+    }
+
+    private var showsStatusText: Bool {
+        guard let kind = session.buffer?.kind else { return false }
+        return kind == .markdown || kind == .plainText || kind == .readOnly
+    }
+
+    private var statusEditing: Bool {
+        guard let buffer = session.buffer else { return false }
+        return EditorModeChoice.isEditing(session.viewMode, access: WorkspaceSession.access(of: buffer))
+    }
+
+    private var statusMode: String {
+        guard let buffer = session.buffer else { return "" }
+        let format = FileFormats.format(for: buffer.relativePath)
+        let access = WorkspaceSession.access(of: buffer)
+        if access == .locked {
+            return buffer.kind == .readOnly ? "Read-only" : format.label
+        }
+        return statusEditing ? "Editing" : "Read-only"
     }
 
     private var titleText: String {
@@ -254,10 +273,14 @@ final class TitlebarTitleInstaller {
             top = content.bounds.height - frame.maxY
             bottom = content.bounds.height - frame.minY
         }
-        if top > 40 { return 0 }
+        let barHeight = close.superview?.bounds.height ?? 0
+        if barHeight >= 20, barHeight <= 44 {
+            return barHeight
+        }
+        if top > 40 { return 28 }
         let inset = bottom + 8
-        if inset <= 0 { return 0 }
-        return min(inset, 52)
+        if inset <= 0 { return 28 }
+        return min(max(inset, 20), 40)
     }
 
     private var constraints: [NSLayoutConstraint] = []
@@ -311,10 +334,12 @@ private struct WorkspaceDetail: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            EditorTabBar(session: session)
-            if let path = activePath {
-                EditorBreadcrumb(rootName: session.displayName, relativePath: path) { crumb in
-                    session.revealCrumb(crumb)
+            if !session.tabStrip.tabs.isEmpty {
+                EditorTabBar(session: session)
+                if let path = activePath {
+                    EditorBreadcrumb(rootName: session.displayName, relativePath: path) { crumb in
+                        session.revealCrumb(crumb)
+                    }
                 }
             }
             if let find, find.visible {
@@ -324,6 +349,8 @@ private struct WorkspaceDetail: View {
                 bannerView(status)
             }
             fileBody
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .preference(key: EditorStatusKey.self, value: statusSnapshot)
@@ -344,6 +371,7 @@ private struct WorkspaceDetail: View {
         .onChange(of: session.buffer?.editorToken) { _, _ in
             session.previewBridge.send(session.buffer?.text ?? "")
             caret = EditorCaret()
+            session.caret = EditorCaret()
             surfaceDetail = nil
             countWords(immediate: true)
             refreshOutline(immediate: true)
@@ -542,7 +570,10 @@ private struct WorkspaceDetail: View {
             spellCheck: format.isProse,
             syntax: format.language,
             forcesMonospace: format.usesCodeFont,
-            onSelection: { caret = $0 },
+            onSelection: {
+                caret = $0
+                session.caret = $0
+            },
             onTextChange: { newText in
                 session.buffer?.userEdited(newText)
                 session.previewBridge.send(newText)

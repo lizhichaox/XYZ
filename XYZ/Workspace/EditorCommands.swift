@@ -485,6 +485,14 @@ final class EditorCommands: NSObject {
         target?.editorSelect(.reading, source: invocationSource())
     }
 
+    @objc func useSelectionForFind(_ sender: Any?) {
+        guard let textView = NSApp.keyWindow?.firstResponder as? XYZMacTextView else {
+            NSSound.beep()
+            return
+        }
+        textView.runFind(.useSelection)
+    }
+
     @objc func focusFilter(_ sender: Any?) {
         guard target?.supportsWorkspaceFiles == true else {
             NSSound.beep()

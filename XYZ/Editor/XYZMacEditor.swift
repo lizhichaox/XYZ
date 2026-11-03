@@ -39,6 +39,8 @@ final class XYZMacTextView: NSTextView {
         view.textView = self
         view.isHidden = true
         view.autoresizingMask = [.height]
+        view.wantsLayer = true
+        view.layer?.zPosition = 5
         return view
     }()
     /// Restored once, after the view is in a window and the inset matches the pane.
@@ -397,16 +399,24 @@ final class XYZMacTextView: NSTextView {
         return NSSize(width: side, height: style.verticalInset)
     }
 
-    /// The gutter covers the left padding, above TextKit's own fragment views.
+    /// The gutter covers the left padding. TextKit 2 adds fragment views after layout, so the gutter is put back on top.
     private func placeGutter() {
-        let frame = NSRect(x: 0, y: 0, width: textContainerInset.width, height: bounds.height)
+        let width = max(textContainerInset.width, 28)
+        let frame = NSRect(x: 0, y: 0, width: width, height: bounds.height)
         if gutter.frame != frame {
             gutter.frame = frame
             gutter.needsDisplay = true
         }
-        if subviews.last !== gutter {
+        if gutter.superview !== self || subviews.last !== gutter {
+            gutter.removeFromSuperview()
             addSubview(gutter, positioned: .above, relativeTo: nil)
         }
+    }
+
+    override func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        guard showsLineNumbers, subview !== gutter, gutter.superview === self, subviews.last !== gutter else { return }
+        addSubview(gutter, positioned: .above, relativeTo: nil)
     }
 
     /// The text changed: renumber, and widen the padding when the count gains a digit.
@@ -434,11 +444,14 @@ final class XYZMacTextView: NSTextView {
         let clamped = min(max(0, selectedRange().location), length)
         guard let start = content.location(document.location, offsetBy: clamped),
               let fragment = manager.textLayoutFragment(for: start) else { return }
-        var line = fragment.layoutFragmentFrame
-        line.origin.x = 0
-        line.origin.y += textContainerOrigin.y
-        line.size.width = bounds.width
-        let paint = line.intersection(rect)
+        let lineTop = textContainerOrigin.y + fragment.layoutFragmentFrame.minY
+        let full = NSRect(
+            x: -textContainerOrigin.x,
+            y: lineTop,
+            width: bounds.width + textContainerOrigin.x,
+            height: fragment.layoutFragmentFrame.height
+        )
+        let paint = full.intersection(rect.insetBy(dx: -textContainerOrigin.x, dy: 0))
         guard !paint.isNull, paint.width > 0, paint.height > 0 else { return }
         NSColor.labelColor.withAlphaComponent(0.045).setFill()
         paint.fill()
@@ -1070,6 +1083,35 @@ enum EditorTypography {
         manager.textViewportLayoutController.layoutViewport()
     }
 
+    /// Muted colors in the spirit of VS Code Dark Modern and Light Modern.
+    private static func syntaxColor(_ kind: SyntaxTokenKind) -> NSColor {
+        let dark = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        switch kind {
+        case .comment:
+            return .tertiaryLabelColor
+        case .string:
+            return dark
+                ? NSColor(srgbRed: 0.81, green: 0.57, blue: 0.47, alpha: 1)
+                : NSColor(srgbRed: 0.64, green: 0.08, blue: 0.08, alpha: 1)
+        case .number:
+            return dark
+                ? NSColor(srgbRed: 0.71, green: 0.81, blue: 0.66, alpha: 1)
+                : NSColor(srgbRed: 0.04, green: 0.53, blue: 0.35, alpha: 1)
+        case .keyword:
+            return dark
+                ? NSColor(srgbRed: 0.34, green: 0.61, blue: 0.84, alpha: 1)
+                : NSColor(srgbRed: 0.08, green: 0.16, blue: 0.65, alpha: 1)
+        case .type:
+            return dark
+                ? NSColor(srgbRed: 0.31, green: 0.79, blue: 0.69, alpha: 1)
+                : NSColor(srgbRed: 0.15, green: 0.50, blue: 0.60, alpha: 1)
+        case .key:
+            return dark
+                ? NSColor(srgbRed: 0.61, green: 0.86, blue: 1.0, alpha: 1)
+                : NSColor(srgbRed: 0.02, green: 0.32, blue: 0.65, alpha: 1)
+        }
+    }
+
     private static func lineSpan(_ ns: NSString, around edited: NSRange?) -> NSRange {
         let full = NSRange(location: 0, length: ns.length)
         guard let edited, ns.length > 0 else { return full }
@@ -1090,20 +1132,14 @@ enum EditorTypography {
         guard span.length > 0, NSMaxRange(span) <= ns.length else { return }
         let range = span.location..<(span.location + span.length)
         let spans = SyntaxColoring.spans(in: storage.string, language: language, within: range)
-        let comment = NSColor.tertiaryLabelColor
-        let literal = NSColor.secondaryLabelColor
         let keyword = style.monospaced
             ? NSFont.monospacedSystemFont(ofSize: style.fontSize, weight: .semibold)
             : proportional(size: style.fontSize, weight: .semibold)
         for item in spans {
             let colored = NSRange(location: item.location, length: item.length)
             guard colored.location >= 0, NSMaxRange(colored) <= ns.length, colored.length > 0 else { continue }
-            switch item.kind {
-            case .comment:
-                storage.addAttribute(.foregroundColor, value: comment, range: colored)
-            case .string, .number:
-                storage.addAttribute(.foregroundColor, value: literal, range: colored)
-            case .keyword:
+            storage.addAttribute(.foregroundColor, value: syntaxColor(item.kind), range: colored)
+            if item.kind == .keyword {
                 storage.addAttribute(.font, value: keyword, range: colored)
             }
         }

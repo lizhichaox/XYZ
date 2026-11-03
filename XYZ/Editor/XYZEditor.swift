@@ -245,7 +245,13 @@ extension Color {
     /// Sidebar and status bar. A step off the editor's text background, in both appearances.
     static var sidebarBackground: Color {
         #if os(macOS)
-        Color(nsColor: .windowBackgroundColor)
+        Color(nsColor: NSColor(name: "xyz.sidebar") { appearance in
+            let dark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            if dark {
+                return NSColor(srgbRed: 0.09, green: 0.09, blue: 0.09, alpha: 1)
+            }
+            return NSColor(srgbRed: 0.945, green: 0.945, blue: 0.945, alpha: 1)
+        })
         #else
         Color(uiColor: .secondarySystemBackground)
         #endif

@@ -111,6 +111,10 @@ private struct MacFindCommands: Commands {
                 EditorCommands.shared.showReplace(nil)
             }
             .keyboardShortcut("f", modifiers: [.command, .option])
+            Button("Use Selection for Find") {
+                EditorCommands.shared.useSelectionForFind(nil)
+            }
+            .keyboardShortcut("e", modifiers: .command)
             Button("Find in Files") {
                 EditorCommands.shared.focusFilter(nil)
             }

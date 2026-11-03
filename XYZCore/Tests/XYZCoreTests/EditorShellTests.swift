@@ -354,6 +354,14 @@ final class FileFormatTests: XCTestCase {
         XCTAssertTrue(SyntaxColoring.spans(in: "let", language: .markdown).isEmpty)
     }
 
+    func testINIColorsSectionKeysAndValues() {
+        let spans = SyntaxColoring.spans(in: "[Proxy]\nname = \"surge\"\nport = 6152\n", language: .ini)
+        XCTAssertTrue(spans.contains { $0.kind == .type })
+        XCTAssertTrue(spans.contains { $0.kind == .key })
+        XCTAssertTrue(spans.contains { $0.kind == .string })
+        XCTAssertTrue(spans.contains { $0.kind == .number })
+    }
+
     func testJSONSyntaxSkipsAStringThatLooksLikeAKeyword() {
         let spans = SyntaxColoring.spans(in: "{\"true\": false}\n", language: .json)
         let keywords = spans.filter { $0.kind == .keyword }

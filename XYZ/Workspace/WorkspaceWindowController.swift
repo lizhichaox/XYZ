@@ -265,6 +265,33 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
         return true
     }
 
+    /// The last saved folder, when launch has nothing to restore.
+    static func reopenLastFolder() {
+        if let saved = WorkspaceLibrary.shared.windows.first {
+            _ = open(
+                bookmark: saved.bookmark,
+                tabs: WorkspaceWindowState(tabs: saved.tabs, activePath: saved.activePath)
+            )
+            return
+        }
+        if let recent = WorkspaceLibrary.shared.recents.first {
+            _ = open(bookmark: recent)
+        }
+    }
+
+    /// DocumentGroup can leave an untitled window and a hidden filled window beside the folder windows.
+    static func closeStrayWindows() {
+        for document in NSDocumentController.shared.documents where document.fileURL == nil {
+            document.close()
+        }
+        for window in NSApp.windows {
+            if window is NSPanel { continue }
+            if controller(for: window) != nil { continue }
+            if window.isVisible { continue }
+            window.close()
+        }
+    }
+
     /// The number of folder windows that actually opened.
     @discardableResult
     static func restore() -> Int {
@@ -368,8 +395,16 @@ final class XYZAppDelegate: NSObject, NSApplicationDelegate {
         let restored = MainActor.assumeIsolated {
             WorkspaceWindowController.restore()
         }
-        if restored > 0 {
-            FolderOpening.suppressNextAutomaticDocumentOpenPanel()
+        if restored == 0 {
+            MainActor.assumeIsolated {
+                WorkspaceWindowController.reopenLastFolder()
+            }
+        }
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                WorkspaceWindowController.closeStrayWindows()
+                FolderOpening.allowDocumentOpenPanels()
+            }
         }
         FileMenuCheck.finishIfRequested()
         #if DEBUG
@@ -404,6 +439,10 @@ final class XYZAppDelegate: NSObject, NSApplicationDelegate {
             _ = WorkspaceWindowController.open(url: url)
         }
         return true
+    }
+
+    func applicationShouldOpenUntitledFile(_ sender: NSApplication) -> Bool {
+        false
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {

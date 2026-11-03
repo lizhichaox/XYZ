@@ -85,6 +85,8 @@ final class WorkspaceSession: ObservableObject {
     @Published private(set) var contentHits: [WorkspaceContentHit] = []
     @Published private(set) var contentSearching = false
     @Published var viewMode: EditorViewMode
+    /// The caret in the open file, for the status bar.
+    @Published var caret = EditorCaret()
     /// Set when a new item should start inline rename once the row exists.
     var pendingEditPath: String?
     var focusSearchHandler: (() -> Void)?
@@ -995,16 +997,17 @@ final class WorkspaceSession: ObservableObject {
                 && !WorkspaceContentSearch.shouldSkipRelativePath(entry.relativePath)
                 && (showsHidden || !entry.isHidden)
         }
-        let cap = 48
+        let cap = 80
         let found = await Self.searchContents(
             files: files,
             root: rootURL,
             query: FindQuery(pattern: needle),
             include: "",
             exclude: "",
-            cap: cap
+            cap: cap,
+            perFile: 40
         )
-        let shown = Array(found.prefix(12))
+        let shown = Array(found.prefix(40))
         return (shown, found.count - shown.count, found.count >= cap)
     }
 
@@ -1165,7 +1168,8 @@ final class WorkspaceSession: ObservableObject {
         query: FindQuery,
         include: String,
         exclude: String,
-        cap: Int = WorkspaceContentSearch.hitLimit
+        cap: Int = WorkspaceContentSearch.hitLimit,
+        perFile: Int = 3
     ) async -> [WorkspaceContentHit] {
         await Task.detached(priority: .utility) {
             var found: [WorkspaceContentHit] = []
@@ -1185,7 +1189,7 @@ final class WorkspaceSession: ObservableObject {
                 }
                 guard let data = try? WorkspaceFileCoordination.readData(at: url),
                       let decoded = TextBytes.decode(data, allowLegacy: FileFormats.isTextualName(entry.name)) else { continue }
-                let room = min(3, cap - found.count)
+                let room = min(perFile, cap - found.count)
                 found.append(contentsOf: WorkspaceContentSearch.hits(
                     in: decoded.text,
                     relativePath: entry.relativePath,

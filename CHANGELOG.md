@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.5.1
+
+- Editing shows the line-number gutter again. The current-line highlight runs across the gutter and the text.
+- The status bar is back under the whole window: line and column, encoding, line ending, language, and Read-only or Editing.
+- Edit → Use Selection for Find (⌘E) is back.
+- An empty folder window centers “No File Open”. The tab bar stays out of the way until a file is open.
+- Launch reopens the last folder. It does not present an Open panel, and it does not leave an untitled window behind.
+- The sidebar filter has space after the magnifier. The file tree fits the sidebar, and the selection follows the open file.
+- ⌘K lists more than a handful of matches in one file, and a “more” row when the rest are cut off. The query includes the last character typed.
+- Syntax coloring adds muted colors for strings, numbers, types, and, in config files, section headers and keys.
+
 ## 0.5.0
 
 - The title bar is one row: traffic lights, and the window title centered as `<file> — <folder>`. The row drags, and a double click zooms. There is no toolbar.
