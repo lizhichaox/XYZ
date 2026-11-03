@@ -281,6 +281,14 @@ final class XYZMacTextView: NSTextView {
     private var findMarks: [FindMatch] = []
     private var findMarkIndex: Int?
 
+    /// Drop the previous document's caret, selection, and find marks before the new text is shown.
+    func clearDocumentChrome() {
+        findMarks = []
+        findMarkIndex = nil
+        setSelectedRange(NSRange(location: 0, length: 0))
+        paintFindMarks()
+    }
+
     /// Accent marks for every match. The current one is darker. Called again after syntax styling, which clears backgrounds.
     func paintFindMarks() {
         guard let storage = textStorage else { return }
@@ -1045,6 +1053,7 @@ struct XYZMacEditor: NSViewRepresentable {
         context.coordinator.scrollLink = scrollLink
         let editingChanged = textView.isEditable != isEditable
         textView.isEditable = isEditable
+        textView.insertionPointColor = isEditable ? .labelColor : .clear
         if editingChanged {
             textView.showViewport()
             if !isEditable {
@@ -1111,6 +1120,8 @@ struct XYZMacEditor: NSViewRepresentable {
             let metrics = previous.fontSize != style.fontSize
                 || previous.monospaced != style.monospaced
                 || previous.lineHeight != style.lineHeight
+                || previous.latin != style.latin
+                || previous.cjk != style.cjk
                 || previous.wraps != style.wraps
             if metrics {
                 context.coordinator.applyMetrics()
@@ -1122,8 +1133,11 @@ struct XYZMacEditor: NSViewRepresentable {
             context.coordinator.forgetViewportLine()
             if textView.string != text {
                 context.coordinator.perform(.replaceContents(text))
-            } else if markupChanged || syntaxChanged {
-                context.coordinator.restyle(edited: nil)
+            } else {
+                textView.clearDocumentChrome()
+                if markupChanged || syntaxChanged {
+                    context.coordinator.restyle(edited: nil)
+                }
             }
         } else if markupChanged || syntaxChanged {
             context.coordinator.restyle(edited: nil)
@@ -1171,6 +1185,7 @@ struct XYZMacEditor: NSViewRepresentable {
         scrollView.clipsToBounds = true
         scrollView.contentView.clipsToBounds = true
         scrollView.contentView.drawsBackground = false
+        textView.insertionPointColor = textView.isEditable ? .labelColor : .clear
     }
 
     /// Wrap tracks the pane. With wrap off, the line keeps its length and the pane scrolls sideways.
@@ -1272,6 +1287,7 @@ struct XYZMacEditor: NSViewRepresentable {
                 isApplyingExternalText = true
                 textView.undoManager?.disableUndoRegistration()
                 textView.string = replacement
+                textView.clearDocumentChrome()
                 textView.undoManager?.enableUndoRegistration()
                 laterRestyle?.cancel()
                 textView.warmLineIndex()
@@ -1377,10 +1393,7 @@ enum EditorTypography {
     static let immediateLimit = 80_000
 
     static func baseFont(_ style: XYZEditorStyle) -> NSFont {
-        if style.monospaced {
-            return NSFont.monospacedSystemFont(ofSize: style.fontSize, weight: .regular)
-        }
-        return proportional(size: style.fontSize, weight: .regular)
+        face(style, size: style.fontSize, weight: .regular)
     }
 
     static func headingFont(_ style: XYZEditorStyle, level: Int) -> NSFont {
@@ -1392,36 +1405,69 @@ enum EditorTypography {
         default: scale = 1.04
         }
         let size = (style.fontSize * scale).rounded()
-        if style.monospaced {
-            return NSFont.monospacedSystemFont(ofSize: size, weight: .semibold)
-        }
-        return proportional(size: size, weight: .semibold)
+        return face(style, size: size, weight: .semibold)
     }
 
     static func markerFont(_ style: XYZEditorStyle) -> NSFont {
         let size = max(12, (style.fontSize * 0.86).rounded())
-        if style.monospaced {
-            return NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
-        }
-        return proportional(size: size, weight: .regular)
+        return face(style, size: size, weight: .regular)
     }
 
     static func codeFont(_ style: XYZEditorStyle) -> NSFont {
-        NSFont.monospacedSystemFont(ofSize: (style.fontSize * 0.92).rounded(), weight: .regular)
+        var code = style
+        if !XYZEditorStyle.latinIsMono(style.latin) {
+            code.latin = "sfmono"
+            code.monospaced = true
+        }
+        return face(code, size: (style.fontSize * 0.92).rounded(), weight: .regular)
     }
 
     static func naturalLineHeight(_ font: NSFont) -> CGFloat {
         font.ascender - font.descender + font.leading
     }
 
+    /// Latin face, with the chosen CJK face for characters the Latin font does not cover.
+    static func face(_ style: XYZEditorStyle, size: CGFloat, weight: NSFont.Weight) -> NSFont {
+        let latin = latinFont(style, size: size, weight: weight)
+        let cjkName: String
+        switch style.cjk {
+        case "songti": cjkName = "Songti SC"
+        case "heiti": cjkName = "Heiti SC"
+        default: cjkName = "PingFang SC"
+        }
+        guard let cjk = NSFont(name: cjkName, size: size) else { return latin }
+        let descriptor = latin.fontDescriptor.addingAttributes([
+            .cascadeList: [cjk.fontDescriptor],
+        ])
+        return NSFont(descriptor: descriptor, size: size) ?? latin
+    }
+
+    private static func latinFont(_ style: XYZEditorStyle, size: CGFloat, weight: NSFont.Weight) -> NSFont {
+        let names: [String]
+        switch style.latin {
+        case "sfmono": names = ["SF Mono", "SFMono-Regular"]
+        case "menlo": names = ["Menlo"]
+        case "jetbrains": names = ["JetBrains Mono", "JetBrainsMono-Regular"]
+        default: names = []
+        }
+        if names.isEmpty {
+            if style.monospaced {
+                return NSFont.monospacedSystemFont(ofSize: size, weight: weight)
+            }
+            return NSFont.systemFont(ofSize: size, weight: weight)
+        }
+        for name in names {
+            if let font = NSFont(name: name, size: size) {
+                if weight == .regular || weight == .medium { return font }
+                return NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
+            }
+        }
+        return NSFont.monospacedSystemFont(ofSize: size, weight: weight)
+    }
+
     /// SF Pro for Latin, PingFang SC when the primary face has no glyph.
     static func proportional(size: CGFloat, weight: NSFont.Weight) -> NSFont {
-        let base = NSFont.systemFont(ofSize: size, weight: weight)
-        let fallback = NSFontDescriptor(fontAttributes: [.name: "PingFang SC"])
-        let descriptor = base.fontDescriptor.addingAttributes([
-            .cascadeList: [fallback],
-        ])
-        return NSFont(descriptor: descriptor, size: size) ?? base
+        face(XYZEditorStyle(), size: size, weight: weight)
     }
 
     /// Base font and line height everywhere; heading sizes and tinted markers only when `markup` is on.

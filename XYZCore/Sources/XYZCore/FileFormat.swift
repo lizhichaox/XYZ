@@ -103,6 +103,25 @@ public struct FileFormat: Equatable, Sendable {
 
 /// Extension map for viewers, syntax, and Reading. Names are matched case-insensitively.
 public enum FileFormats {
+    /// Extension first. A plain name whose first line is a shell shebang is shell.
+    public static func resolved(name: String, text: String) -> FileFormat {
+        var format = format(for: name)
+        guard format.language == .plain, let detected = shebangLanguage(in: text) else { return format }
+        format.language = detected
+        format.label = "Shell"
+        return format
+    }
+
+    /// `#!/bin/bash`, `#!/usr/bin/env bash`, and the `sh` / `zsh` equivalents.
+    public static func shebangLanguage(in text: String) -> SyntaxLanguage? {
+        let first = text.prefix { $0 != "\n" && $0 != "\r" }
+        guard first.hasPrefix("#!") else { return nil }
+        let line = first.lowercased()
+        if line.contains("bash") || line.contains("zsh") { return .shell }
+        if line.contains("/sh") || line.contains("env sh") { return .shell }
+        return nil
+    }
+
     public static func format(for name: String) -> FileFormat {
         let ext = pathExtension(of: name)
         if let viewer = viewerKind(forExtension: ext) {
@@ -151,7 +170,7 @@ public enum FileFormats {
             return FileFormat(language: .ruby)
         case "php":
             return FileFormat(language: .php)
-        case "sh", "bash", "zsh":
+        case "sh", "bash", "zsh", "command", "tool":
             return FileFormat(language: .shell)
         case "sql":
             return FileFormat(language: .sql)
@@ -216,7 +235,7 @@ public enum FileFormats {
         "xml", "svg", "plist", "html", "htm", "css", "scss", "csv", "tsv", "log",
         "swift", "js", "jsx", "mjs", "cjs", "ts", "tsx", "py", "go", "rs",
         "c", "h", "m", "mm", "cpp", "cc", "cxx", "hpp", "hh", "java", "kt", "kts",
-        "rb", "php", "sh", "bash", "zsh", "sql", "ini", "cfg", "conf", "env",
+        "rb", "php", "sh", "bash", "zsh", "command", "tool", "sql", "ini", "cfg", "conf", "env",
         "gitignore", "gitattributes", "editorconfig", "lock", "gradle", "mod", "sum",
         "strings", "xcconfig", "pbxproj", "entitlements", "storyboard", "xib",
     ]

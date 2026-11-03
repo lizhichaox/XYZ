@@ -69,9 +69,9 @@ html, body {
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", sans-serif;
   font-size: var(--text-size, 16px);
-  line-height: 1.65;
+  line-height: var(--line-height, 1.7);
+  font-family: var(--font-latin, -apple-system, BlinkMacSystemFont, "SF Pro Text"), var(--font-cjk, "PingFang SC"), "Helvetica Neue", sans-serif;
   line-break: strict;
   hanging-punctuation: first last;
   text-spacing-trim: space-first;
@@ -131,7 +131,7 @@ del {
 }
 
 code, kbd, pre {
-  font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "PingFang SC", monospace;
+  font-family: var(--font-mono, ui-monospace, "SF Mono", Menlo), var(--font-cjk, "PingFang SC"), monospace;
   color: var(--text);
 }
 

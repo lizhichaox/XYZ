@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.19
+
+- Switching files clears the previous caret, selection, and find marks. Reading shows no leftover highlight from the file you left.
+- `.command` and `.tool` files, and a `#!/bin/bash` or `sh` shebang, use the shell colors.
+- Text size is 11–24 pt (⌘+, ⌘−, ⌘0). Line spacing is 1.0–2.0. Settings chooses a Latin face and a Chinese face separately. The choices are kept.
+
 ## 0.5.18
 
 - Collapsing a folder in Explorer stays collapsed while a file inside it is open. Opening a file still reveals it. The folder section header still hides the whole list, and that choice lasts for the session.

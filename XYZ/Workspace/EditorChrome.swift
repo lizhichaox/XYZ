@@ -74,6 +74,20 @@ final class EditorFindModel: ObservableObject {
         perform?(.cancel)
     }
 
+    /// The active document changed. Drop the previous file's find marks; rescan only if the bar is open.
+    func noteNewDocument() {
+        readingCursor = 0
+        readingGeneration += 1
+        count = 0
+        index = 0
+        wrapped = false
+        editorView?.clearDocumentChrome()
+        readingWeb?.evaluateJavaScript(
+            "if (window.getSelection) window.getSelection().removeAllRanges(); if (typeof xyzClearFind === 'function') xyzClearFind();"
+        ) { _, _ in }
+        if visible { scheduleRefresh() }
+    }
+
     func show(replace: Bool) {
         XYZDiagnostics.note("find open replace=\(replace)")
         let reopen = visible

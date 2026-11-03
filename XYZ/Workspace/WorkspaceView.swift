@@ -1205,6 +1205,7 @@ private struct WorkspaceDetail: View {
         }
         .onChange(of: session.buffer?.editorToken) { _, _ in
             session.previewBridge.send(session.buffer?.text ?? "")
+            find?.noteNewDocument()
             caret = EditorCaret()
             session.caret = EditorCaret()
             session.clearViewportLine()
@@ -1287,7 +1288,10 @@ private struct WorkspaceDetail: View {
     }
 
     private var format: FileFormat {
-        FileFormats.format(for: session.buffer?.relativePath ?? activePath ?? "")
+        FileFormats.resolved(
+            name: session.buffer?.relativePath ?? activePath ?? "",
+            text: session.buffer?.text ?? ""
+        )
     }
 
     private var showsText: Bool {

@@ -34,6 +34,10 @@ struct XYZEditorStyle: Equatable {
     var horizontalInset: CGFloat = 13
     var verticalInset: CGFloat = 8
     var monospaced: Bool = false
+    /// `system`, `sfmono`, `menlo`, or `jetbrains`.
+    var latin: String = "system"
+    /// `pingfang`, `songti`, or `heiti`.
+    var cjk: String = "pingfang"
     var readableWidth: Bool = false
     /// Long lines break to the editor width. Off scrolls sideways.
     var wraps: Bool = true
@@ -56,6 +60,9 @@ struct XYZEditorStyle: Equatable {
     static let readableEms: CGFloat = 42
     static let monospacedKey = "xyz.editor.monospaced"
     static let fontSizeKey = "xyz.text.size"
+    static let lineSpacingKey = "xyz.text.lineSpacing"
+    static let latinFontKey = "xyz.text.font.latin"
+    static let cjkFontKey = "xyz.text.font.cjk"
     static let readableWidthKey = "xyz.text.readableWidth"
     /// Line numbers beside Source. On unless turned off.
     static let lineNumbersKey = "xyz.editor.lineNumbers"
@@ -64,11 +71,22 @@ struct XYZEditorStyle: Equatable {
     /// Break long lines to the editor width. On unless turned off.
     static let wordWrapKey = "xyz.editor.wordWrap"
     static let defaultFontSize: Double = 16
-    static let fontSizes: ClosedRange<Double> = 12...24
+    static let fontSizes: ClosedRange<Double> = 11...24
+    static let defaultLineSpacing: Double = 1.7
+    static let lineSpacings: ClosedRange<Double> = 1.0...2.0
     static let markdown = XYZEditorStyle()
 
     static func clampedFontSize(_ size: Double) -> Double {
         min(fontSizes.upperBound, max(fontSizes.lowerBound, size.rounded()))
+    }
+
+    static func clampedLineSpacing(_ spacing: Double) -> Double {
+        let tenths = (spacing * 10).rounded() / 10
+        return min(lineSpacings.upperBound, max(lineSpacings.lowerBound, tenths))
+    }
+
+    static func latinIsMono(_ id: String) -> Bool {
+        id == "sfmono" || id == "menlo" || id == "jetbrains"
     }
 
     func paragraphStyle(naturalLineHeight: CGFloat) -> NSMutableParagraphStyle {
@@ -198,6 +216,9 @@ struct XYZEditor: View {
 
     @AppStorage(XYZEditorStyle.monospacedKey) private var monospaced = false
     @AppStorage(XYZEditorStyle.fontSizeKey) private var fontSize = XYZEditorStyle.defaultFontSize
+    @AppStorage(XYZEditorStyle.lineSpacingKey) private var lineSpacing = XYZEditorStyle.defaultLineSpacing
+    @AppStorage(XYZEditorStyle.latinFontKey) private var latinFont = "system"
+    @AppStorage(XYZEditorStyle.cjkFontKey) private var cjkFont = "pingfang"
     @AppStorage(XYZEditorStyle.readableWidthKey) private var readableWidth = false
     @AppStorage(XYZEditorStyle.lineNumbersKey) private var lineNumbers = true
     #if os(macOS)
@@ -213,7 +234,10 @@ struct XYZEditor: View {
             reloadToken: reloadToken,
             style: XYZEditorStyle(
                 fontSize: CGFloat(XYZEditorStyle.clampedFontSize(fontSize)),
-                monospaced: monospaced || forcesMonospace,
+                lineHeight: CGFloat(XYZEditorStyle.clampedLineSpacing(lineSpacing)),
+                monospaced: monospaced || forcesMonospace || XYZEditorStyle.latinIsMono(latinFont),
+                latin: latinFont == "system" && monospaced ? "sfmono" : latinFont,
+                cjk: cjkFont,
                 readableWidth: readableWidth,
                 wraps: wordWrap
             ),

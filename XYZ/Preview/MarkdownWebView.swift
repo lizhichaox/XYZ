@@ -43,12 +43,44 @@ final class PreviewWebHost {
 /// editor, and whether the column stops at a readable width.
 struct PreviewPrefs: Equatable {
     var fontSize: Double = XYZEditorStyle.defaultFontSize
+    var lineSpacing: Double = XYZEditorStyle.defaultLineSpacing
+    var latin = "system"
+    var cjk = "pingfang"
     var readableWidth = false
     /// `<base href>` for the note's folder. Set before the content, so its pictures resolve.
     var baseHref = ""
 
     var script: String {
-        "setPrefs(\(Int(XYZEditorStyle.clampedFontSize(fontSize))), \(readableWidth));"
+        let size = Int(XYZEditorStyle.clampedFontSize(fontSize))
+        let spacing = XYZEditorStyle.clampedLineSpacing(lineSpacing)
+        let latinCSS = PreviewPage.javaScriptLiteral(PreviewFontCSS.latin(latin))
+        let cjkCSS = PreviewPage.javaScriptLiteral(PreviewFontCSS.cjk(cjk))
+        let monoCSS = PreviewPage.javaScriptLiteral(PreviewFontCSS.mono(latin))
+        return "setPrefs(\(size), \(readableWidth), \(spacing), \(latinCSS), \(cjkCSS), \(monoCSS));"
+    }
+}
+
+enum PreviewFontCSS {
+    static func latin(_ id: String) -> String {
+        switch id {
+        case "sfmono": return "\"SF Mono\", ui-monospace, Menlo"
+        case "menlo": return "Menlo, \"SF Mono\", ui-monospace"
+        case "jetbrains": return "\"JetBrains Mono\", \"SF Mono\", ui-monospace, Menlo"
+        default: return "-apple-system, BlinkMacSystemFont, \"SF Pro Text\""
+        }
+    }
+
+    static func cjk(_ id: String) -> String {
+        switch id {
+        case "songti": return "\"Songti SC\", \"STSong\""
+        case "heiti": return "\"Heiti SC\", \"STHeiti\""
+        default: return "\"PingFang SC\", \"Hiragino Sans GB\""
+        }
+    }
+
+    static func mono(_ latinID: String) -> String {
+        if XYZEditorStyle.latinIsMono(latinID) { return latin(latinID) }
+        return "ui-monospace, \"SF Mono\", Menlo"
     }
 }
 
@@ -60,11 +92,17 @@ struct MarkdownWebView: View {
     var scrollLink: EditorScrollLink
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage(XYZEditorStyle.fontSizeKey) private var fontSize = XYZEditorStyle.defaultFontSize
+    @AppStorage(XYZEditorStyle.lineSpacingKey) private var lineSpacing = XYZEditorStyle.defaultLineSpacing
+    @AppStorage(XYZEditorStyle.latinFontKey) private var latinFont = "system"
+    @AppStorage(XYZEditorStyle.cjkFontKey) private var cjkFont = "pingfang"
     @AppStorage(XYZEditorStyle.readableWidthKey) private var readableWidth = false
 
     var body: some View {
         let prefs = PreviewPrefs(
             fontSize: fontSize,
+            lineSpacing: lineSpacing,
+            latin: latinFont,
+            cjk: cjkFont,
             readableWidth: readableWidth,
             baseHref: LocalAssets.baseHref(for: baseDirectory)
         )
@@ -796,6 +834,9 @@ private enum PreviewPage {
         var xyzPinned = 0;
         var xyzPinUntil = 0;
         function setContent(html) {
+          var selection = window.getSelection();
+          if (selection) selection.removeAllRanges();
+          if (typeof xyzClearFind === "function") xyzClearFind();
           var node = document.getElementById("content");
           if (node) node.innerHTML = html;
           xyzPinned = 0;
@@ -930,10 +971,14 @@ private enum PreviewPage {
         function setTheme(theme) {
           document.documentElement.setAttribute("data-theme", theme);
         }
-        function setPrefs(size, readable) {
+        function setPrefs(size, readable, spacing, latin, cjk, mono) {
           var kept = xyzTop();
           var root = document.documentElement;
           root.style.setProperty("--text-size", (size | 0) + "px");
+          if (spacing) root.style.setProperty("--line-height", String(spacing));
+          if (latin) root.style.setProperty("--font-latin", latin);
+          if (cjk) root.style.setProperty("--font-cjk", cjk);
+          if (mono) root.style.setProperty("--font-mono", mono);
           root.setAttribute("data-readable", readable ? "true" : "false");
           if (kept && kept.line) xyzRevealLine(kept.line);
         }

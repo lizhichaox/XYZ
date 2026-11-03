@@ -346,6 +346,15 @@ final class FileFormatTests: XCTestCase {
         XCTAssertEqual(FileFormats.format(for: "photo.png").viewer, .image)
         XCTAssertEqual(FileFormats.format(for: "notes.pdf").viewer, .pdf)
         XCTAssertNil(FileFormats.format(for: "archive.zip").viewer)
+        XCTAssertEqual(FileFormats.format(for: "sg-complete-login.command").language, .shell)
+        XCTAssertEqual(FileFormats.format(for: "install.tool").language, .shell)
+        XCTAssertEqual(FileFormats.shebangLanguage(in: "#!/bin/bash\necho hi\n"), .shell)
+        XCTAssertEqual(FileFormats.shebangLanguage(in: "#!/usr/bin/env bash\n"), .shell)
+        XCTAssertEqual(FileFormats.shebangLanguage(in: "#!/bin/sh\n"), .shell)
+        XCTAssertNil(FileFormats.shebangLanguage(in: "echo hi\n"))
+        XCTAssertEqual(FileFormats.resolved(name: "run", text: "#!/usr/bin/env bash\n").language, .shell)
+        XCTAssertEqual(XYZEditorStyle.clampedFontSize(10), 11)
+        XCTAssertEqual(XYZEditorStyle.clampedLineSpacing(2.4), 2)
     }
 
     func testCrumbsIncludeTheFile() {

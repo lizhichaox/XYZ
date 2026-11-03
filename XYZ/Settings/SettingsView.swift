@@ -5,8 +5,10 @@ import SwiftUI
 struct SettingsView: View {
     @AppStorage(AppAppearance.key) private var appearance = AppAppearance.system
     @AppStorage(AppLanguage.key) private var language = AppLanguage.system
-    @AppStorage(XYZEditorStyle.monospacedKey) private var monospaced = false
     @AppStorage(XYZEditorStyle.fontSizeKey) private var fontSize = XYZEditorStyle.defaultFontSize
+    @AppStorage(XYZEditorStyle.lineSpacingKey) private var lineSpacing = XYZEditorStyle.defaultLineSpacing
+    @AppStorage(XYZEditorStyle.latinFontKey) private var latinFont = "system"
+    @AppStorage(XYZEditorStyle.cjkFontKey) private var cjkFont = "pingfang"
     @AppStorage(XYZEditorStyle.readableWidthKey) private var readableWidth = false
     @AppStorage(XYZEditorStyle.readingLineNumbersKey) private var readingLineNumbers = false
     @AppStorage(XYZEditorStyle.wordWrapKey) private var wordWrap = true
@@ -46,15 +48,28 @@ struct SettingsView: View {
             }
 
             Section("Text") {
-                Picker("Font", selection: $monospaced) {
-                    Text("Default").tag(false)
-                    Text("Monospaced").tag(true)
+                Picker("Latin", selection: $latinFont) {
+                    Text("System").tag("system")
+                    Text("SF Mono").tag("sfmono")
+                    Text("Menlo").tag("menlo")
+                    Text("JetBrains Mono").tag("jetbrains")
                 }
-                .pickerStyle(.segmented)
+                Picker("Chinese", selection: $cjkFont) {
+                    Text("PingFang SC").tag("pingfang")
+                    Text("Songti SC").tag("songti")
+                    Text("Heiti SC").tag("heiti")
+                }
 
                 LabeledContent("Size") {
                     Stepper(value: $fontSize, in: XYZEditorStyle.fontSizes, step: 1) {
                         Text("\(Int(XYZEditorStyle.clampedFontSize(fontSize))) pt")
+                            .monospacedDigit()
+                    }
+                }
+
+                LabeledContent("Line spacing") {
+                    Stepper(value: $lineSpacing, in: XYZEditorStyle.lineSpacings, step: 0.1) {
+                        Text(String(format: "%.1f", XYZEditorStyle.clampedLineSpacing(lineSpacing)))
                             .monospacedDigit()
                     }
                 }
@@ -115,7 +130,7 @@ enum SettingsWindow {
 
     private static func make() -> NSPanel {
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 480, height: 520),
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 640),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
