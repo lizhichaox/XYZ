@@ -272,6 +272,14 @@ final class ReadOnlyPreviewTests: XCTestCase {
     }
 }
 
+final class OutlineFollowTests: XCTestCase {
+    func testReadingFollowsTheViewportAndEditingFollowsTheCaret() {
+        XCTAssertEqual(FileOutline.followedLine(reading: true, viewportLine: 40, caretLine: 2), 40)
+        XCTAssertEqual(FileOutline.followedLine(reading: true, viewportLine: 0, caretLine: 2), 2)
+        XCTAssertEqual(FileOutline.followedLine(reading: false, viewportLine: 40, caretLine: 2), 2)
+    }
+}
+
 final class EditorCaretTests: XCTestCase {
     func testColumnCountsCharacters() {
         let text = "ab\n你c"

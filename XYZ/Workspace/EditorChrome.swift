@@ -654,7 +654,7 @@ struct SidebarOutlineDock: View {
             .buttonStyle(.plain)
             .accessibilityLabel(String(localized: "Outline"))
             if shown {
-                OutlinePane(entries: outline.entries, currentLine: session.caret.line) { line in
+                OutlinePane(entries: outline.entries, currentLine: followedLine) { line in
                     session.scrollLink.revealLine(line)
                 }
                 .frame(height: 180)
@@ -668,6 +668,15 @@ struct SidebarOutlineDock: View {
         .onChange(of: session.buffer?.editorToken) { _, _ in
             refresh()
         }
+    }
+
+    /// Reading follows the line on screen. Editing follows the caret.
+    private var followedLine: Int {
+        FileOutline.followedLine(
+            reading: session.viewMode == .reading,
+            viewportLine: session.viewportLine,
+            caretLine: session.caret.line
+        )
     }
 
     private func refresh() {

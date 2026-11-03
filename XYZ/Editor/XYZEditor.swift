@@ -109,6 +109,8 @@ final class EditorScrollLink {
     var capture: () -> EditorScrollAnchor = { EditorScrollAnchor(fraction: 0, probe: "") }
     /// Go to Heading. The surface on screen (the editor or Reading) sets this when it updates.
     var revealLine: (Int) -> Void = { _ in }
+    /// The source line at the top of Reading. Editing does not call this.
+    var onViewportLine: ((Int) -> Void)?
     /// A search hit. The source editor selects the matched text on that line.
     var revealMatch: ((Int, String) -> Void)?
     /// Go to Line. The source editor sets this. Reading does not.

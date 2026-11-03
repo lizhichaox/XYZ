@@ -757,6 +757,16 @@ private struct FindScan {
         let offset = content.offset(from: content.documentRange.location, to: found.rangeInElement.location)
         return EditorScrollAnchor.lineNumber(at: max(0, offset), in: string)
     }
+
+    /// The first source line already in the viewport. Does not lay out the rest of the file.
+    func viewportLine() -> Int? {
+        guard let manager = textLayoutManager,
+              let content = manager.textContentManager,
+              let location = manager.textViewportLayoutController.viewportRange?.location,
+              let index = lineIndexCache else { return nil }
+        let offset = content.offset(from: content.documentRange.location, to: location)
+        return max(1, index.line(at: max(0, offset)))
+    }
 }
 
 struct XYZMacEditor: NSViewRepresentable {
@@ -852,6 +862,9 @@ struct XYZMacEditor: NSViewRepresentable {
         textView.isEditable = isEditable
         if editingChanged {
             textView.setNeedsDisplay(textView.visibleRect)
+            if !isEditable {
+                context.coordinator.forgetViewportLine()
+            }
         }
         let markupChanged = textView.allowsMarkup != markup
         textView.allowsMarkup = markup
@@ -916,6 +929,7 @@ struct XYZMacEditor: NSViewRepresentable {
         }
         if context.coordinator.reloadToken != reloadToken {
             context.coordinator.reloadToken = reloadToken
+            context.coordinator.forgetViewportLine()
             if textView.string != text {
                 context.coordinator.perform(.replaceContents(text))
             } else if markupChanged || syntaxChanged {
@@ -929,6 +943,9 @@ struct XYZMacEditor: NSViewRepresentable {
         }
         if let queued = scrollLink.takeQueuedEditorReveal() {
             textView.jump(toLine: queued.line, column: queued.column, selecting: queued.needle)
+        }
+        if !isEditable {
+            context.coordinator.publishViewportLine()
         }
     }
 
@@ -994,6 +1011,7 @@ struct XYZMacEditor: NSViewRepresentable {
         private var metricRecolor: DispatchWorkItem?
         private var scrollObserver: NSObjectProtocol?
         private var scrollRecolor: DispatchWorkItem?
+        private var publishedViewportLine = 0
 
         deinit {
             if let scrollObserver {
@@ -1014,8 +1032,21 @@ struct XYZMacEditor: NSViewRepresentable {
             ) { [weak self] _ in
                 MainActor.assumeIsolated { () -> Void in
                     self?.scheduleVisibleRecolor()
+                    self?.publishViewportLine()
                 }
             }
+        }
+
+        func forgetViewportLine() {
+            publishedViewportLine = 0
+        }
+
+        /// Reading source follows the line on screen. Editing keeps the caret.
+        func publishViewportLine() {
+            guard let textView, !textView.isEditable, let scrollLink else { return }
+            guard let line = textView.viewportLine(), line != publishedViewportLine else { return }
+            publishedViewportLine = line
+            scrollLink.onViewportLine?(line)
         }
 
         private func scheduleVisibleRecolor() {

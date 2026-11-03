@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.7
+
+- In Reading, the outline follows the heading at the top of the page as you scroll. Editing still follows the caret. Choosing a heading still jumps to it.
+
 ## 0.5.6
 
 - The sidebar in light mode is a step off white (`#F8F8F8`), not a murky grey. Dark mode stays a step under the editor (`#181818`). Expanding a folder lists its children after the click, or shows nothing only when the folder is empty.

@@ -427,8 +427,14 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate, WKScriptMessa
         let line = Self.intValue(body?["line"])
         let fraction = min(1, max(0, Self.doubleValue(body?["fraction"])))
         let apply = {
-            self.readingLine = max(0, line)
+            let next = max(0, line)
+            self.readingLine = next
             self.readingFraction = fraction
+            if next > 0 {
+                MainActor.assumeIsolated { () -> Void in
+                    self.scrollLink?.onViewportLine?(next)
+                }
+            }
             if let requested = self.pendingReadingAlign {
                 self.pendingReadingAlign = nil
                 ViewAnchorLog.aligned(to: "reading", requested: requested, landed: self.readingLine)

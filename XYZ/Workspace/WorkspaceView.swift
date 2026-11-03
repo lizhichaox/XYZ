@@ -378,6 +378,7 @@ private struct WorkspaceDetail: View {
             session.previewBridge.send(session.buffer?.text ?? "")
             caret = EditorCaret()
             session.caret = EditorCaret()
+            session.clearViewportLine()
             surfaceDetail = nil
             countWords(immediate: true)
             refreshOutline(immediate: true)

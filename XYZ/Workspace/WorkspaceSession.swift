@@ -87,6 +87,8 @@ final class WorkspaceSession: ObservableObject {
     @Published var viewMode: EditorViewMode
     /// The caret in the open file, for the status bar.
     @Published var caret = EditorCaret()
+    /// The source line at the top of Reading. Zero until the page reports one.
+    @Published private(set) var viewportLine = 0
     /// Set when a new item should start inline rename once the row exists.
     var pendingEditPath: String?
     var focusSearchHandler: (() -> Void)?
@@ -126,6 +128,20 @@ final class WorkspaceSession: ObservableObject {
         if UserDefaults.standard.object(forKey: HiddenFilesSetting.key) != nil {
             self.showsHiddenFiles = UserDefaults.standard.bool(forKey: HiddenFilesSetting.key)
         }
+        scrollLink.onViewportLine = { [weak self] line in
+            self?.noteViewportLine(line)
+        }
+    }
+
+    func noteViewportLine(_ line: Int) {
+        let next = max(0, line)
+        guard viewportLine != next else { return }
+        viewportLine = next
+    }
+
+    func clearViewportLine() {
+        guard viewportLine != 0 else { return }
+        viewportLine = 0
     }
 
     func activate() {
