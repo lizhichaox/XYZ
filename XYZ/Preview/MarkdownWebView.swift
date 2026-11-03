@@ -473,6 +473,7 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate, WKScriptMessa
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         if message.name == "xyzGutter" {
+            #if os(macOS)
             let body = message.body as? [String: Any]
             let count = Self.intValue(body?["count"])
             let pairs = body?["pairs"] as? String ?? ""
@@ -489,6 +490,7 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate, WKScriptMessa
                 wrap: wrap,
                 mode: "reading"
             )
+            #endif
             return
         }
         guard message.name == "xyzAnchor" else { return }
