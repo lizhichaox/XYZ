@@ -121,6 +121,8 @@ final class WorkspaceSession: ObservableObject {
     private var pendingRevealNeedle: String?
     private var reloadTasks: [String: Task<Void, Never>] = [:]
     private var loadGeneration: [String: Int] = [:]
+    /// One open of a path. A slower read from an earlier open must not replace the buffer.
+    private var openRequest: [String: Int] = [:]
     private var indexTask: Task<Void, Never>?
     private var contentTask: Task<Void, Never>?
     private var indexGeneration = 0
@@ -544,11 +546,24 @@ final class WorkspaceSession: ObservableObject {
             show(existing)
             return
         }
+        openRequest[path, default: 0] += 1
+        let request = openRequest[path] ?? 0
         let url = url(for: path)
         Task { [weak self] in
             let loaded = await Self.readForEditing(url: url, name: node.name)
             await MainActor.run {
                 guard let self, self.tabStrip.contains(path) else { return }
+                let latest = self.openRequest[path] ?? 0
+                guard WorkspaceFilePolicy.shouldInstallRead(
+                    request: request,
+                    latest: latest,
+                    alreadyInstalled: self.buffers[path] != nil
+                ) else {
+                    if self.tabStrip.activeID == path, let existing = self.buffers[path] {
+                        self.show(existing)
+                    }
+                    return
+                }
                 let open = self.makeBuffer(loaded, relativePath: path, url: url)
                 self.buffers[path] = open
                 self.watchFile(open)
@@ -1632,6 +1647,8 @@ final class WorkspaceFileBuffer: ObservableObject {
     private var savedEncoding: TextEncoding
     private var savedLineEnding: LineEnding
     private var saveTask: Task<Void, Never>?
+    /// Edits and saves advance this. A disk sample from an older value is dropped.
+    private var observationEpoch = 0
 
     var isDirty: Bool {
         if kind == .readOnly { return false }
@@ -1730,6 +1747,7 @@ final class WorkspaceFileBuffer: ObservableObject {
 
     func userEdited(_ newText: String) {
         if kind == .readOnly { return }
+        observationEpoch += 1
         text = newText
         onEditorState?(self)
         if conflictText != nil || isMissing {
@@ -1763,10 +1781,12 @@ final class WorkspaceFileBuffer: ObservableObject {
         if kind == .readOnly {
             let url = url
             let name = url.lastPathComponent
+            let epoch = observationEpoch
             Task { [weak self] in
                 let loaded = await WorkspaceSession.readForEditing(url: url, name: name)
                 await MainActor.run {
                     guard let self, self.kind == .readOnly else { return }
+                    guard WorkspaceFilePolicy.isCurrentObservation(started: epoch, current: self.observationEpoch) else { return }
                     self.text = loaded.text
                     self.lastSaved = loaded.text
                     self.encoding = loaded.encoding
@@ -1781,12 +1801,14 @@ final class WorkspaceFileBuffer: ObservableObject {
             return
         }
         let url = url
+        let epoch = observationEpoch
         Task { [weak self] in
             let data = try? await Task.detached {
                 try WorkspaceFileCoordination.readData(at: url)
             }.value
             await MainActor.run {
                 guard let self else { return }
+                guard WorkspaceFilePolicy.isCurrentObservation(started: epoch, current: self.observationEpoch) else { return }
                 guard let data else {
                     self.noteMissing()
                     return
@@ -1841,6 +1863,7 @@ final class WorkspaceFileBuffer: ObservableObject {
     }
 
     private func apply(text: String) {
+        observationEpoch += 1
         self.text = text
         lastSaved = text
         conflictText = nil
@@ -1866,6 +1889,7 @@ final class WorkspaceFileBuffer: ObservableObject {
         guard kind == .markdown || kind == .plainText else { return }
         let formDirty = encoding != savedEncoding || lineEnding != savedLineEnding
         guard force || text != lastSaved || formDirty else { return }
+        observationEpoch += 1
         let editor = text
         let saved = lastSaved
         do {
@@ -1888,6 +1912,9 @@ final class WorkspaceFileBuffer: ObservableObject {
                 isMissing = false
                 status = nil
                 onEditorState?(self)
+                if WorkspaceFilePolicy.needsFollowUpSave(written: editor, current: text) {
+                    scheduleSave()
+                }
             case .upToDate:
                 if let disk, disk == text {
                     lastSaved = disk

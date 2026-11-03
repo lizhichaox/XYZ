@@ -524,6 +524,22 @@ final class WorkspaceFilePolicyTests: XCTestCase {
         )
     }
 
+    func testStaleOpenDoesNotReplaceTheBuffer() {
+        XCTAssertTrue(WorkspaceFilePolicy.shouldInstallRead(request: 2, latest: 2, alreadyInstalled: false))
+        XCTAssertFalse(WorkspaceFilePolicy.shouldInstallRead(request: 1, latest: 2, alreadyInstalled: false))
+        XCTAssertFalse(WorkspaceFilePolicy.shouldInstallRead(request: 1, latest: 1, alreadyInstalled: true))
+    }
+
+    func testStaleDiskSampleIsDropped() {
+        XCTAssertTrue(WorkspaceFilePolicy.isCurrentObservation(started: 4, current: 4))
+        XCTAssertFalse(WorkspaceFilePolicy.isCurrentObservation(started: 3, current: 4))
+    }
+
+    func testSaveFollowsTextThatMovedDuringTheWrite() {
+        XCTAssertFalse(WorkspaceFilePolicy.needsFollowUpSave(written: "ab", current: "ab"))
+        XCTAssertTrue(WorkspaceFilePolicy.needsFollowUpSave(written: "a", current: "ab"))
+    }
+
     func testWriteDecision() {
         XCTAssertEqual(
             WorkspaceFilePolicy.decideWrite(editor: "next", lastSaved: "base", disk: "base", force: false),

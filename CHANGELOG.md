@@ -3,6 +3,7 @@
 ## 0.5.28
 
 - Editing shows source line numbers beside the note, including line 1 when the note is empty. A wrapped continuation has no number, and the visible numbers stay a continuous run. Reading has no line numbers. A saved line-number preference does not hide Editing numbers or add a Reading gutter. The note stays in the real text view.
+- A slow open no longer replaces a buffer that is already showing that file. A disk sample that started before an edit or a save is dropped. A save that finishes after the text has moved writes again. The drawing path of the editor is unchanged.
 - The empty outline column keeps a usable width. Double-click fit still uses the measured names.
 - 0.5.27 remains the installed build that restored the note.
 

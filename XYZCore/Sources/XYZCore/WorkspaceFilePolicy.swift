@@ -262,4 +262,20 @@ public enum WorkspaceFilePolicy {
         }
         return .conflict
     }
+
+    /// A finished open may install only for the latest request, and only when that path has no buffer yet.
+    /// A later read must not replace a buffer that already holds edits.
+    public static func shouldInstallRead(request: Int, latest: Int, alreadyInstalled: Bool) -> Bool {
+        request == latest && !alreadyInstalled
+    }
+
+    /// A disk sample is applied only when the buffer has not been edited or saved since the sample started.
+    public static func isCurrentObservation(started: Int, current: Int) -> Bool {
+        started == current
+    }
+
+    /// The bytes just written are not the latest text. Another save has to follow.
+    public static func needsFollowUpSave(written: String, current: String) -> Bool {
+        written != current
+    }
 }
