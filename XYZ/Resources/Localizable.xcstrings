@@ -1842,6 +1842,46 @@
         }
       }
     },
+    "New Window": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建窗口"
+          }
+        }
+      }
+    },
+    "Move to New Window": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将标签页移到新窗口"
+          }
+        }
+      }
+    },
+    "Read-only": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只读"
+          }
+        }
+      }
+    },
+    "Preview truncated": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "预览已截断"
+          }
+        }
+      }
+    },
     "简体中文": {
       "shouldTranslate": false
     }

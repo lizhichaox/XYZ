@@ -5,9 +5,11 @@ public enum WorkspaceFileKind: Equatable, Sendable {
     case markdown
     /// Editor only. Covers source, JSON, and dotfiles that are text.
     case plainText
-    /// Not shown in the editor.
+    /// Selectable text that is not saved. Unknown bytes and files over the edit limit.
+    case readOnly
+    /// Not shown in the editor. Pictures, PDF, media, and Quick Look documents.
     case binary
-    /// Over the in-memory edit limit.
+    /// Over the in-memory edit limit. Opened as a truncated read-only preview.
     case tooLarge
 }
 
@@ -184,6 +186,39 @@ public enum WorkspaceFileClassifier {
     private static func isContinuation(_ byte: UInt8) -> Bool {
         byte >= 0x80 && byte <= 0xBF
     }
+}
+
+/// How a file is shown once its bytes have been classified.
+public enum FileOpenRoute: Equatable, Sendable {
+    case edit
+    case viewer(FileViewerKind)
+    case quickLook
+    case readOnlyPreview
+}
+
+/// Viewers stay viewers. Office documents stay on Quick Look. Everything else that is not editable text is a read-only preview.
+public enum FileOpenRouting {
+    public static func route(name: String, kind: WorkspaceFileKind) -> FileOpenRoute {
+        let ext = (name as NSString).pathExtension.lowercased()
+        if let viewer = FileFormats.viewerKind(forExtension: ext) {
+            return .viewer(viewer)
+        }
+        if quickLookExtensions.contains(ext) {
+            return .quickLook
+        }
+        switch kind {
+        case .markdown, .plainText:
+            return .edit
+        case .binary, .tooLarge, .readOnly:
+            return .readOnlyPreview
+        }
+    }
+
+    /// Packages Quick Look shows as a document rather than a byte dump.
+    private static let quickLookExtensions: Set<String> = [
+        "doc", "docx", "xls", "xlsx", "ppt", "pptx",
+        "pages", "key", "numbers", "odt", "ods", "odp",
+    ]
 }
 
 public enum WorkspaceDiskChange: Equatable, Sendable {

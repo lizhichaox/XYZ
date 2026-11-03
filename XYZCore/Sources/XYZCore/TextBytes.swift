@@ -99,6 +99,32 @@ public enum TextBytes {
         )
     }
 
+    /// First slice of a file that is not opened for editing. Every byte sequence produces text.
+    public static let previewByteLimit = 2_000_000
+
+    public struct Preview: Equatable, Sendable {
+        public var text: String
+        public var encoding: TextEncoding
+        public var truncated: Bool
+
+        public init(text: String, encoding: TextEncoding, truncated: Bool) {
+            self.text = text
+            self.encoding = encoding
+            self.truncated = truncated
+        }
+    }
+
+    /// Uses the normal decoder, then UTF-8 with replacement, then Windows-1252 so the bytes still render.
+    public static func preview(_ data: Data, truncated: Bool) -> Preview {
+        if let decoded = decode(data, allowLegacy: !data.contains(0)) {
+            return Preview(text: decoded.text, encoding: decoded.encoding, truncated: truncated)
+        }
+        if let latin = String(data: data, encoding: .windowsCP1252) ?? String(data: data, encoding: .isoLatin1) {
+            return Preview(text: latin, encoding: .windows1252, truncated: truncated)
+        }
+        return Preview(text: String(decoding: data, as: UTF8.self), encoding: .utf8, truncated: truncated)
+    }
+
     /// False when `encoding` cannot hold every character, as with Chinese in Windows-1252.
     public static func canStore(_ text: String, as encoding: TextEncoding) -> Bool {
         encode(text, encoding: encoding, lineEnding: .lf) != nil

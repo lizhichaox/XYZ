@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.0
+
+- File → New Window (⇧⌘N) opens another folder window, with its own tabs. A file already open in another window of that folder is brought forward instead of copied. A tab can move to a new window from its menu, or by dragging it out of the tab bar. The next launch restores each window, its folder, and its tabs. ⌘` still cycles windows, and ⌘1–⌘9 stay inside the key window.
+- The folder window no longer draws a title and subtitle above the tabs. The tab bar sits on the traffic-light row. The path stays under the tabs. The file name remains the window's title for the Window menu.
+- ⌃Tab switches to the previous file. Holding Control shows the window's recent files; Tab and Shift-Tab move through them, and releasing Control opens the selection.
+- A file that is not text and has no picture, PDF, or media viewer opens as a read-only text preview. Bytes that are not Unicode are shown in Windows-1252. A long file previews the first 2 MB.
+
 ## 0.1.4
 
 - Document and folder windows open filling the screen, under the menu bar and the Dock. A size chosen during a session stays until quit. The next launch fills the screen again.

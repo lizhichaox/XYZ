@@ -122,6 +122,7 @@ public struct PaletteCommand: Equatable, Sendable, Identifiable {
             shortcut: "⇧⌘O",
             keywords: ["open", "workspace"]
         ),
+        PaletteCommand(id: "window.new", title: "New Window", shortcut: "⇧⌘N", keywords: ["window"]),
         PaletteCommand(id: "file.reveal", title: "Reveal in Finder", keywords: ["finder", "show"]),
         PaletteCommand(id: "file.revealInSidebar", title: "Reveal Active File", keywords: ["sidebar", "reveal", "active"]),
         PaletteCommand(id: "view.goToLine", title: "Go to Line", shortcut: "⌃G", keywords: ["line", "column", "jump"]),

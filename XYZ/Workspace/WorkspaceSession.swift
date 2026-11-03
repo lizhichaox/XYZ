@@ -5,6 +5,11 @@ import CryptoKit
 import Foundation
 import XYZCore
 
+struct TabSwitchState: Equatable {
+    var paths: [String]
+    var index: Int
+}
+
 /// One open folder: a lazy tree plus the file currently in the editor.
 @MainActor
 final class WorkspaceSession: ObservableObject {
@@ -39,6 +44,14 @@ final class WorkspaceSession: ObservableObject {
     /// Set when a new item should start inline rename once the row exists.
     var pendingEditPath: String?
     var focusSearchHandler: (() -> Void)?
+    /// Another window already has this path. Return true when that window took it.
+    var claimExistingFile: ((String) -> Bool)?
+    /// Tabs or a tab's view mode changed. The window list is saved from this.
+    var onTabsChanged: (() -> Void)?
+    /// Move this tab into a new window on the same folder.
+    var onMoveTab: ((String) -> Void)?
+    @Published var tabSwitch: TabSwitchState?
+    private var tabMRU = TabMRU()
     /// One preview for the life of this window. File switches push new text.
     let previewBridge = PreviewBridge(text: "")
     let previewHost = PreviewWebHost()
@@ -160,7 +173,12 @@ final class WorkspaceSession: ObservableObject {
             scrollLink.noteToggle(to: mode)
         }
         viewMode = mode
-        UserDefaults.standard.set(mode.rawValue, forKey: Self.viewModeKey(for: rootURL))
+        if let id = tabStrip.activeID {
+            var strip = tabStrip
+            strip.setMode(id: id, mode)
+            tabStrip = strip
+            onTabsChanged?()
+        }
         if previous != viewMode {
             ViewModeLog.changed(from: previous.rawValue, to: viewMode.rawValue, source: source)
         }
@@ -305,8 +323,17 @@ final class WorkspaceSession: ObservableObject {
         nameQuery = ""
     }
 
-    func openFile(_ node: WorkspaceNode, pin: Bool = false, line: Int? = nil) {
+    func openFile(
+        _ node: WorkspaceNode,
+        pin: Bool = false,
+        line: Int? = nil,
+        mode: EditorViewMode = .source,
+        adoptExisting: Bool = true
+    ) {
         guard !node.isDirectory else { return }
+        if adoptExisting, claimExistingFile?(node.relativePath) == true {
+            return
+        }
         revealAncestors(of: node.relativePath)
         let path = node.relativePath
         if let line {
@@ -316,8 +343,9 @@ final class WorkspaceSession: ObservableObject {
             scrollLink.clearQueuedReveal()
         }
         var strip = tabStrip
-        let replaced = strip.open(path, pin: pin)
+        let replaced = strip.open(path, pin: pin, mode: mode)
         tabStrip = strip
+        onTabsChanged?()
         if let replaced {
             release(replaced, save: true)
         }
@@ -401,7 +429,76 @@ final class WorkspaceSession: ObservableObject {
         if !force {
             closedTabs.push(id)
         }
+        tabMRU.close(id)
+        onTabsChanged?()
         return true
+    }
+
+    /// Moves a tab out of this window. A tab that could not be saved stays here.
+    func detachForMove(_ id: String) -> EditorTab? {
+        if let open = buffers[id] {
+            open.flush()
+            if open.isDirty || open.conflictText != nil {
+                show(open)
+                return nil
+            }
+        }
+        var strip = tabStrip
+        guard let tab = strip.detach(id) else { return nil }
+        tabStrip = strip
+        tabMRU.close(id)
+        release(id, save: false)
+        if let next = tabStrip.activeID, let open = buffers[next] {
+            show(open)
+        } else if tabStrip.activeID == nil {
+            buffer = nil
+            selectedPath = nil
+            previewBridge.send("")
+        }
+        onTabsChanged?()
+        return tab
+    }
+
+    func windowState() -> WorkspaceWindowState {
+        WorkspaceWindowState(
+            tabs: tabStrip.tabs.map {
+                WorkspaceTabState(path: $0.id, isPreview: $0.isPreview, mode: $0.mode)
+            },
+            activePath: tabStrip.activeID
+        ).normalized()
+    }
+
+    /// Opens the saved tabs. Does not steal a file that this call itself is restoring.
+    func restoreTabs(_ state: WorkspaceWindowState) {
+        let state = state.normalized()
+        for tab in state.tabs where !tab.isPreview {
+            openRestored(tab)
+        }
+        for tab in state.tabs where tab.isPreview {
+            openRestored(tab)
+            var strip = tabStrip
+            strip.setPreview(id: tab.path, true)
+            tabStrip = strip
+        }
+        if let active = state.activePath {
+            _ = selectTab(id: active)
+        }
+        onTabsChanged?()
+    }
+
+    private func openRestored(_ tab: WorkspaceTabState) {
+        let name = (tab.path as NSString).lastPathComponent
+        openFile(
+            WorkspaceNode(
+                name: name,
+                relativePath: tab.path,
+                isDirectory: false,
+                isHidden: WorkspacePaths.isHidden(name: name, resourceHidden: false)
+            ),
+            pin: true,
+            mode: tab.mode,
+            adoptExisting: false
+        )
     }
 
     /// Opens the most recently closed tab that is still a file. ⇧⌘T.
@@ -417,6 +514,36 @@ final class WorkspaceSession: ObservableObject {
             return true
         }
         return false
+    }
+
+    /// ⌃Tab. The second most recent file is selected. Releasing Control opens it.
+    func beginTabSwitch() -> Bool {
+        if tabSwitch != nil { return true }
+        let order = tabMRU.order(open: tabStrip.tabs.map(\.id))
+        guard order.count > 1 else { return false }
+        tabSwitch = TabSwitchState(paths: order, index: 1)
+        return true
+    }
+
+    func moveTabSwitch(_ delta: Int) {
+        guard var picker = tabSwitch, !picker.paths.isEmpty else { return }
+        let count = picker.paths.count
+        picker.index = (picker.index + delta + count) % count
+        tabSwitch = picker
+    }
+
+    func commitTabSwitch() {
+        guard let picker = tabSwitch, picker.paths.indices.contains(picker.index) else {
+            tabSwitch = nil
+            return
+        }
+        let path = picker.paths[picker.index]
+        tabSwitch = nil
+        _ = selectTab(id: path)
+    }
+
+    func cancelTabSwitch() {
+        tabSwitch = nil
     }
 
     /// Expands the folders above the active file and selects it in the sidebar.
@@ -504,6 +631,10 @@ final class WorkspaceSession: ObservableObject {
         buffer = open
         selectedPath = open.relativePath
         previewBridge.send(open.text)
+        tabMRU.focus(open.relativePath)
+        if let tab = tabStrip.tabs.first(where: { $0.id == open.relativePath }) {
+            viewMode = tab.mode
+        }
         guard let line = pendingRevealLine else { return }
         pendingRevealLine = nil
         if same {
@@ -532,7 +663,8 @@ final class WorkspaceSession: ObservableObject {
             text: loaded.text,
             encoding: loaded.encoding,
             lineEnding: loaded.lineEnding,
-            mixedLineEndings: loaded.mixedLineEndings
+            mixedLineEndings: loaded.mixedLineEndings,
+            previewTruncated: loaded.truncated
         )
         open.onEditorState = { [weak self] buffer in
             guard let self else { return }
@@ -604,6 +736,7 @@ final class WorkspaceSession: ObservableObject {
         }
         recentPaths = recentPaths.map { WorkspacePaths.replacing($0, from: old, to: new) }
         closedTabs.retarget(from: old, to: new)
+        tabMRU.retarget(from: old, to: new)
         UserDefaults.standard.set(recentPaths, forKey: Self.recentsKey(for: rootURL))
     }
 
@@ -858,9 +991,10 @@ final class WorkspaceSession: ObservableObject {
         var encoding: TextEncoding
         var lineEnding: LineEnding
         var mixedLineEndings: Bool
+        var truncated = false
     }
 
-    private static func readForEditing(url: URL, name: String) async -> LoadedFile {
+    fileprivate static func readForEditing(url: URL, name: String) async -> LoadedFile {
         await Task.detached {
             let empty = LoadedFile(kind: .binary, text: "", encoding: .utf8, lineEnding: .lf, mixedLineEndings: false)
             let size = WorkspaceFileCoordination.fileSize(at: url)
@@ -871,26 +1005,40 @@ final class WorkspaceSession: ObservableObject {
                 fullFile = full
                 sample = full
             }
-            var kind = WorkspaceFileClassifier.kind(
+            let kind = WorkspaceFileClassifier.kind(
                 name: name,
                 byteCount: size,
                 sample: sample,
                 fullFile: fullFile
             )
-            guard kind == .markdown || kind == .plainText else {
-                return LoadedFile(kind: kind, text: "", encoding: .utf8, lineEnding: .lf, mixedLineEndings: false)
+            switch FileOpenRouting.route(name: name, kind: kind) {
+            case .edit:
+                let data = (fullFile?.count == size ? fullFile : nil) ?? (try? WorkspaceFileCoordination.readData(at: url))
+                guard let data, let decoded = TextBytes.decode(data, allowLegacy: true) else {
+                    return empty
+                }
+                return LoadedFile(
+                    kind: kind,
+                    text: decoded.text,
+                    encoding: decoded.encoding,
+                    lineEnding: decoded.lineEnding,
+                    mixedLineEndings: decoded.mixedLineEndings
+                )
+            case .viewer, .quickLook:
+                return LoadedFile(kind: .binary, text: "", encoding: .utf8, lineEnding: .lf, mixedLineEndings: false)
+            case .readOnlyPreview:
+                let limit = TextBytes.previewByteLimit
+                let data = (try? WorkspaceFileCoordination.readSample(at: url, limit: limit)) ?? Data()
+                let preview = TextBytes.preview(data, truncated: size > data.count)
+                return LoadedFile(
+                    kind: .readOnly,
+                    text: preview.text,
+                    encoding: preview.encoding,
+                    lineEnding: .lf,
+                    mixedLineEndings: false,
+                    truncated: preview.truncated
+                )
             }
-            let data = (fullFile?.count == size ? fullFile : nil) ?? (try? WorkspaceFileCoordination.readData(at: url))
-            guard let data, let decoded = TextBytes.decode(data, allowLegacy: true) else {
-                return empty
-            }
-            return LoadedFile(
-                kind: kind,
-                text: decoded.text,
-                encoding: decoded.encoding,
-                lineEnding: decoded.lineEnding,
-                mixedLineEndings: decoded.mixedLineEndings
-            )
         }.value
     }
 }
@@ -918,8 +1066,12 @@ final class WorkspaceFileBuffer: ObservableObject {
     private var saveTask: Task<Void, Never>?
 
     var isDirty: Bool {
-        text != lastSaved || encoding != savedEncoding || lineEnding != savedLineEnding
+        if kind == .readOnly { return false }
+        return text != lastSaved || encoding != savedEncoding || lineEnding != savedLineEnding
     }
+
+    /// A read-only preview stopped at `TextBytes.previewByteLimit`.
+    private(set) var previewTruncated: Bool
 
     fileprivate init(
         url: URL,
@@ -928,7 +1080,8 @@ final class WorkspaceFileBuffer: ObservableObject {
         text: String,
         encoding: TextEncoding,
         lineEnding: LineEnding,
-        mixedLineEndings: Bool
+        mixedLineEndings: Bool,
+        previewTruncated: Bool = false
     ) {
         self.url = url
         self.relativePath = relativePath
@@ -940,6 +1093,7 @@ final class WorkspaceFileBuffer: ObservableObject {
         self.lastSaved = text
         self.savedEncoding = encoding
         self.savedLineEnding = lineEnding
+        self.previewTruncated = previewTruncated
         Self.nextGeneration += 1
         generation = Self.nextGeneration
     }
@@ -979,6 +1133,7 @@ final class WorkspaceFileBuffer: ObservableObject {
     private let generation: Int
 
     func userEdited(_ newText: String) {
+        if kind == .readOnly { return }
         text = newText
         onEditorState?(self)
         if conflictText != nil || isMissing {
@@ -1009,6 +1164,22 @@ final class WorkspaceFileBuffer: ObservableObject {
     }
 
     func noteExternalChange() {
+        if kind == .readOnly {
+            let url = url
+            let name = url.lastPathComponent
+            Task { [weak self] in
+                let loaded = await WorkspaceSession.readForEditing(url: url, name: name)
+                await MainActor.run {
+                    guard let self, self.kind == .readOnly else { return }
+                    self.text = loaded.text
+                    self.lastSaved = loaded.text
+                    self.encoding = loaded.encoding
+                    self.previewTruncated = loaded.truncated
+                    self.reloadToken += 1
+                }
+            }
+            return
+        }
         if kind != .markdown && kind != .plainText {
             reloadToken += 1
             return

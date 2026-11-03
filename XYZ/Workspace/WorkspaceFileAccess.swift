@@ -179,6 +179,20 @@ struct WorkspaceBookmark: Codable, Identifiable, Equatable {
     var data: Data
 }
 
+/// One folder window to open again next launch, including the tabs that were in it.
+struct PersistedWorkspaceWindow: Codable, Equatable {
+    var bookmark: WorkspaceBookmark
+    var tabs: [WorkspaceTabState]
+    var activePath: String?
+
+    init(bookmark: WorkspaceBookmark, state: WorkspaceWindowState) {
+        let state = state.normalized()
+        self.bookmark = bookmark
+        self.tabs = state.tabs
+        self.activePath = state.activePath
+    }
+}
+
 enum WorkspaceBookmarks {
     static func make(for url: URL) throws -> Data {
         try url.bookmarkData(
@@ -231,14 +245,24 @@ final class WorkspaceLibrary: ObservableObject {
 
     @Published private(set) var recents: [WorkspaceBookmark] = []
     @Published private(set) var openBookmarks: [WorkspaceBookmark] = []
+    @Published private(set) var windows: [PersistedWorkspaceWindow] = []
 
     private let recentsKey = "xyz.workspace.recents"
     private let openKey = "xyz.workspace.open"
+    private let windowsKey = "xyz.workspace.windows"
     private let limit = 10
 
     private init() {
         recents = Self.load(recentsKey)
-        openBookmarks = Self.load(openKey)
+        if let stored = Self.loadWindows(windowsKey) {
+            windows = stored
+            openBookmarks = stored.map(\.bookmark)
+        } else {
+            openBookmarks = Self.load(openKey)
+            windows = openBookmarks.map {
+                PersistedWorkspaceWindow(bookmark: $0, state: WorkspaceWindowState(tabs: [], activePath: nil))
+            }
+        }
     }
 
     func remember(name: String, data: Data, url: URL) {
@@ -265,6 +289,24 @@ final class WorkspaceLibrary: ObservableObject {
         openBookmarks = bookmarks
         Self.store(bookmarks, key: openKey)
         WorkspaceLog.bookmarksStored(kind: "open-windows", count: bookmarks.count)
+    }
+
+    func syncWindows(_ stored: [PersistedWorkspaceWindow]) {
+        windows = stored
+        openBookmarks = stored.map(\.bookmark)
+        Self.store(stored, key: windowsKey)
+        Self.store(openBookmarks, key: openKey)
+        WorkspaceLog.bookmarksStored(kind: "open-windows", count: stored.count)
+    }
+
+    private static func loadWindows(_ key: String) -> [PersistedWorkspaceWindow]? {
+        guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
+        return try? JSONDecoder().decode([PersistedWorkspaceWindow].self, from: data)
+    }
+
+    private static func store(_ windows: [PersistedWorkspaceWindow], key: String) {
+        guard let data = try? JSONEncoder().encode(windows) else { return }
+        UserDefaults.standard.set(data, forKey: key)
     }
 
     private static func load(_ key: String) -> [WorkspaceBookmark] {

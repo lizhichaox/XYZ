@@ -625,10 +625,14 @@ fileprivate final class SidebarColumnView: NSView {
         scroll.documentView = outline
         addSubview(search)
         addSubview(scroll)
+        let belowLights = search.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 36)
+        let belowSafeArea = search.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: 8)
+        belowSafeArea.priority = .defaultHigh
         NSLayoutConstraint.activate([
             search.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
             search.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
-            search.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: 8),
+            belowLights,
+            belowSafeArea,
             scroll.topAnchor.constraint(equalTo: search.bottomAnchor, constant: 6),
             scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: trailingAnchor),

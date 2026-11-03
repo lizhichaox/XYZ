@@ -167,6 +167,98 @@ final class EditorTabTests: XCTestCase {
         history.retarget(from: "file-29.txt", to: "renamed.txt")
         XCTAssertEqual(history.paths.first, "renamed.txt")
     }
+
+    func testATabKeepsItsOwnViewMode() {
+        var strip = EditorTabStrip()
+        strip.open("a.md", pin: true, mode: .reading)
+        strip.open("b.txt", pin: true, mode: .source)
+        strip.setMode(id: "b.txt", .reading)
+        XCTAssertEqual(strip.tabs.map(\.mode), [.reading, .reading])
+        strip.open("a.md", pin: false)
+        XCTAssertEqual(strip.tabs.first?.mode, .reading)
+    }
+
+    func testDetachHandsTheTabToAnotherWindow() {
+        var strip = EditorTabStrip()
+        strip.open("a.md", pin: true)
+        strip.open("b.md", pin: true, mode: .reading)
+        let moved = strip.detach("a.md")
+        XCTAssertEqual(moved?.id, "a.md")
+        XCTAssertEqual(strip.tabs.map(\.id), ["b.md"])
+        XCTAssertEqual(strip.activeID, "b.md")
+    }
+}
+
+final class WindowRestoreTests: XCTestCase {
+    func testNormalizedStateDropsEmptyAndRepeatedPaths() {
+        let state = WorkspaceWindowState(
+            tabs: [
+                WorkspaceTabState(path: "", isPreview: false, mode: .source),
+                WorkspaceTabState(path: "a.md", isPreview: true, mode: .reading),
+                WorkspaceTabState(path: "a.md", isPreview: false, mode: .source),
+                WorkspaceTabState(path: "b.md", isPreview: true, mode: .source),
+            ],
+            activePath: "missing.md"
+        ).normalized()
+        XCTAssertEqual(state.tabs.map(\.path), ["a.md", "b.md"])
+        XCTAssertEqual(state.tabs.map(\.isPreview), [true, false])
+        XCTAssertNil(state.activePath)
+    }
+
+    func testAnotherWindowOwnsAFileTheCurrentWindowDoesNot() {
+        let tabs = [["a.md"], ["b.md", "c.md"]]
+        XCTAssertEqual(WorkspaceFileFocus.otherWindow(containing: "b.md", tabs: tabs, current: 0), 1)
+        XCTAssertNil(WorkspaceFileFocus.otherWindow(containing: "a.md", tabs: tabs, current: 0))
+        XCTAssertNil(WorkspaceFileFocus.otherWindow(containing: "z.md", tabs: tabs, current: 0))
+    }
+
+    func testRecentTabsStayNewestFirstAcrossCloseAndMove() {
+        var source = TabMRU()
+        source.focus("a.md")
+        source.focus("b.md")
+        source.focus("a.md")
+        XCTAssertEqual(source.recent, ["a.md", "b.md"])
+        let moved = "a.md"
+        source.close(moved)
+        var destination = TabMRU()
+        destination.focus(moved)
+        XCTAssertEqual(source.order(open: ["b.md", "c.md"]), ["b.md", "c.md"])
+        XCTAssertEqual(destination.recent, ["a.md"])
+        source.retarget(from: "b.md", to: "notes/b.md")
+        XCTAssertEqual(source.recent, ["notes/b.md"])
+    }
+}
+
+final class ReadOnlyPreviewTests: XCTestCase {
+    func testPicturesStayViewersAndOfficeStaysQuickLook() {
+        XCTAssertEqual(FileOpenRouting.route(name: "photo.png", kind: .binary), .viewer(.image))
+        XCTAssertEqual(FileOpenRouting.route(name: "clip.mp4", kind: .binary), .viewer(.audiovisual))
+        XCTAssertEqual(FileOpenRouting.route(name: "report.docx", kind: .binary), .quickLook)
+        XCTAssertEqual(FileOpenRouting.route(name: "notes.md", kind: .markdown), .edit)
+        XCTAssertEqual(FileOpenRouting.route(name: "data.dat", kind: .binary), .readOnlyPreview)
+        XCTAssertEqual(FileOpenRouting.route(name: "huge.log", kind: .tooLarge), .readOnlyPreview)
+    }
+
+    func testPreviewFallsBackWhenTheBytesAreNotUnicode() throws {
+        let latin = TextBytes.preview(Data([0x48, 0x69, 0xFF]), truncated: false)
+        XCTAssertEqual(latin.encoding, .windows1252)
+        XCTAssertEqual(latin.text.count, 3)
+        XCTAssertFalse(latin.text.contains("\u{FFFD}"))
+        XCTAssertFalse(latin.truncated)
+
+        let nuls = TextBytes.preview(Data([0x41, 0x00, 0x42]), truncated: true)
+        XCTAssertEqual(nuls.encoding, .utf8)
+        XCTAssertTrue(nuls.text.contains("A"))
+        XCTAssertTrue(nuls.text.contains("B"))
+        XCTAssertTrue(nuls.truncated)
+        let mixed = TextBytes.preview(Data([0xFF, 0x00]), truncated: false)
+        XCTAssertEqual(mixed.encoding, .windows1252)
+        XCTAssertFalse(mixed.text.contains("\u{FFFD}"))
+
+        let utf8 = TextBytes.preview(Data("你好".utf8), truncated: false)
+        XCTAssertEqual(utf8.encoding, .utf8)
+        XCTAssertEqual(utf8.text, "你好")
+    }
 }
 
 final class EditorCaretTests: XCTestCase {

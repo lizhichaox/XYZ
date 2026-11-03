@@ -25,7 +25,19 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
         window.styleMask.insert(.fullSizeContentView)
         window.contentMinSize = NSSize(width: 880, height: 520)
         window.isReleasedWhenClosed = false
+        window.isExcludedFromWindowsMenu = false
         super.init(window: window)
+        session.claimExistingFile = { [weak self] path in
+            guard let self else { return false }
+            return Self.focusElsewhere(root: self.session.rootURL, path: path, except: self)
+        }
+        session.onTabsChanged = { [weak self] in
+            guard let self, !Self.isTerminating else { return }
+            Self.persistOpenWindows()
+        }
+        session.onMoveTab = { [weak self] id in
+            self?.moveTabToNewWindow(id)
+        }
         window.delegate = self
         window.contentViewController = NSHostingController(rootView: WorkspaceView(session: session))
         session.activate()
@@ -53,7 +65,33 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
-    static func prompt() {
+    /// A new window on the key folder, or the folder panel when no folder window is key.
+    static func newWindow() {
+        if let current = controllers.first(where: { $0.window?.isKeyWindow == true }) {
+            _ = open(url: current.session.rootURL, bookmark: current.session.bookmark, fresh: true)
+            return
+        }
+        prompt(fresh: true)
+    }
+
+    func moveTabToNewWindow(_ id: String) {
+        guard let tab = session.detachForMove(id) else { return }
+        guard let destination = Self.open(url: session.rootURL, bookmark: session.bookmark, fresh: true) else { return }
+        let name = (id as NSString).lastPathComponent
+        destination.session.openFile(
+            WorkspaceNode(
+                name: name,
+                relativePath: id,
+                isDirectory: false,
+                isHidden: WorkspacePaths.isHidden(name: name, resourceHidden: false)
+            ),
+            pin: !tab.isPreview,
+            mode: tab.mode,
+            adoptExisting: false
+        )
+    }
+
+    static func prompt(fresh: Bool = false) {
         let panel = NSOpenPanel()
         panel.canChooseFiles = false
         panel.canChooseDirectories = true
@@ -80,24 +118,30 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
                 WorkspaceLog.bookmarkFailed(action: "save", path: url.path, error: error)
             }
             MainActor.assumeIsolated {
-                open(url: url, bookmark: bookmark)
+                open(url: url, bookmark: bookmark, fresh: fresh)
             }
         }
     }
 
-    static func open(bookmark: WorkspaceBookmark) {
+    static func open(bookmark: WorkspaceBookmark, fresh: Bool = false, tabs: WorkspaceWindowState? = nil) {
         do {
             let url = try WorkspaceBookmarks.resolve(bookmark.data)
-            open(url: url, bookmark: bookmark.data)
+            _ = open(url: url, bookmark: bookmark.data, fresh: fresh, tabs: tabs)
         } catch {
             WorkspaceLog.bookmarkFailed(action: "restore", path: bookmark.name, error: error)
         }
     }
 
-    static func open(url: URL, bookmark: Data? = nil) {
+    @discardableResult
+    static func open(
+        url: URL,
+        bookmark: Data? = nil,
+        fresh: Bool = false,
+        tabs: WorkspaceWindowState? = nil
+    ) -> WorkspaceWindowController? {
         guard WorkspaceFolders.isDirectory(url) else {
             WorkspaceLog.rejected(path: url.path, reason: "not-a-folder")
-            return
+            return nil
         }
         let data = bookmark ?? WorkspaceBookmarks.capture(url)
         let resolved: URL
@@ -113,15 +157,18 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
         } else {
             resolved = url
         }
-        if let existing = controllers.first(where: { $0.session.rootURL.standardizedFileURL.path == resolved.standardizedFileURL.path }) {
+        if !fresh, let existing = controllers.first(where: { $0.session.rootURL.standardizedFileURL.path == resolved.standardizedFileURL.path }) {
             existing.showWindow(nil)
             NSApp.activate()
             WorkspaceLog.workspaceWindow(path: resolved.path, state: "focused", openWindows: controllers.count)
-            return
+            return existing
         }
         let session = WorkspaceSession(rootURL: resolved, bookmark: data)
         let controller = WorkspaceWindowController(session: session)
         controllers.append(controller)
+        if let tabs {
+            session.restoreTabs(tabs)
+        }
         controller.showWindow(nil)
         NSApp.activate()
         WorkspaceLog.workspaceWindow(path: resolved.path, state: "opened", openWindows: controllers.count)
@@ -129,13 +176,34 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
             WorkspaceLibrary.shared.remember(name: resolved.lastPathComponent, data: data, url: resolved)
         }
         persistOpenWindows()
+        return controller
+    }
+
+    /// A file open in another window of the same folder. That window comes forward.
+    static func focusElsewhere(root: URL, path: String, except: WorkspaceWindowController) -> Bool {
+        let rootPath = root.standardizedFileURL.path
+        let tabs = controllers.map { controller -> [String] in
+            guard controller.session.rootURL.standardizedFileURL.path == rootPath else { return [] }
+            return controller.session.tabStrip.tabs.map(\.id)
+        }
+        guard let index = controllers.firstIndex(where: { $0 === except }) else { return false }
+        guard let found = WorkspaceFileFocus.otherWindow(containing: path, tabs: tabs, current: index) else { return false }
+        let controller = controllers[found]
+        _ = controller.session.selectTab(id: path)
+        controller.showWindow(nil)
+        NSApp.activate()
+        return true
     }
 
     static func restore() {
-        let bookmarks = WorkspaceLibrary.shared.openBookmarks
-        WorkspaceLog.restoreStarted(count: bookmarks.count)
-        for bookmark in bookmarks {
-            open(bookmark: bookmark)
+        let stored = WorkspaceLibrary.shared.windows
+        WorkspaceLog.restoreStarted(count: stored.count)
+        for item in stored {
+            open(
+                bookmark: item.bookmark,
+                fresh: true,
+                tabs: WorkspaceWindowState(tabs: item.tabs, activePath: item.activePath)
+            )
         }
     }
 
@@ -148,11 +216,12 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private static func persistOpenWindows() {
-        let bookmarks = controllers.compactMap { controller -> WorkspaceBookmark? in
+        let stored = controllers.compactMap { controller -> PersistedWorkspaceWindow? in
             guard let data = controller.session.bookmark else { return nil }
-            return WorkspaceBookmark(id: UUID(), name: controller.session.displayName, data: data)
+            let bookmark = WorkspaceBookmark(id: UUID(), name: controller.session.displayName, data: data)
+            return PersistedWorkspaceWindow(bookmark: bookmark, state: controller.session.windowState())
         }
-        WorkspaceLibrary.shared.syncOpen(bookmarks)
+        WorkspaceLibrary.shared.syncWindows(stored)
     }
 }
 

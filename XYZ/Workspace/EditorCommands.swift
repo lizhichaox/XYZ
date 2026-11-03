@@ -57,6 +57,11 @@ protocol EditorCommandTarget: AnyObject {
     func revealPosition(line: Int, column: Int)
     func reopenClosedTab() -> Bool
     func revealActiveFile()
+    func beginTabSwitch() -> Bool
+    func moveTabSwitch(_ delta: Int)
+    func commitTabSwitch()
+    func cancelTabSwitch()
+    var isSwitchingTabs: Bool { get }
     func performCustomCommand(_ id: String) -> Bool
 }
 
@@ -80,6 +85,11 @@ extension EditorCommandTarget {
     func revealPosition(line: Int, column: Int) {}
     func reopenClosedTab() -> Bool { false }
     func revealActiveFile() {}
+    func beginTabSwitch() -> Bool { false }
+    func moveTabSwitch(_ delta: Int) {}
+    func commitTabSwitch() {}
+    func cancelTabSwitch() {}
+    var isSwitchingTabs: Bool { false }
     func performCustomCommand(_ id: String) -> Bool { false }
 }
 
@@ -101,7 +111,15 @@ final class EditorCommands: NSObject {
             }
             return handled ? nil : event
         }
+        flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { event in
+            MainActor.assumeIsolated {
+                EditorCommands.shared.handleFlagsChanged(event)
+            }
+            return event
+        }
     }
+
+    private var flagsMonitor: Any?
 
     func handleKeyEquivalent(_ event: NSEvent, requireHost: Bool = false) -> Bool {
         if requireHost, hostWindow !== NSApp.keyWindow { return false }
@@ -164,7 +182,51 @@ final class EditorCommands: NSObject {
             toggleSidebarVisibility(nil)
             return true
         }
+        if flags == [.command, .shift] && key.lowercased() == "n" {
+            newWorkspaceWindow(nil)
+            return true
+        }
+        if handleTabSwitch(event, flags: flags) {
+            return true
+        }
         return false
+    }
+
+    /// ⌃Tab moves through the window's recent files. NSTextView would otherwise insert a tab.
+    private func handleTabSwitch(_ event: NSEvent, flags: NSEvent.ModifierFlags) -> Bool {
+        let controlOnly = flags.contains(.control) && !flags.contains(.command) && !flags.contains(.option)
+        if event.keyCode == 48, controlOnly {
+            if target?.isSwitchingTabs == true {
+                target?.moveTabSwitch(flags.contains(.shift) ? -1 : 1)
+            } else if target?.beginTabSwitch() != true {
+                return false
+            }
+            return true
+        }
+        guard target?.isSwitchingTabs == true else { return false }
+        if event.keyCode == 53 {
+            target?.cancelTabSwitch()
+            return true
+        }
+        if event.keyCode == 126 {
+            target?.moveTabSwitch(-1)
+            return true
+        }
+        if event.keyCode == 125 {
+            target?.moveTabSwitch(1)
+            return true
+        }
+        if event.keyCode == 36 {
+            target?.commitTabSwitch()
+            return true
+        }
+        return false
+    }
+
+    private func handleFlagsChanged(_ event: NSEvent) {
+        let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
+        guard !flags.contains(.control), target?.isSwitchingTabs == true else { return }
+        target?.commitTabSwitch()
     }
 
     func run(_ id: String) {
@@ -188,6 +250,8 @@ final class EditorCommands: NSObject {
             target?.newFolder()
         case "folder.open":
             WorkspaceWindowController.prompt()
+        case "window.new":
+            WorkspaceWindowController.newWindow()
         case "file.reveal":
             target?.reveal()
         case "file.revealInSidebar":
@@ -220,6 +284,10 @@ final class EditorCommands: NSObject {
         default:
             break
         }
+    }
+
+    @objc func newWorkspaceWindow(_ sender: Any?) {
+        WorkspaceWindowController.newWindow()
     }
 
     @objc func showPalette(_ sender: Any?) {
@@ -373,6 +441,7 @@ enum PaletteTitles {
         case "file.new": return String(localized: "New File")
         case "folder.new": return String(localized: "New Folder")
         case "folder.open": return String(localized: "Open Folder")
+        case "window.new": return String(localized: "New Window")
         case "file.reveal": return String(localized: "Reveal in Finder")
         case "file.revealInSidebar": return String(localized: "Reveal Active File")
         case "view.goToLine": return String(localized: "Go to Line")
@@ -519,6 +588,14 @@ enum EditorMenuSupport {
     }
 
     private static func ensureFileItems(in menu: NSMenu) {
+        let newWindow = item(
+            identifier: "xyz.window.new",
+            title: String(localized: "New Window"),
+            key: "n",
+            flags: [.command, .shift],
+            action: #selector(EditorCommands.newWorkspaceWindow(_:)),
+            in: menu
+        )
         let filter = item(
             identifier: "xyz.workspace.filter",
             title: String(localized: "Filter Files"),
@@ -553,7 +630,8 @@ enum EditorMenuSupport {
         )
         let anchor = menu.items.first { $0.title == FileMenuSupport.title }
         if let anchor, let index = menu.items.firstIndex(of: anchor) {
-            move(filter, to: min(index + 1, menu.items.count), in: menu)
+            move(newWindow, to: index, in: menu)
+            move(filter, to: min((menu.items.firstIndex(of: newWindow) ?? index) + 1, menu.items.count), in: menu)
             move(hidden, to: min((menu.items.firstIndex(of: filter) ?? index) + 1, menu.items.count), in: menu)
             move(reopen, to: min((menu.items.firstIndex(of: hidden) ?? index) + 1, menu.items.count), in: menu)
             move(revealActive, to: min((menu.items.firstIndex(of: reopen) ?? index) + 1, menu.items.count), in: menu)

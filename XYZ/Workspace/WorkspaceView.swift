@@ -24,6 +24,7 @@ struct WorkspaceView: View {
     @ObservedObject var session: WorkspaceSession
     @StateObject private var commands = WorkspaceCommandBridge()
     @State private var columnVisibility = NavigationSplitViewVisibility.all
+    @State private var trafficInset: CGFloat = 108
     @AppStorage(HiddenFilesSetting.key) private var storedHiddenFiles = true
 
     var body: some View {
@@ -31,17 +32,22 @@ struct WorkspaceView: View {
             WorkspaceSidebar(session: session)
                 .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 420)
         } detail: {
-            WorkspaceDetail(session: session)
+            WorkspaceDetail(
+                session: session,
+                tabLeading: columnVisibility == .detailOnly ? trafficInset : 0
+            )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color.editorBackground.ignoresSafeArea())
         }
         .navigationSplitViewStyle(.balanced)
         .toolbarRole(.editor)
+        .toolbarBackground(.hidden, for: .windowToolbar)
+        .ignoresSafeArea(edges: .top)
         .frame(minWidth: 880, minHeight: 520)
         .background(WorkspaceWindowChrome(
             title: titleText,
-            subtitle: subtitleText,
-            representedFile: session.buffer?.url
+            representedFile: session.buffer?.url,
+            trafficInset: $trafficInset
         ))
         .background(
             EditorCommandAnchor(target: commands) {
@@ -68,12 +74,6 @@ struct WorkspaceView: View {
         openFilePath.map { ($0 as NSString).lastPathComponent } ?? session.displayName
     }
 
-    /// The way from the folder's root to the open file: `LIZHICHAO › DT`. ⌘-click the title for the full path.
-    private var subtitleText: String {
-        guard let path = openFilePath else { return "" }
-        return WorkspacePaths.breadcrumb(rootName: session.displayName, relativePath: path).joined(separator: " › ")
-    }
-
     private var openFilePath: String? {
         if let path = session.selectedPath, let node = session.node(at: path), !node.isDirectory {
             return node.relativePath
@@ -85,29 +85,37 @@ struct WorkspaceView: View {
 /// The window title is the open file. The subtitle is the folder. The proxy icon is that file, never the folder.
 private struct WorkspaceWindowChrome: NSViewRepresentable {
     var title: String
-    var subtitle: String
     var representedFile: URL?
+    @Binding var trafficInset: CGFloat
 
     func makeNSView(context: Context) -> WorkspaceChromeView {
         let view = WorkspaceChromeView()
         view.title = title
-        view.subtitle = subtitle
         view.representedFile = representedFile
+        view.onTrafficInset = { inset in
+            if abs(trafficInset - inset) > 0.5 {
+                trafficInset = inset
+            }
+        }
         return view
     }
 
     func updateNSView(_ view: WorkspaceChromeView, context: Context) {
         view.title = title
-        view.subtitle = subtitle
         view.representedFile = representedFile
+        view.onTrafficInset = { inset in
+            if abs(trafficInset - inset) > 0.5 {
+                trafficInset = inset
+            }
+        }
         view.apply()
     }
 }
 
 final class WorkspaceChromeView: NSView {
     var title = ""
-    var subtitle = ""
     var representedFile: URL?
+    var onTrafficInset: (CGFloat) -> Void = { _ in }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -134,42 +142,35 @@ final class WorkspaceChromeView: NSView {
         // NavigationSplitView writes the title during layout. Put the file name back
         // when it does, without touching the title bar when the values already match.
         syncTitle()
+        reportTrafficInset()
     }
 
     func apply() {
         guard let window else { return }
-        WorkspaceChrome.apply(to: window, title: title, subtitle: subtitle, representedFile: representedFile)
+        syncTitle()
+        reportTrafficInset()
     }
 
+    /// The file name stays on the window for the Window menu. The title bar does not draw it.
     private func syncTitle() {
         guard let window else { return }
-        if window.titleVisibility != .visible {
-            window.titleVisibility = .visible
-        }
-        if window.title != title {
-            window.title = title
-        }
-        if window.subtitle != subtitle {
-            window.subtitle = subtitle
-        }
-        if window.representedURL != representedFile {
-            window.representedURL = representedFile
-        }
+        WorkspaceChrome.apply(to: window, title: title, subtitle: "", representedFile: representedFile)
+    }
+
+    private func reportTrafficInset() {
+        guard let window else { return }
+        let lights = window.standardWindowButton(.zoomButton)?.frame.maxX ?? 70
+        onTrafficInset(lights + 36)
     }
 }
 
 enum WorkspaceChrome {
     static func apply(to window: NSWindow, title: String, subtitle: String, representedFile: URL?) {
-        window.titleVisibility = .visible
-        if #available(macOS 26, *) {
-            window.titlebarAppearsTransparent = false
-            window.titlebarSeparatorStyle = .automatic
-            window.toolbarStyle = .automatic
-        } else {
-            window.titlebarAppearsTransparent = true
-            window.titlebarSeparatorStyle = .none
-            window.toolbarStyle = .unified
-        }
+        _ = subtitle
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.titlebarSeparatorStyle = .none
+        window.toolbarStyle = .unifiedCompact
         if !window.styleMask.contains(.fullSizeContentView) {
             window.styleMask.insert(.fullSizeContentView)
         }
@@ -177,8 +178,8 @@ enum WorkspaceChrome {
         if window.title != title {
             window.title = title
         }
-        if window.subtitle != subtitle {
-            window.subtitle = subtitle
+        if !window.subtitle.isEmpty {
+            window.subtitle = ""
         }
         if window.representedURL != representedFile {
             window.representedURL = representedFile
@@ -188,6 +189,7 @@ enum WorkspaceChrome {
 
 private struct WorkspaceDetail: View {
     @ObservedObject var session: WorkspaceSession
+    var tabLeading: CGFloat = 0
     @Environment(\.undoManager) private var undoManager
     @AppStorage(WordCountSetting.key) private var showsWordCount = false
     @StateObject private var wordCount = WordCountModel()
@@ -202,6 +204,7 @@ private struct WorkspaceDetail: View {
                 VStack(spacing: 0) {
                     if !session.tabStrip.tabs.isEmpty {
                         EditorTabBar(session: session)
+                            .padding(.leading, tabLeading)
                         if let path = activePath {
                             EditorBreadcrumb(rootName: session.displayName, relativePath: path) { crumb in
                                 session.revealCrumb(crumb)
@@ -214,7 +217,7 @@ private struct WorkspaceDetail: View {
                     fileBody
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-                if showsOutline && showsText {
+                if showsOutline && editableText {
                     Rectangle().fill(Color.primary.opacity(0.12)).frame(width: 1)
                     OutlinePane(entries: outline.entries) { line in
                         session.scrollLink.revealLine(line)
@@ -230,16 +233,27 @@ private struct WorkspaceDetail: View {
                     encodingValue: showsText ? session.buffer?.encoding : nil,
                     lineEndingValue: showsText ? session.buffer?.lineEnding : nil,
                     mixedEndings: session.buffer?.mixedLineEndings == true,
-                    typeName: format.label,
-                    words: format.isProse ? wordCount.stats : nil,
-                    showsReadingTime: showsWordCount && format.isProse,
-                    detail: showsText ? nil : surfaceDetail,
-                    onEncoding: showsText ? { session.chooseEncoding($0) } : nil,
-                    onLineEnding: showsText ? { session.chooseLineEnding($0) } : nil
+                    typeName: isReadOnly ? "Read-only" : format.label,
+                    words: format.isProse && !isReadOnly ? wordCount.stats : nil,
+                    showsReadingTime: showsWordCount && format.isProse && !isReadOnly,
+                    detail: isReadOnly && session.buffer?.previewTruncated == true
+                        ? String(localized: "Preview truncated")
+                        : (showsText ? nil : surfaceDetail),
+                    onEncoding: editableText ? { session.chooseEncoding($0) } : nil,
+                    onLineEnding: editableText ? { session.chooseLineEnding($0) } : nil
                 )
             }
         }
         .background(Color.editorBackground)
+        .overlay(alignment: .top) {
+            if let picker = session.tabSwitch {
+                TabSwitchPicker(paths: picker.paths, index: picker.index) { index in
+                    session.moveTabSwitch(index - picker.index)
+                    session.commitTabSwitch()
+                }
+                .padding(.top, 36)
+            }
+        }
         .onAppear {
             countWords(immediate: true)
             refreshOutline(immediate: true)
@@ -300,8 +314,15 @@ private struct WorkspaceDetail: View {
 
     private var showsText: Bool {
         guard let kind = session.buffer?.kind else { return false }
+        return kind == .markdown || kind == .plainText || kind == .readOnly
+    }
+
+    private var editableText: Bool {
+        guard let kind = session.buffer?.kind else { return false }
         return kind == .markdown || kind == .plainText
     }
+
+    private var isReadOnly: Bool { session.buffer?.kind == .readOnly }
 
     private func countWords(immediate: Bool) {
         guard format.isProse, let text = session.buffer?.text else { return }
@@ -311,7 +332,7 @@ private struct WorkspaceDetail: View {
     private var showsEditor: Bool { showsText && !showsReading }
 
     private var showsReading: Bool {
-        guard showsText, session.viewMode == .reading else { return false }
+        guard editableText, session.viewMode == .reading else { return false }
         return format.reading != .none
     }
 
@@ -382,7 +403,7 @@ private struct WorkspaceDetail: View {
     private var editor: some View {
         XYZEditor(
             text: session.buffer?.text ?? "",
-            isEditable: showsEditor,
+            isEditable: showsEditor && editableText,
             undoManager: undoManager,
             reloadToken: session.buffer?.editorToken ?? 0,
             scrollLink: session.scrollLink,
@@ -506,6 +527,24 @@ final class WorkspaceCommandBridge: ObservableObject, EditorCommandTarget {
     func revealPosition(line: Int, column: Int) {
         session?.revealPosition(line: line, column: column)
     }
+
+    func beginTabSwitch() -> Bool {
+        session?.beginTabSwitch() ?? false
+    }
+
+    func moveTabSwitch(_ delta: Int) {
+        session?.moveTabSwitch(delta)
+    }
+
+    func commitTabSwitch() {
+        session?.commitTabSwitch()
+    }
+
+    func cancelTabSwitch() {
+        session?.cancelTabSwitch()
+    }
+
+    var isSwitchingTabs: Bool { session?.tabSwitch != nil }
 }
 
 extension View {

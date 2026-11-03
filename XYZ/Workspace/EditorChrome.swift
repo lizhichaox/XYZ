@@ -9,6 +9,7 @@ struct EditorTabBar: View {
 
     var body: some View {
         ScrollViewReader { proxy in
+            HStack(spacing: 0) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 2) {
                     ForEach(session.tabStrip.tabs) { tab in
@@ -21,6 +22,9 @@ struct EditorTabBar: View {
                             },
                             close: {
                                 _ = session.closeTab(tab.id)
+                            },
+                            move: {
+                                session.onMoveTab?(tab.id)
                             }
                         )
                         .id(tab.id)
@@ -30,6 +34,11 @@ struct EditorTabBar: View {
                 .padding(.vertical, 4)
             }
             .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+            .layoutPriority(1)
+            WindowDragRegion()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .frame(maxWidth: .infinity)
             .onChange(of: session.tabStrip.activeID) { _, id in
                 guard let id else { return }
                 withAnimation(.easeOut(duration: 0.15)) {
@@ -37,7 +46,8 @@ struct EditorTabBar: View {
                 }
             }
         }
-        .frame(height: 36)
+        .frame(height: 38)
+        .background(WindowDragRegion())
         .background(Color.editorBackground)
         .overlay(alignment: .bottom) {
             Rectangle().fill(Color.primary.opacity(0.12)).frame(height: 1)
@@ -51,6 +61,7 @@ private struct EditorTabItem: View {
     var active: Bool
     var select: () -> Void
     var close: () -> Void
+    var move: () -> Void
 
     var body: some View {
         HStack(spacing: 6) {
@@ -96,6 +107,18 @@ private struct EditorTabItem: View {
             }
         }
         .help(tab.id)
+        .contextMenu {
+            Button("Move to New Window") {
+                move()
+            }
+        }
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 28).onEnded { value in
+                if abs(value.translation.height) > 48 {
+                    move()
+                }
+            }
+        )
     }
 
     private var name: String {
@@ -368,5 +391,88 @@ final class OutlineModel: ObservableObject {
 
 enum OutlineSetting {
     static let key = "xyz.view.outline"
+}
+
+/// Empty title-bar space. A drag moves the window. A double click follows the system's title-bar setting.
+struct WindowDragRegion: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        WindowDragView()
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    final class WindowDragView: NSView {
+        override var mouseDownCanMoveWindow: Bool { true }
+
+        override func mouseDown(with event: NSEvent) {
+            guard let window else { return }
+            if event.clickCount == 2 {
+                let action = UserDefaults.standard.string(forKey: "AppleActionOnDoubleClick") ?? "Maximize"
+                switch action {
+                case "Minimize":
+                    window.miniaturize(nil)
+                case "None":
+                    break
+                default:
+                    window.zoom(nil)
+                }
+                return
+            }
+            window.performDrag(with: event)
+        }
+    }
+}
+
+/// ⌃Tab. A transient list of the window's open files, most recent first.
+struct TabSwitchPicker: View {
+    var paths: [String]
+    var index: Int
+    var choose: (Int) -> Void
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            ForEach(Array(paths.enumerated()), id: \.offset) { offset, path in
+                Button {
+                    choose(offset)
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "doc.text")
+                            .foregroundStyle(.secondary)
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(name(path))
+                                .foregroundStyle(.primary)
+                                .lineLimit(1)
+                            if let directory = directory(path) {
+                                Text(directory)
+                                    .font(.system(size: 11))
+                                    .foregroundStyle(.tertiary)
+                                    .lineLimit(1)
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 10)
+                    .frame(maxWidth: .infinity, minHeight: 32, alignment: .leading)
+                    .background(offset == index ? Color.primary.opacity(0.12) : Color.clear)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .frame(width: 420)
+        .padding(.vertical, 6)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(Color.primary.opacity(0.12), lineWidth: 1)
+        )
+    }
+
+    private func name(_ path: String) -> String {
+        (path as NSString).lastPathComponent
+    }
+
+    private func directory(_ path: String) -> String? {
+        let parent = (path as NSString).deletingLastPathComponent
+        return parent.isEmpty ? nil : parent
+    }
 }
 #endif
