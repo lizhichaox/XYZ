@@ -503,22 +503,26 @@ enum GutterSnapshotCheck {
         }
         let failure = MainActor.assumeIsolated { () -> String? in
             let session = WorkspaceSession(rootURL: root, bookmark: nil)
-            let controller = WorkspaceWindowController(session: session, fixedFrame: true)
-            guard let window = controller.window, let content = window.contentView else {
-                return "window \(label): the document window was not created"
-            }
+            let host = NSHostingView(rootView: WorkspaceView(session: session))
+            host.sizingOptions = []
+            host.safeAreaRegions = []
+            let frame = NSRect(x: 0, y: 0, width: 1100, height: 720)
+            host.frame = frame
+            let window = NSWindow(
+                contentRect: frame,
+                styleMask: [.titled, .fullSizeContentView],
+                backing: .buffered,
+                defer: false
+            )
             window.appearance = NSAppearance(named: appearance)
             window.title = "XYZ"
-            content.appearance = window.appearance
-            let frame = NSRect(x: 0, y: 0, width: 1100, height: 720)
-            window.setFrame(frame, display: false)
-            content.frame = NSRect(origin: .zero, size: frame.size)
+            window.contentView = host
+            host.appearance = window.appearance
             session.openRelative(fileName)
             if !waitForBuffer(session, containing: fixture, seconds: 4) {
                 return "window \(label): the file binding did not load storage=\((session.buffer?.text as NSString?)?.length ?? -1)"
             }
             session.selectViewMode(.source, source: "check")
-            let host = content
             pump(0.4)
             host.layoutSubtreeIfNeeded()
             pump(0.3)
@@ -562,7 +566,7 @@ enum GutterSnapshotCheck {
             } else if recognized {
                 return "window \(label): blank document was accepted as a readable body"
             }
-            controller.session.shutdown()
+            session.shutdown()
             return nil
         }
         return failure
