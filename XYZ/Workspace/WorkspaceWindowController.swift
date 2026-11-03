@@ -10,9 +10,13 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
     private static var isTerminating = false
 
     private(set) var session: WorkspaceSession
+    /// The line-number check pins the frame. SwiftUI otherwise resizes this window
+    /// until AppKit aborts the constraint pass. Production windows keep the default.
+    private let fixedFrame: Bool
 
-    init(session: WorkspaceSession) {
+    init(session: WorkspaceSession, fixedFrame: Bool = false) {
         self.session = session
+        self.fixedFrame = fixedFrame
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1100, height: 720),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -107,6 +111,9 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
         let host = NSHostingController(rootView: WorkspaceView(session: session))
         // The title bar stays, but it must not push the tabs and the filter down a second row.
         host.safeAreaRegions = []
+        if fixedFrame {
+            host.sizingOptions = []
+        }
         window.contentViewController = host
         WorkspaceChrome.apply(to: window, title: session.displayName, subtitle: "", representedFile: nil)
     }
