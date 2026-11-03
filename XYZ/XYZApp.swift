@@ -19,30 +19,17 @@ struct XYZApp: App {
 
     @SceneBuilder
     private var documents: some Scene {
+        documentGroup
         #if os(macOS)
-        if #available(macOS 15.0, *) {
-            documentGroup
-                .defaultWindowPlacement { _, context in
-                    let frame = context.defaultDisplay.visibleRect
-                    return WindowPlacement(CGPoint(x: frame.minX, y: frame.minY), size: frame.size)
-                }
-                .commands {
-                    AboutCommands()
-                    WorkspaceCommands()
-                }
-        } else {
-            documentGroup
-                .defaultSize(width: 980, height: 700)
-                .commands {
-                    AboutCommands()
-                    WorkspaceCommands()
-                }
+        .defaultSize(width: 980, height: 700)
+        .commands {
+            AboutCommands()
+            WorkspaceCommands()
         }
         #else
-        documentGroup
-            .commands {
-                ViewModeCommands()
-            }
+        .commands {
+            ViewModeCommands()
+        }
         #endif
     }
 
