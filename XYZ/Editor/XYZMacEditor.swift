@@ -818,7 +818,7 @@ private struct FindScan {
 
     /// TextKit rebuilds the content layer after the text view's own layer is configured.
     private func flipOwnedLayers() {
-        var pending = [self]
+        var pending: [NSView] = [self]
         while let view = pending.popLast() {
             if view.isFlipped, let layer = view.layer, !layer.isGeometryFlipped {
                 layer.isGeometryFlipped = true
