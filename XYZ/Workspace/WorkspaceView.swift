@@ -358,13 +358,11 @@ private final class PaneSplitView: NSSplitView {
 }
 
 private enum SidebarDividerColor {
-    static var separator: NSColor {
-        NSColor(name: nil, dynamicProvider: { appearance in
-            if appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua {
-                return NSColor(srgbRed: 43 / 255, green: 43 / 255, blue: 43 / 255, alpha: 1)
-            }
-            return NSColor(srgbRed: 229 / 255, green: 229 / 255, blue: 229 / 255, alpha: 1)
-        })
+    static func separator(for appearance: NSAppearance) -> NSColor {
+        if appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua {
+            return NSColor(srgbRed: 43 / 255, green: 43 / 255, blue: 43 / 255, alpha: 1)
+        }
+        return NSColor(srgbRed: 229 / 255, green: 229 / 255, blue: 229 / 255, alpha: 1)
     }
 
     /// VS Code `focusBorder` (#007FD4).
@@ -510,8 +508,7 @@ private final class SidebarDivider: NSView {
     }
 
     private func updateColors() {
-        let appearance = effectiveAppearance
-        hairline.backgroundColor = SidebarDividerColor.separator.resolvedColor(with: appearance).cgColor
+        hairline.backgroundColor = SidebarDividerColor.separator(for: effectiveAppearance).cgColor
         accent.backgroundColor = SidebarDividerColor.accent.cgColor
     }
 }
