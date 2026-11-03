@@ -126,6 +126,7 @@ final class CommandPaletteTests: XCTestCase {
         XCTAssertNil(byID["view.toggleReading"])
         XCTAssertNil(byID["view.preview"])
         XCTAssertEqual(byID["view.toggleSource"]?.shortcut, "⌘/")
+        XCTAssertEqual(byID["workspace.focusFilter"]?.title, "Search Notes")
         XCTAssertEqual(byID["workspace.focusFilter"]?.shortcut, "⌘K")
         XCTAssertEqual(byID["folder.open"]?.shortcut, "⇧⌘O")
         XCTAssertEqual(byID["workspace.toggleSidebar"]?.shortcut, "⌘B")

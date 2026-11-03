@@ -1183,9 +1183,11 @@ private struct WorkspaceDetail: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .preference(key: EditorStatusKey.self, value: statusSnapshot)
         .background(Color.editorBackground)
-        .overlay(alignment: .top) {
+        .overlay(alignment: .topTrailing) {
             if let find {
                 FindBarHost(model: find)
+                    .padding(.top, 8)
+                    .padding(.trailing, 12)
             }
         }
         .overlay(alignment: .top) {
@@ -1436,6 +1438,7 @@ final class WorkspaceCommandBridge: ObservableObject, EditorCommandTarget {
         if EditorCommands.shared.target === self {
             EditorCommandState.shared.setOpenFile(session.buffer != nil)
         }
+        syncFindSurface()
     }
 
     var editorHasOpenFile: Bool { session?.buffer != nil }
@@ -1455,20 +1458,37 @@ final class WorkspaceCommandBridge: ObservableObject, EditorCommandTarget {
     }
 
     func beginEditing(source: String) -> Bool {
-        session?.beginEditing(source: source) ?? false
+        let opened = session?.beginEditing(source: source) ?? false
+        if opened { storedFind.useEditor() }
+        return opened
     }
     var showsHiddenFiles: Bool { session?.showsHiddenFiles ?? true }
     var supportsWorkspaceFiles: Bool { session != nil }
 
     func editorSelect(_ mode: EditorViewMode, source: String) {
         session?.selectViewMode(mode, source: source)
+        syncFindSurface()
         if mode == .reading {
             storedFind.showsReplace = false
         }
     }
 
+    private func syncFindSurface() {
+        if editorShowsRenderedReading {
+            storedFind.useReading(session?.previewHost.webView) { [weak session] in
+                session?.buffer?.text ?? ""
+            }
+        } else {
+            storedFind.useEditor()
+        }
+    }
+
     func editorToggle(source: String) {
         session?.toggleViewMode(source: source)
+        syncFindSurface()
+        if session?.viewMode == .reading {
+            storedFind.showsReplace = false
+        }
     }
 
     func paletteFiles() -> [PaletteFile] {

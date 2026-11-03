@@ -268,6 +268,9 @@ final class XYZMacTextView: NSTextView {
         case .cancel:
             findTask?.cancel()
             findGeneration += 1
+            findMarks = []
+            findMarkIndex = nil
+            paintFindMarks()
         }
     }
 
@@ -275,6 +278,43 @@ final class XYZMacTextView: NSTextView {
     private var findGeneration = 0
     private var cachedQuery: FindQuery?
     private var cachedMatches: [FindMatch] = []
+    private var findMarks: [FindMatch] = []
+    private var findMarkIndex: Int?
+
+    /// Accent marks for every match. The current one is darker. Called again after syntax styling, which clears backgrounds.
+    func paintFindMarks() {
+        guard let storage = textStorage else { return }
+        let full = NSRange(location: 0, length: storage.length)
+        undoManager?.disableUndoRegistration()
+        storage.beginEditing()
+        if full.length > 0 {
+            storage.removeAttribute(.backgroundColor, range: full)
+        }
+        let faint = NSColor.xyzAccent.withAlphaComponent(0.16)
+        let strong = NSColor.xyzAccent.withAlphaComponent(0.42)
+        let cap = min(findMarks.count, 2_000)
+        if cap > 0 {
+            for index in 0..<cap {
+                let match = findMarks[index].range
+                let range = NSRange(location: match.location, length: match.length)
+                guard range.location >= 0, NSMaxRange(range) <= storage.length, range.length > 0 else { continue }
+                let color = index == findMarkIndex ? strong : faint
+                storage.addAttribute(.backgroundColor, value: color, range: range)
+            }
+        }
+        storage.endEditing()
+        undoManager?.enableUndoRegistration()
+    }
+
+    func singleLineSelection() -> String? {
+        let selected = sourceSelection()
+        guard selected.length > 0, selected.length < 2_000 else { return nil }
+        let ns = string as NSString
+        guard NSMaxRange(NSRange(location: selected.location, length: selected.length)) <= ns.length else { return nil }
+        let text = ns.substring(with: NSRange(location: selected.location, length: selected.length))
+        guard !text.contains("\n"), !text.contains("\r"), !text.isEmpty else { return nil }
+        return text
+    }
 
     /// Counts matches off the main thread. A newer keystroke cancels this pass.
     private func scheduleReveal(_ model: EditorFindModel, forward: Bool, stayIfAlreadyThere: Bool) {
@@ -309,7 +349,11 @@ final class XYZMacTextView: NSTextView {
         model.count = scanned.count
         model.regexInvalid = scanned.invalid
         model.index = scanned.index
-        guard let range = scanned.range else { return }
+        model.wrapped = scanned.wrapped
+        findMarks = query.pattern.isEmpty ? [] : scanned.matches
+        findMarkIndex = scanned.index > 0 ? scanned.index - 1 : nil
+        paintFindMarks()
+        guard query.pattern.isEmpty == false, let range = scanned.range else { return }
         let nsRange = NSRange(location: range.location, length: range.length)
         setSelectedRange(nsRange)
         reveal(EditorScrollAnchor(fraction: 0, probe: "", line: scanned.line))
@@ -327,6 +371,7 @@ private struct FindScan {
     var invalid: Bool
     var range: SourceRange?
     var line: Int
+    var wrapped: Bool
 
     static func make(text: String, query: FindQuery, selection: SourceRange, forward: Bool, stay: Bool) -> FindScan {
         let result = TextFind.scan(text: text, query: query, selection: selection, forward: forward, stay: stay)
@@ -336,7 +381,8 @@ private struct FindScan {
             index: result.index,
             invalid: result.invalid,
             range: result.range,
-            line: result.line
+            line: result.line,
+            wrapped: result.wrapped
         )
     }
 
@@ -350,17 +396,21 @@ private struct FindScan {
     ) -> FindScan {
         let invalid = !query.pattern.isEmpty && !TextFind.isValid(query)
         guard !matches.isEmpty else {
-            return FindScan(matches: matches, count: 0, index: 0, invalid: invalid, range: nil, line: 1)
+            return FindScan(matches: matches, count: 0, index: 0, invalid: invalid, range: nil, line: 1, wrapped: false)
         }
         let index: Int
+        let wrapped: Bool
         if stay, let current = matches.firstIndex(where: {
             $0.range.location == selection.location && $0.range.length == selection.length
         }) {
             index = current
-        } else if let stepped = TextFind.step(from: selection, matches: matches, forward: forward) {
-            index = stepped
+            wrapped = false
+        } else if let stepped = TextFind.stepDetail(from: selection, matches: matches, forward: forward) {
+            index = stepped.index
+            wrapped = stepped.wrapped
         } else {
             index = 0
+            wrapped = false
         }
         let range = matches[index].range
         return FindScan(
@@ -369,7 +419,8 @@ private struct FindScan {
             index: index + 1,
             invalid: invalid,
             range: range,
-            line: TextFind.lineNumber(in: text, utf16: range.location)
+            line: TextFind.lineNumber(in: text, utf16: range.location),
+            wrapped: wrapped
         )
     }
 }
@@ -1035,8 +1086,10 @@ struct XYZMacEditor: NSViewRepresentable {
         textView.findModel = find
         textView.sourceLanguage = syntax
         find?.language = syntax
-        find?.perform = { [weak textView] action in
-            textView?.runFind(action)
+        let hadEditor = find?.editorView != nil
+        find?.editorView = textView
+        if !hadEditor, find?.visible == true, find?.surface == .editor {
+            find?.scheduleRefresh()
         }
         find?.edit = { [weak textView] make in
             guard let textView else { return }
@@ -1414,6 +1467,9 @@ enum EditorTypography {
             .foregroundColor: NSColor.labelColor,
             .paragraphStyle: paragraph,
         ]
+        if let editor = textView as? XYZMacTextView {
+            editor.paintFindMarks()
+        }
         keepViewportLayout(textView)
     }
 

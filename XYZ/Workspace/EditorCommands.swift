@@ -225,7 +225,6 @@ final class EditorCommands: NSObject {
         }
         if flags == .command && key.lowercased() == "f" {
             guard editorHasOpenFile else { return refuseClosedDocument() }
-            if target?.editorShowsRenderedReading == true { return false }
             target?.findModel?.show(replace: false)
             return target?.findModel != nil
         }
@@ -240,13 +239,11 @@ final class EditorCommands: NSObject {
         }
         if flags == .command && key.lowercased() == "g" {
             guard editorHasOpenFile else { return refuseClosedDocument() }
-            if target?.editorShowsRenderedReading == true, target?.findModel?.visible != true { return false }
             target?.findModel?.perform?(.next)
             return target?.findModel != nil
         }
         if flags == [.command, .shift] && key.lowercased() == "g" {
             guard editorHasOpenFile else { return refuseClosedDocument() }
-            if target?.editorShowsRenderedReading == true, target?.findModel?.visible != true { return false }
             target?.findModel?.perform?(.previous)
             return target?.findModel != nil
         }
@@ -559,10 +556,6 @@ final class EditorCommands: NSObject {
             NSSound.beep()
             return
         }
-        if target?.editorShowsRenderedReading == true {
-            NSApp.sendAction(#selector(NSResponder.performTextFinderAction(_:)), to: nil, from: sender)
-            return
-        }
         target?.findModel?.show(replace: false)
     }
 
@@ -583,20 +576,12 @@ final class EditorCommands: NSObject {
             NSSound.beep()
             return
         }
-        if target?.editorShowsRenderedReading == true {
-            NSApp.sendAction(#selector(NSResponder.performTextFinderAction(_:)), to: nil, from: sender)
-            return
-        }
         target?.findModel?.perform?(.next)
     }
 
     @objc func findPrevious(_ sender: Any?) {
         guard editorHasOpenFile else {
             NSSound.beep()
-            return
-        }
-        if target?.editorShowsRenderedReading == true {
-            NSApp.sendAction(#selector(NSResponder.performTextFinderAction(_:)), to: nil, from: sender)
             return
         }
         target?.findModel?.perform?(.previous)
@@ -646,16 +631,13 @@ final class EditorCommands: NSObject {
             NSSound.beep()
             return
         }
-        guard let textView = NSApp.keyWindow?.firstResponder as? XYZMacTextView else {
-            NSSound.beep()
-            return
-        }
-        textView.runFind(.useSelection)
+        target?.findModel?.visible = true
+        target?.findModel?.perform?(.useSelection)
     }
 
     @objc func focusFilter(_ sender: Any?) {
         guard target?.supportsWorkspaceFiles == true else {
-            NSSound.beep()
+            globalSearch.showNotice()
             return
         }
         target?.focusFilter()
@@ -762,7 +744,7 @@ enum PaletteTitles {
         case "view.goToHeading": return String(localized: "Go to Heading")
         case "view.outline": return String(localized: "Toggle Outline")
         case "workspace.toggleSidebar": return String(localized: "Toggle Sidebar")
-        case "workspace.focusFilter": return String(localized: "Find in Files")
+        case "workspace.focusFilter": return String(localized: "Search Notes")
         case "file.new": return String(localized: "New File")
         case "folder.new": return String(localized: "New Folder")
         case "folder.open": return String(localized: "Open Folder")
@@ -947,7 +929,9 @@ enum EditorMenuSupport {
                 item.keyEquivalent = ""
                 item.keyEquivalentModifierMask = []
             }
-            if key == "k", flags == .command, item.title != String(localized: "Find in Files") {
+            if key == "k", flags == .command,
+               item.title != String(localized: "Search Notes"),
+               item.title != String(localized: "Find in Files") {
                 item.keyEquivalent = ""
                 item.keyEquivalentModifierMask = []
             }

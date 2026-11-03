@@ -1,4 +1,5 @@
 import SwiftUI
+import WebKit
 import XYZCore
 
 #if os(macOS)
@@ -201,10 +202,19 @@ struct DocumentEditorView: View {
     #if os(macOS)
     private var macBody: some View {
         singleSurface
-            .overlay(alignment: .top) {
+            .overlay(alignment: .topTrailing) {
                 if let model = commands.findModel {
                     FindBarHost(model: model)
+                        .padding(.top, 8)
+                        .padding(.trailing, 12)
                 }
+            }
+            .onAppear {
+                commands.readingWeb = webHost.webView
+                commands.noteFindSurface()
+            }
+            .onChange(of: viewMode) { _, _ in
+                commands.noteFindSurface()
             }
     }
 
@@ -270,6 +280,7 @@ final class DocumentCommandBridge: ObservableObject, EditorCommandTarget {
         if mode == .reading {
             findStore.showsReplace = false
         }
+        noteFindSurface()
         if previous != mode {
             ViewModeLog.changed(from: previous.rawValue, to: mode.rawValue, source: source)
         }
@@ -320,6 +331,17 @@ final class DocumentCommandBridge: ObservableObject, EditorCommandTarget {
 
     var findModel: EditorFindModel? { findStore }
     private let findStore = EditorFindModel()
+    weak var readingWeb: WKWebView?
+
+    func noteFindSurface() {
+        if editorShowsRenderedReading {
+            findStore.useReading(readingWeb) { [weak self] in
+                self?.currentText() ?? ""
+            }
+        } else {
+            findStore.useEditor()
+        }
+    }
 
     func revealPosition(line: Int, column: Int) {
         if mode != .source {

@@ -28,10 +28,34 @@ final class GlobalSearchTests: XCTestCase {
         }
         let hidden = GlobalFileSearch.match(entries: entries, query: "n", showsHidden: false)
         XCTAssertFalse(hidden.hits.contains { $0.name == ".env" })
-        XCTAssertEqual(hidden.hits.count, GlobalFileSearch.limit)
-        XCTAssertEqual(hidden.more, 10 - GlobalFileSearch.limit)
+        XCTAssertEqual(hidden.hits.count, 10)
+        XCTAssertEqual(hidden.more, 0)
         let shown = GlobalFileSearch.match(entries: entries, query: ".env", showsHidden: true)
         XCTAssertEqual(shown.hits.map(\.name), [".env"])
+    }
+
+    func testOpenTabOutranksAStrongerName() {
+        let entries = [
+            file("alpha.md", "alpha.md"),
+            file("beta.md", "beta.md"),
+        ]
+        let plain = GlobalFileSearch.match(entries: entries, query: "a", showsHidden: true)
+        XCTAssertEqual(plain.hits.first?.relativePath, "alpha.md")
+        let boosted = GlobalFileSearch.match(
+            entries: entries,
+            query: "a",
+            showsHidden: true,
+            boost: ["beta.md": 500]
+        )
+        XCTAssertEqual(boosted.hits.first?.relativePath, "beta.md")
+    }
+
+    func testExcerptKeepsTheMatchInView() {
+        let line = String(repeating: "word ", count: 40) + "needle" + String(repeating: " tail", count: 20)
+        let excerpt = WorkspaceContentSearch.excerpt(line, around: "needle")
+        XCTAssertTrue(excerpt.contains("needle"))
+        XCTAssertTrue(excerpt.hasPrefix("…"))
+        XCTAssertLessThan(excerpt.count, line.count)
     }
 
     private func file(_ name: String, _ path: String) -> WorkspacePathEntry {

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.17
+
+- Find (⌘F) is a compact bar at the top right of the note, in Reading and in Editing. It fills from the selection, shows `n of m`, highlights every match, and marks the current one. ⌘G, ⇧⌘G, Return, and Shift-Return move through the matches and say when the search wraps. Match case, whole word, and regex stay on while they are pressed. ⌥⌘F adds Replace and Replace All in Editing. Esc closes the bar.
+- ⌘K searches note names and their text. File-name matches come first, then open and recent notes, then lines of text with the match in the line. An empty field lists recent files. With no folder open, the panel says so. ⌘P stays commands and go to file.
+
 ## 0.5.16
 
 - Light mode is white. The editor, Reading, both sidebars, the tab row, the title bar, breadcrumbs, and the status bar are `#FFFFFF`. Hairlines (`#E5E5E5`) separate them. There is no grey fill. A selected row is the blue accent at 14% with ink text. Code in Reading sits on white with a hairline. Dark mode is unchanged.

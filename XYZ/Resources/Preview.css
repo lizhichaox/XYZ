@@ -325,3 +325,14 @@ pre.raw-html {
   background: var(--mark);
   color: inherit;
 }
+
+mark.xyz-find {
+  background: rgba(0, 120, 212, 0.18);
+  color: inherit;
+  border-radius: 2px;
+}
+
+mark.xyz-find-current {
+  background: rgba(0, 120, 212, 0.42);
+  color: inherit;
+}

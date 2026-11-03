@@ -808,6 +808,80 @@ private enum PreviewPage {
         }
         if (window.hljs) hljs.configure({ignoreUnescapedHTML: true});
         // Code colors for fenced blocks that name a language, and the alt text for a picture that cannot load.
+        function xyzClearFind() {
+          var root = document.getElementById("content");
+          if (!root) return;
+          var marks = root.querySelectorAll("mark.xyz-find");
+          for (var i = marks.length - 1; i >= 0; i--) {
+            var mark = marks[i];
+            var parent = mark.parentNode;
+            if (!parent) continue;
+            parent.replaceChild(document.createTextNode(mark.textContent || ""), mark);
+            parent.normalize();
+          }
+        }
+        function xyzHighlightFind(spec) {
+          xyzClearFind();
+          if (!spec || !spec.pattern) return {count: 0, index: 0, wrapped: false, invalid: false};
+          var source = spec.pattern;
+          if (!spec.regex) source = source.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+          if (spec.wholeWord) source = "(?<![\\p{L}\\p{N}_])(?:" + source + ")(?![\\p{L}\\p{N}_])";
+          var flags = spec.matchCase ? "gu" : "giu";
+          var expression;
+          try { expression = new RegExp(source, flags); }
+          catch (error) { return {count: 0, index: 0, wrapped: false, invalid: true}; }
+          var root = document.getElementById("content");
+          if (!root) return {count: 0, index: 0, wrapped: false, invalid: false};
+          var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+          var nodes = [];
+          while (walker.nextNode()) nodes.push(walker.currentNode);
+          var marks = [];
+          for (var n = 0; n < nodes.length && marks.length < 2000; n++) {
+            var node = nodes[n];
+            var text = node.nodeValue || "";
+            if (!text) continue;
+            var parent = node.parentNode;
+            if (!parent || (parent.closest && parent.closest("script, style"))) continue;
+            expression.lastIndex = 0;
+            var match = expression.exec(text);
+            if (!match) continue;
+            var frag = document.createDocumentFragment();
+            var last = 0;
+            while (match && marks.length < 2000) {
+              if (match.index > last) frag.appendChild(document.createTextNode(text.slice(last, match.index)));
+              var mark = document.createElement("mark");
+              mark.className = "xyz-find";
+              mark.textContent = match[0];
+              frag.appendChild(mark);
+              marks.push(mark);
+              last = match.index + match[0].length;
+              if (match[0].length === 0) expression.lastIndex++;
+              match = expression.exec(text);
+            }
+            if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+            parent.replaceChild(frag, node);
+          }
+          var count = marks.length;
+          if (!count) return {count: 0, index: 0, wrapped: false, invalid: false};
+          var cursor = spec.index | 0;
+          if (cursor < 0) cursor = 0;
+          var direction = spec.direction | 0;
+          var wrapped = false;
+          if (direction > 0) {
+            var next = cursor + 1;
+            if (next >= count) { next = 0; wrapped = true; }
+            cursor = next;
+          } else if (direction < 0) {
+            var prev = cursor - 1;
+            if (prev < 0) { prev = count - 1; wrapped = true; }
+            cursor = prev;
+          } else if (cursor >= count) {
+            cursor = 0;
+          }
+          marks[cursor].className = "xyz-find xyz-find-current";
+          marks[cursor].scrollIntoView({block: "center"});
+          return {count: count, index: cursor + 1, wrapped: wrapped, invalid: false};
+        }
         function xyzDecorate() {
           var root = document.getElementById("content");
           if (!root) return;

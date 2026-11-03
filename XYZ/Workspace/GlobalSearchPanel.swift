@@ -51,6 +51,21 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
         }
     }
 
+    /// No folder is open. The panel explains that instead of beeping.
+    func showNotice() {
+        session = nil
+        let panel = self.panel ?? makePanel()
+        self.panel = panel
+        typedQuery = ""
+        search?.stringValue = ""
+        task?.cancel()
+        rows = [.header(String(localized: "Open a folder to search notes."))]
+        applyRows()
+        place(panel)
+        panel.makeKeyAndOrderFront(nil)
+        if let search { panel.makeFirstResponder(search) }
+    }
+
     func show(session: WorkspaceSession) {
         self.session = session
         let panel = self.panel ?? makePanel()
@@ -125,10 +140,8 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
     func tableView(_ tableView: NSTableView, heightOfRow row: Int) -> CGFloat {
         guard rows.indices.contains(row) else { return 28 }
         switch rows[row] {
-        case .header: return 22
-        case .more: return 24
-        case .content: return 40
-        case .recent, .file: return 32
+        case .header: return 20
+        case .more, .content, .recent, .file: return 22
         }
     }
 
@@ -149,25 +162,18 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
             return cell
         case .recent(let path):
             let cell = reusedText(tableView, id: "recent")
-            cell.apply(title: nameText(path), detail: parentText(path), icon: icon(for: path))
+            cell.apply(title: oneLine(name: (path as NSString).lastPathComponent, extra: parentPath(path), indices: []), detail: nil, icon: icon(for: path))
             return cell
         case .file(let hit):
             let cell = reusedText(tableView, id: "file")
-            cell.apply(
-                title: emphasized(hit.name, indices: hit.nameIndices, size: 13),
-                detail: pathDetail(hit),
-                icon: icon(for: hit.relativePath)
-            )
+            let extra = hit.relativePath == hit.name ? "" : hit.relativePath
+            cell.apply(title: oneLine(name: hit.name, extra: extra, indices: hit.nameIndices), detail: nil, icon: icon(for: hit.relativePath))
             return cell
         case .content(let hit):
             let cell = reusedText(tableView, id: "content")
             let name = (hit.relativePath as NSString).lastPathComponent
             let line = String(format: String(localized: "Ln %lld"), Int64(hit.lineNumber))
-            cell.apply(
-                title: plain("\(name)  \(line)", size: 13),
-                detail: snippet(hit.excerpt, query: typedQuery),
-                icon: icon(for: hit.relativePath)
-            )
+            cell.apply(title: contentLine(name: name, line: line, excerpt: hit.excerpt, query: typedQuery), detail: nil, icon: icon(for: hit.relativePath))
             return cell
         }
     }
@@ -256,7 +262,7 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
         table.backgroundColor = .clear
         table.style = .plain
         table.selectionHighlightStyle = .regular
-        table.rowHeight = 32
+        table.rowHeight = 22
         table.intercellSpacing = .zero
         table.dataSource = self
         table.delegate = self
@@ -339,8 +345,9 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
                 self.showRecents()
                 return
             }
+            let boost = self.rankBoost()
             let files = await Task.detached(priority: .userInitiated) {
-                GlobalFileSearch.match(entries: entries, query: latest, showsHidden: showsHidden)
+                GlobalFileSearch.match(entries: entries, query: latest, showsHidden: showsHidden, boost: boost)
             }.value
             let content = await session?.searchPanelContents(query: latest) ?? (hits: [], more: 0, capped: false)
             guard !Task.isCancelled, self.generation == token else { return }
@@ -366,6 +373,8 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
         if !paths.isEmpty {
             next.append(.header(String(localized: "Recent")))
             next.append(contentsOf: paths.prefix(12).map { .recent($0) })
+        } else {
+            next.append(.header(String(localized: "Type to search names and text")))
         }
         rows = next
         applyRows()
@@ -543,6 +552,78 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
         let image = NSImage(systemSymbolName: system, accessibilityDescription: nil)
         image?.isTemplate = true
         return image
+    }
+
+    private func rankBoost() -> [String: Int] {
+        guard let session else { return [:] }
+        var boost: [String: Int] = [:]
+        let recent = session.recentOpenPaths()
+        for (index, path) in recent.enumerated() {
+            boost[path] = max(boost[path] ?? 0, 80 - index * 4)
+        }
+        for path in session.tabStrip.tabs.map(\.id) {
+            boost[path] = (boost[path] ?? 0) + 120
+        }
+        return boost
+    }
+
+    private func oneLine(name: String, extra: String, indices: [Int]) -> NSAttributedString {
+        let text = NSMutableAttributedString(string: name, attributes: [
+            .font: NSFont.systemFont(ofSize: 12),
+            .foregroundColor: NSColor.xyzInk,
+        ])
+        let emphasis = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        let wanted = Set(indices)
+        var location = 0
+        for (offset, character) in name.enumerated() {
+            let piece = String(character) as NSString
+            if wanted.contains(offset) {
+                text.addAttributes([
+                    .font: emphasis,
+                    .foregroundColor: NSColor.xyzInk,
+                ], range: NSRange(location: location, length: piece.length))
+            }
+            location += piece.length
+        }
+        if !extra.isEmpty {
+            text.append(NSAttributedString(string: "  " + extra, attributes: [
+                .font: NSFont.systemFont(ofSize: 11),
+                .foregroundColor: NSColor.xyzSecondaryText,
+            ]))
+        }
+        return text
+    }
+
+    private func contentLine(name: String, line: String, excerpt: String, query: String) -> NSAttributedString {
+        let text = NSMutableAttributedString(string: name + "  " + line, attributes: [
+            .font: NSFont.systemFont(ofSize: 12),
+            .foregroundColor: NSColor.xyzInk,
+        ])
+        let lineRange = (text.string as NSString).range(of: line, options: .backwards)
+        if lineRange.location != NSNotFound {
+            text.addAttributes([
+                .font: NSFont.systemFont(ofSize: 11),
+                .foregroundColor: NSColor.xyzSecondaryText,
+            ], range: lineRange)
+        }
+        if !excerpt.isEmpty {
+            let start = text.length
+            text.append(NSAttributedString(string: "  " + excerpt, attributes: [
+                .font: NSFont.systemFont(ofSize: 12),
+                .foregroundColor: NSColor.xyzSecondaryText,
+            ]))
+            let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !needle.isEmpty {
+                let range = (text.string as NSString).range(of: needle, options: [.caseInsensitive], range: NSRange(location: start, length: text.length - start))
+                if range.location != NSNotFound {
+                    text.addAttributes([
+                        .font: NSFont.systemFont(ofSize: 12, weight: .semibold),
+                        .foregroundColor: NSColor.xyzInk,
+                    ], range: range)
+                }
+            }
+        }
+        return text
     }
 
     private func nameText(_ path: String) -> NSAttributedString {
@@ -732,11 +813,8 @@ private final class SearchCell: NSTableCellView {
             icon.widthAnchor.constraint(equalToConstant: 16),
             icon.heightAnchor.constraint(equalToConstant: 16),
             title.leadingAnchor.constraint(equalTo: icon.trailingAnchor, constant: 8),
-            title.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
-            title.topAnchor.constraint(equalTo: topAnchor, constant: 4),
-            detail.leadingAnchor.constraint(equalTo: title.leadingAnchor),
-            detail.trailingAnchor.constraint(equalTo: title.trailingAnchor),
-            detail.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 0),
+            title.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            title.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
     }
 

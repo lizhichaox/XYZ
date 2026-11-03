@@ -1092,21 +1092,49 @@ final class WorkspaceSession: ObservableObject {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !needle.isEmpty else { return ([], 0, false) }
         let showsHidden = showsHiddenFiles
+        var openText: [(String, String)] = []
+        var openPaths: Set<String> = []
+        for (path, buffer) in buffers {
+            guard buffer.kind == .markdown || buffer.kind == .plainText, buffer.conflictText == nil else { continue }
+            if !showsHidden, WorkspacePaths.isHidden(name: (path as NSString).lastPathComponent, resourceHidden: false) {
+                continue
+            }
+            openText.append((path, buffer.text))
+            openPaths.insert(path)
+        }
         let files = indexedEntries.filter { entry in
             !entry.isDirectory
+                && !openPaths.contains(entry.relativePath)
                 && !WorkspaceContentSearch.shouldSkipRelativePath(entry.relativePath)
                 && (showsHidden || !entry.isHidden)
         }
-        let cap = 80
-        let found = await Self.searchContents(
-            files: files,
-            root: rootURL,
-            query: FindQuery(pattern: needle),
-            include: "",
-            exclude: "",
-            cap: cap,
-            perFile: 40
-        )
+        let cap = 60
+        let query = FindQuery(pattern: needle)
+        var found = await Task.detached(priority: .userInitiated) {
+            var hits: [WorkspaceContentHit] = []
+            for item in openText {
+                if hits.count >= cap { break }
+                hits.append(contentsOf: WorkspaceContentSearch.hits(
+                    in: item.1,
+                    relativePath: item.0,
+                    query: query,
+                    limit: min(4, cap - hits.count)
+                ))
+            }
+            return hits
+        }.value
+        if found.count < cap {
+            let disk = await Self.searchContents(
+                files: files,
+                root: rootURL,
+                query: query,
+                include: "",
+                exclude: "",
+                cap: cap - found.count,
+                perFile: 4
+            )
+            found.append(contentsOf: disk)
+        }
         let shown = Array(found.prefix(40))
         return (shown, found.count - shown.count, found.count >= cap)
     }

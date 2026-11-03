@@ -114,7 +114,7 @@ private struct MacFindCommands: Commands {
             }
             .keyboardShortcut("e", modifiers: .command)
             .disabled(!editor.hasOpenFile)
-            Button("Find in Files") {
+            Button("Search Notes") {
                 EditorCommands.shared.focusFilter(nil)
             }
             .keyboardShortcut("k", modifiers: .command)

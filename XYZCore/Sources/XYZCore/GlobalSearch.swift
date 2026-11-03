@@ -27,12 +27,14 @@ public struct GlobalFileHit: Equatable, Sendable {
 
 /// Fuzzy file matches for ⌘K. Content search stays with the files on disk.
 public enum GlobalFileSearch {
-    public static let limit = 8
+    public static let limit = 20
 
+    /// `boost` adds to a path's score. Open tabs and recent files use it so they sort above a weaker name match.
     public static func match(
         entries: [WorkspacePathEntry],
         query: String,
-        showsHidden: Bool
+        showsHidden: Bool,
+        boost: [String: Int] = [:]
     ) -> (hits: [GlobalFileHit], more: Int) {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return ([], 0) }
@@ -42,7 +44,7 @@ public enum GlobalFileSearch {
             let name = FuzzyMatcher.match(query: trimmed, candidate: entry.name)
             let path = FuzzyMatcher.match(query: trimmed, candidate: entry.relativePath)
             guard name != nil || path != nil else { continue }
-            let score = (name?.score ?? 0) + (path?.score ?? 0) / 2 + (name == nil ? 0 : 40)
+            let score = (name?.score ?? 0) + (path?.score ?? 0) / 2 + (name == nil ? 0 : 40) + (boost[entry.relativePath] ?? 0)
             ranked.append(GlobalFileHit(
                 name: entry.name,
                 relativePath: entry.relativePath,

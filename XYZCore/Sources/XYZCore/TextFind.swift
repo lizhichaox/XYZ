@@ -40,17 +40,26 @@ public enum TextFind {
 
     /// The match after `selection`, wrapping to the start. `forward == false` walks backward.
     public static func step(from selection: SourceRange, matches: [FindMatch], forward: Bool) -> Int? {
+        stepDetail(from: selection, matches: matches, forward: forward)?.index
+    }
+
+    /// `wrapped` is true when the next match is on the other side of the document.
+    public static func stepDetail(
+        from selection: SourceRange,
+        matches: [FindMatch],
+        forward: Bool
+    ) -> (index: Int, wrapped: Bool)? {
         guard !matches.isEmpty else { return nil }
         if forward {
             if let index = matches.firstIndex(where: { $0.range.location > selection.location }) {
-                return index
+                return (index, false)
             }
-            return 0
+            return (0, true)
         }
         if let index = matches.lastIndex(where: { $0.range.location < selection.location }) {
-            return index
+            return (index, false)
         }
-        return matches.count - 1
+        return (matches.count - 1, true)
     }
 
     /// Replaces every match. The count is the number of matches, and text outside them is kept.
@@ -90,24 +99,28 @@ public enum TextFind {
         selection: SourceRange,
         forward: Bool,
         stay: Bool
-    ) -> (matches: [FindMatch], count: Int, index: Int, invalid: Bool, range: SourceRange?, line: Int) {
+    ) -> (matches: [FindMatch], count: Int, index: Int, invalid: Bool, range: SourceRange?, line: Int, wrapped: Bool) {
         let invalid = !query.pattern.isEmpty && !isValid(query)
         let matches = self.matches(in: text, query: query)
         guard !matches.isEmpty else {
-            return (matches, 0, 0, invalid, nil, 1)
+            return (matches, 0, 0, invalid, nil, 1, false)
         }
         let index: Int
+        let wrapped: Bool
         if stay, let current = matches.firstIndex(where: {
             $0.range.location == selection.location && $0.range.length == selection.length
         }) {
             index = current
-        } else if let stepped = step(from: selection, matches: matches, forward: forward) {
-            index = stepped
+            wrapped = false
+        } else if let stepped = stepDetail(from: selection, matches: matches, forward: forward) {
+            index = stepped.index
+            wrapped = stepped.wrapped
         } else {
             index = 0
+            wrapped = false
         }
         let range = matches[index].range
-        return (matches, matches.count, index + 1, invalid, range, lineNumber(in: text, utf16: range.location))
+        return (matches, matches.count, index + 1, invalid, range, lineNumber(in: text, utf16: range.location), wrapped)
     }
 
     public static func lineNumber(in text: String, utf16: Int) -> Int {

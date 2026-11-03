@@ -42,6 +42,8 @@ final class TextFindTests: XCTestCase {
         let matches = TextFind.matches(in: text, query: FindQuery(pattern: "a", matchCase: true))
         XCTAssertEqual(TextFind.step(from: SourceRange(location: 0, length: 1), matches: matches, forward: true), 1)
         XCTAssertEqual(TextFind.step(from: SourceRange(location: 4, length: 1), matches: matches, forward: true), 0)
+        XCTAssertEqual(TextFind.stepDetail(from: SourceRange(location: 4, length: 1), matches: matches, forward: true)?.wrapped, true)
+        XCTAssertEqual(TextFind.stepDetail(from: SourceRange(location: 0, length: 1), matches: matches, forward: true)?.wrapped, false)
         XCTAssertEqual(TextFind.step(from: SourceRange(location: 2, length: 0), matches: matches, forward: false), 0)
     }
 

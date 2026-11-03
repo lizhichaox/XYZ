@@ -288,7 +288,7 @@ public enum WorkspaceContentSearch {
                 found.append(WorkspaceContentHit(
                     relativePath: relativePath,
                     lineNumber: lineNumber,
-                    excerpt: excerpt(String(line))
+                    excerpt: excerpt(String(line), around: needle)
                 ))
             }
             lineNumber += 1
@@ -313,10 +313,11 @@ public enum WorkspaceContentSearch {
             let lineNumber = 1 + newlineCount(in: ns, upTo: lineRange.location)
             if !seen.insert(lineNumber).inserted { continue }
             let line = ns.substring(with: lineRange).trimmingCharacters(in: .newlines)
+            let around = query.regex ? "" : query.pattern
             found.append(WorkspaceContentHit(
                 relativePath: relativePath,
                 lineNumber: lineNumber,
-                excerpt: excerpt(line)
+                excerpt: excerpt(line, around: around)
             ))
         }
         return found
@@ -332,9 +333,24 @@ public enum WorkspaceContentSearch {
         return count
     }
 
-    public static func excerpt(_ line: String) -> String {
+    /// A short line, with the match kept in view when `around` occurs in it.
+    public static func excerpt(_ line: String, around needle: String = "") -> String {
         let collapsed = line.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        if collapsed.count <= 96 { return collapsed }
-        return String(collapsed.prefix(96)) + "…"
+        let needle = needle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !needle.isEmpty,
+              let range = collapsed.range(of: needle, options: [.caseInsensitive, .diacriticInsensitive]) else {
+            if collapsed.count <= 96 { return collapsed }
+            return String(collapsed.prefix(96)) + "…"
+        }
+        let matchStart = collapsed.distance(from: collapsed.startIndex, to: range.lowerBound)
+        let matchEnd = collapsed.distance(from: collapsed.startIndex, to: range.upperBound)
+        let start = max(0, matchStart - 28)
+        let end = min(collapsed.count, max(matchEnd + 48, start + 96))
+        let lower = collapsed.index(collapsed.startIndex, offsetBy: start)
+        let upper = collapsed.index(collapsed.startIndex, offsetBy: end)
+        var text = String(collapsed[lower..<upper])
+        if start > 0 { text = "…" + text }
+        if end < collapsed.count { text += "…" }
+        return text
     }
 }

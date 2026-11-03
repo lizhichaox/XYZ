@@ -1,6 +1,7 @@
 #if os(macOS)
 import AppKit
 import SwiftUI
+import WebKit
 import XYZCore
 
 enum FindBarAction {
@@ -27,29 +28,161 @@ final class EditorFindModel: ObservableObject {
     @Published var regexInvalid = false
     @Published var index = 0
     @Published var count = 0
+    @Published var wrapped = false
     @Published var focusToken = 0
     var language: SyntaxLanguage = .plain
     var perform: ((FindBarAction) -> Void)?
     var edit: (((String, SourceRange) -> SourceReplacement?) -> Void)?
+    weak var editorView: XYZMacTextView?
+    var surface: FindSurface = .editor
+    weak var readingWeb: WKWebView?
+    var readingText: () -> String = { "" }
     private var searchTask: Task<Void, Never>?
+    private var readingCursor = 0
+    private var readingGeneration = 0
+
+    enum FindSurface {
+        case editor
+        case reading
+    }
+
+    init() {
+        perform = { [weak self] action in
+            self?.dispatch(action)
+        }
+    }
 
     var query: FindQuery {
         FindQuery(pattern: pattern, matchCase: matchCase, wholeWord: wholeWord, regex: regex)
+    }
+
+    func useEditor() {
+        surface = .editor
+    }
+
+    func useReading(_ web: WKWebView?, text: @escaping () -> String) {
+        surface = .reading
+        readingWeb = web
+        readingText = text
     }
 
     func dismiss() {
         XYZDiagnostics.note("find close replace=\(showsReplace)")
         searchTask?.cancel()
         visible = false
+        wrapped = false
         perform?(.cancel)
     }
 
     func show(replace: Bool) {
         XYZDiagnostics.note("find open replace=\(replace)")
+        let reopen = visible
         visible = true
         if replace { showsReplace = true }
-        perform?(.focus)
+        if !reopen {
+            adoptSelection()
+        }
+        focusToken &+= 1
         scheduleRefresh()
+    }
+
+    func dispatch(_ action: FindBarAction) {
+        if surface == .reading {
+            runReading(action)
+        } else {
+            editorView?.runFind(action)
+        }
+    }
+
+    private func adoptSelection() {
+        if let editor = editorView, editor.window != nil, let seed = editor.singleLineSelection() {
+            pattern = seed
+            return
+        }
+        guard surface == .reading, let web = readingWeb else { return }
+        web.evaluateJavaScript("window.getSelection().toString()") { [weak self] value, _ in
+            guard let self, let text = value as? String else { return }
+            let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty, !trimmed.contains("\n"), !trimmed.contains("\r"), trimmed.count < 2_000 else { return }
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { () -> Void in
+                    self.pattern = trimmed
+                }
+            }
+        }
+    }
+
+    private func runReading(_ action: FindBarAction) {
+        switch action {
+        case .cancel:
+            readingGeneration += 1
+            readingCursor = 0
+            count = 0
+            index = 0
+            wrapped = false
+            readingWeb?.evaluateJavaScript("xyzClearFind()") { _, _ in }
+        case .focus:
+            focusToken &+= 1
+        case .useSelection:
+            adoptSelection()
+            visible = true
+            scheduleRefresh()
+        case .replaceOne, .replaceAll, .selectNextOccurrence:
+            NSSound.beep()
+        case .refresh:
+            highlightReading(direction: 0)
+        case .next:
+            highlightReading(direction: 1)
+        case .previous:
+            highlightReading(direction: -1)
+        }
+    }
+
+    /// `direction` 0 keeps the current hit. 1 and -1 move, wrapping with a cue.
+    private func highlightReading(direction: Int) {
+        guard let web = readingWeb else { return }
+        let query = self.query
+        if query.pattern.isEmpty {
+            count = 0
+            index = 0
+            wrapped = false
+            regexInvalid = false
+            web.evaluateJavaScript("xyzClearFind()") { _, _ in }
+            return
+        }
+        if direction == 0 {
+            readingCursor = 0
+        }
+        readingGeneration += 1
+        let token = readingGeneration
+        let spec: [String: Any] = [
+            "pattern": query.pattern,
+            "matchCase": query.matchCase,
+            "wholeWord": query.wholeWord,
+            "regex": query.regex,
+            "index": readingCursor,
+            "direction": direction,
+        ]
+        guard let data = try? JSONSerialization.data(withJSONObject: spec),
+              let json = String(data: data, encoding: .utf8) else { return }
+        web.evaluateJavaScript("xyzHighlightFind(\(json))") { [weak self] value, _ in
+            guard let self, token == self.readingGeneration else { return }
+            let body = value as? [String: Any] ?? [:]
+            let nextCount = Self.number(body["count"])
+            let nextIndex = Self.number(body["index"])
+            let didWrap = Self.flag(body["wrapped"])
+            let invalid = Self.flag(body["invalid"])
+            DispatchQueue.main.async {
+                MainActor.assumeIsolated { () -> Void in
+                    guard token == self.readingGeneration else { return }
+                    self.count = nextCount
+                    self.index = nextIndex
+                    self.wrapped = didWrap
+                    self.regexInvalid = invalid
+                    self.readingCursor = max(0, nextIndex - 1)
+                }
+            }
+        }
     }
 
     /// Match counting waits so the bar can appear, and a new keystroke drops the previous pass.
@@ -64,6 +197,18 @@ final class EditorFindModel: ObservableObject {
 
     func replacementText(for text: String, match: FindMatch) -> String {
         TextFind.replacement(in: text, match: match, query: query, with: replacement)
+    }
+
+    private static func number(_ value: Any?) -> Int {
+        if let number = value as? NSNumber { return number.intValue }
+        if let int = value as? Int { return int }
+        return 0
+    }
+
+    private static func flag(_ value: Any?) -> Bool {
+        if let number = value as? NSNumber { return number.boolValue }
+        if let flag = value as? Bool { return flag }
+        return false
     }
 }
 
@@ -80,71 +225,235 @@ struct FindBarHost: View {
 
 struct EditorFindBar: View {
     @ObservedObject var model: EditorFindModel
-    @FocusState private var focused: Bool
+    @FocusState private var slot: FindSlot?
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack(spacing: 6) {
-                TextField("Find", text: $model.pattern)
-                    .textFieldStyle(.roundedBorder)
-                    .focused($focused)
-                    .onSubmit { model.perform?(.next) }
-                toggle("Aa", help: "Match Case", on: $model.matchCase)
-                toggle("W", help: "Whole Word", on: $model.wholeWord)
-                toggle(".*", help: "Regex", on: $model.regex)
+                FindQueryField(
+                    text: $model.pattern,
+                    placeholder: String(localized: "Find"),
+                    token: model.focusToken,
+                    wantsFocus: slot == .query,
+                    onSubmit: { shift in model.perform?(shift ? .previous : .next) },
+                    onTab: { back in move(from: .query, back: back) },
+                    onCancel: { model.dismiss() }
+                )
+                .frame(width: 160)
+                toggle("Aa", help: "Match Case", slot: .matchCase, on: $model.matchCase)
+                toggle("W", help: "Whole Word", slot: .word, on: $model.wholeWord)
+                toggle(".*", help: "Regex", slot: .regex, on: $model.regex)
                 Text(countLabel)
                     .font(.system(size: 11))
-                    .foregroundStyle(model.regexInvalid ? Color.red.opacity(0.8) : Color.secondary)
+                    .foregroundStyle(model.regexInvalid ? Color.red.opacity(0.8) : Color.xyzSecondaryText)
                     .monospacedDigit()
+                    .lineLimit(1)
                     .frame(minWidth: 72, alignment: .trailing)
-                Button("↑") { model.perform?(.previous) }
-                    .buttonStyle(.borderless)
-                    .help("Find Previous")
-                    .accessibilityLabel("Find Previous")
-                Button("↓") { model.perform?(.next) }
-                    .buttonStyle(.borderless)
-                    .help("Find Next")
-                    .accessibilityLabel("Find Next")
-                Button("Close") { model.dismiss() }.buttonStyle(.borderless)
+                stepButton("chevron.up", help: "Find Previous", action: .previous)
+                stepButton("chevron.down", help: "Find Next", action: .next)
+                Button { model.dismiss() } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Color.xyzSecondaryText)
+                        .frame(width: 16, height: 16)
+                }
+                .buttonStyle(.borderless)
+                .help(String(localized: "Close"))
+                .accessibilityLabel(String(localized: "Close"))
             }
             if model.showsReplace {
                 HStack(spacing: 6) {
-                    TextField("Replace", text: $model.replacement)
-                        .textFieldStyle(.roundedBorder)
+                    FindQueryField(
+                        text: $model.replacement,
+                        placeholder: String(localized: "Replace"),
+                        token: 0,
+                        wantsFocus: slot == .replace,
+                        onSubmit: { _ in model.perform?(.replaceOne) },
+                        onTab: { back in move(from: .replace, back: back) },
+                        onCancel: { model.dismiss() }
+                    )
+                    .frame(width: 160)
                     Button("Replace") { model.perform?(.replaceOne) }
                         .buttonStyle(.borderless)
+                        .foregroundStyle(model.count == 0 ? Color.xyzSecondaryText : Color.xyzAccent)
                         .disabled(model.count == 0)
                     Button("Replace All") { model.perform?(.replaceAll) }
                         .buttonStyle(.borderless)
+                        .foregroundStyle(model.count == 0 ? Color.xyzSecondaryText : Color.xyzAccent)
                         .disabled(model.count == 0)
                 }
             }
         }
-        .padding(.horizontal, 10)
+        .padding(.horizontal, 8)
         .padding(.vertical, 6)
         .background(Color.editorBackground)
-        .overlay(alignment: .bottom) { Rectangle().fill(Color.xyzDivider).frame(height: 1) }
-        .onAppear { focused = true }
+        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8, style: .continuous)
+                .stroke(Color.xyzDivider, lineWidth: 1)
+        )
+        .shadow(color: Color.black.opacity(0.12), radius: 14, y: 6)
         .onExitCommand { model.dismiss() }
-        .onChange(of: model.pattern) { _, _ in model.scheduleRefresh() }
+        .onChange(of: model.pattern) { _, _ in
+            model.wrapped = false
+            model.scheduleRefresh()
+        }
         .onChange(of: model.matchCase) { _, _ in model.scheduleRefresh() }
         .onChange(of: model.wholeWord) { _, _ in model.scheduleRefresh() }
         .onChange(of: model.regex) { _, _ in model.scheduleRefresh() }
-        .onChange(of: model.focusToken) { _, _ in focused = true }
+        .onChange(of: model.focusToken) { _, _ in slot = .query }
     }
 
     private var countLabel: String {
         if model.pattern.isEmpty { return "" }
         if model.regexInvalid { return String(localized: "Invalid") }
         if model.count == 0 { return String(localized: "No results") }
-        return String(format: String(localized: "%lld of %lld"), Int64(model.index), Int64(model.count))
+        let base = String(format: String(localized: "%lld of %lld"), Int64(model.index), Int64(model.count))
+        if model.wrapped { return base + " · " + String(localized: "Wrapped") }
+        return base
     }
 
-    private func toggle(_ title: String, help: String, on: Binding<Bool>) -> some View {
+    private func stepButton(_ symbol: String, help: String, action: FindBarAction) -> some View {
+        Button { model.perform?(action) } label: {
+            Image(systemName: symbol)
+                .font(.system(size: 11, weight: .semibold))
+                .foregroundStyle(Color.xyzSecondaryText)
+                .frame(width: 16, height: 16)
+        }
+        .buttonStyle(.borderless)
+        .help(String(localized: String.LocalizationValue(help)))
+        .accessibilityLabel(String(localized: String.LocalizationValue(help)))
+    }
+
+    private func toggle(_ title: String, help: String, slot target: FindSlot, on: Binding<Bool>) -> some View {
         Button(title) { on.wrappedValue.toggle() }
             .buttonStyle(.borderless)
-            .foregroundStyle(on.wrappedValue ? Color.primary : Color.secondary)
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(on.wrappedValue ? Color.xyzAccent : Color.xyzSecondaryText)
+            .padding(.horizontal, 4)
+            .padding(.vertical, 2)
+            .background(on.wrappedValue ? Color.xyzSelection : Color.clear)
+            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+            .focused($slot, equals: target)
+            .onKeyPress(.tab) {
+                move(from: target, back: false)
+                return .handled
+            }
             .help(String(localized: String.LocalizationValue(help)))
+            .accessibilityLabel(String(localized: String.LocalizationValue(help)))
+            .accessibilityAddTraits(on.wrappedValue ? .isSelected : [])
+    }
+
+    private func move(from current: FindSlot, back: Bool) {
+        let order: [FindSlot] = model.showsReplace
+            ? [.query, .replace, .matchCase, .word, .regex]
+            : [.query, .matchCase, .word, .regex]
+        guard let index = order.firstIndex(of: current) else {
+            slot = .query
+            return
+        }
+        let next = back ? index - 1 : index + 1
+        let wrapped = (next + order.count) % order.count
+        slot = order[wrapped]
+    }
+}
+
+private enum FindSlot: Hashable {
+    case query
+    case replace
+    case matchCase
+    case word
+    case regex
+}
+
+/// The find field. Return finds the next match, Shift-Return the previous, Tab moves along the bar.
+private struct FindQueryField: NSViewRepresentable {
+    @Binding var text: String
+    var placeholder: String
+    var token: Int
+    var wantsFocus: Bool
+    var onSubmit: (Bool) -> Void
+    var onTab: (Bool) -> Void
+    var onCancel: () -> Void
+
+    func makeCoordinator() -> Coordinator { Coordinator(self) }
+
+    func makeNSView(context: Context) -> NSTextField {
+        let field = NSTextField()
+        field.isBordered = false
+        field.drawsBackground = false
+        field.focusRingType = .none
+        field.font = .systemFont(ofSize: 13)
+        field.textColor = .xyzInk
+        field.placeholderString = placeholder
+        field.delegate = context.coordinator
+        field.cell?.sendsActionOnEndEditing = false
+        return field
+    }
+
+    func updateNSView(_ field: NSTextField, context: Context) {
+        context.coordinator.parent = self
+        field.placeholderString = placeholder
+        let editor = field.currentEditor() as? NSTextView
+        if editor == nil, field.stringValue != text {
+            field.stringValue = text
+        }
+        if token != 0, context.coordinator.token != token {
+            context.coordinator.token = token
+            context.coordinator.armed = true
+            focus(field, selectAll: true)
+        } else if wantsFocus, !context.coordinator.armed {
+            context.coordinator.armed = true
+            focus(field, selectAll: false)
+        } else if !wantsFocus {
+            context.coordinator.armed = false
+        }
+    }
+
+    private func focus(_ field: NSTextField, selectAll: Bool) {
+        DispatchQueue.main.async {
+            guard let window = field.window else { return }
+            window.makeFirstResponder(field)
+            if selectAll {
+                let length = (field.stringValue as NSString).length
+                field.currentEditor()?.selectedRange = NSRange(location: 0, length: length)
+            }
+        }
+    }
+
+    final class Coordinator: NSObject, NSTextFieldDelegate {
+        var parent: FindQueryField
+        var token = 0
+        var armed = false
+
+        init(_ parent: FindQueryField) { self.parent = parent }
+
+        func controlTextDidChange(_ obj: Notification) {
+            guard let field = obj.object as? NSTextField else { return }
+            let value = (field.currentEditor() as? NSTextView)?.string ?? field.stringValue
+            if parent.text != value { parent.text = value }
+        }
+
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+            if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
+                parent.onCancel()
+                return true
+            }
+            if commandSelector == #selector(NSResponder.insertNewline(_:)) {
+                let shift = NSApp.currentEvent?.modifierFlags.contains(.shift) == true
+                parent.onSubmit(shift)
+                return true
+            }
+            if commandSelector == #selector(NSResponder.insertTab(_:)) {
+                parent.onTab(false)
+                return true
+            }
+            if commandSelector == #selector(NSResponder.insertBacktab(_:)) {
+                parent.onTab(true)
+                return true
+            }
+            return false
+        }
     }
 }
 
