@@ -55,7 +55,7 @@ struct WorkspaceView: View {
             }
             if session.buffer != nil {
                 EditorStatusBar(
-                    caret: showsStatusText ? session.caret : nil,
+                    caret: statusEditing ? session.caret : nil,
                     encodingValue: showsStatusText ? session.buffer?.encoding : nil,
                     lineEndingValue: showsStatusText ? session.buffer?.lineEnding : nil,
                     mixedEndings: session.buffer?.mixedLineEndings == true,
