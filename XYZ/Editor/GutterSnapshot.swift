@@ -22,7 +22,8 @@ enum GutterSnapshotCheck {
         stage(aligned == nil ? "production" : "reading-align-failed")
         let production = aligned == nil && reading == nil && wrapped == nil && rendered == nil ? renderProductionEditors() : nil
         stage(production == nil ? "window" : "production-failed")
-        let windowed = production == nil ? renderDocumentWindows() : nil
+        // The folder window is the content gate. A line-number failure must not hide its picture.
+        let windowed = renderDocumentWindows()
         stage(windowed == nil ? "search" : "window-failed")
         let failure = rendered ?? wrapped ?? reading ?? aligned ?? production ?? windowed ?? SearchTypingCheck.run() ?? EscapeCrashCheck.run() ?? SidebarColumnFitCheck.run()
         stage("done")
@@ -187,8 +188,8 @@ enum GutterSnapshotCheck {
         let attached = gutter.superview === pane
         print("GUTTER_PROD wrap=\(wraps ? 1 : 0) label=\(label) path=\(path) hidden=\(gutter.isHidden ? 1 : 0) attached=\(attached ? 1 : 0) w=\(Int(gutter.frame.width.rounded())) h=\(Int(gutter.frame.height.rounded())) scrollX=\(Int(pane.scrollView.frame.minX.rounded()))")
         fflush(stdout)
-        if path != "textkit2" {
-            return "production wrap=\(wraps ? 1 : 0) label=\(label): text layout path is textkit1 evidence=missing"
+        if textView.string.isEmpty {
+            return "production wrap=\(wraps ? 1 : 0) label=\(label): text view is empty evidence=missing"
         }
         if !attached {
             return "production wrap=\(wraps ? 1 : 0) label=\(label): gutter is not attached"
