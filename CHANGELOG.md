@@ -2,8 +2,8 @@
 
 ## 0.5.24
 
-- Editing shows its line-number gutter in the real window, with wrapping on or off. The scroll view no longer sits on top of it, and a blank first draw is painted again after the text has laid out.
-- `-XYZCheckGutter` mounts the same SwiftUI editor the window uses and checks that the gutter is attached, visible, painted, and numbered from source lines.
+- Editing shows its line-number gutter in the real window, with wrapping on or off. The hosted editor stays on TextKit 2. Reading `layoutManager` was installing TextKit 1, and a wrapped gutter then had no fragments to number.
+- `-XYZCheckGutter` mounts `XYZMacEditor` in a window, the path the detached pane never took, and checks attachment, visible bounds, paint, and source line numbers with wrapping on and off, including a Reading-to-Editing toggle.
 
 ## 0.5.23
 

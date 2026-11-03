@@ -105,14 +105,15 @@ enum XYZDiagnostics {
         hidden: Bool,
         width: CGFloat,
         height: CGFloat,
-        scrollX: CGFloat
+        scrollX: CGFloat,
+        layout: String
     ) {
         guard enabledDiagnostics else { return }
-        let signature = "mount|\(wrap ? 1 : 0)|\(enabled ? 1 : 0)|\(attached ? 1 : 0)|\(hidden ? 1 : 0)|\(Int(width.rounded()))|\(Int(height.rounded()))|\(Int(scrollX.rounded()))"
+        let signature = "mount|\(wrap ? 1 : 0)|\(enabled ? 1 : 0)|\(attached ? 1 : 0)|\(hidden ? 1 : 0)|\(Int(width.rounded()))|\(Int(height.rounded()))|\(Int(scrollX.rounded()))|\(layout)"
         guard signature != lastGutterSignature else { return }
         lastGutterSignature = signature
-        let reason = !attached ? "not-attached" : (hidden || width < 8 || height < 8 ? "not-visible" : "mounted")
-        note("gutter state mode=editing wrap=\(wrap ? 1 : 0) enabled=\(enabled ? 1 : 0) attached=\(attached ? 1 : 0) hidden=\(hidden ? 1 : 0) w=\(Int(width.rounded())) h=\(Int(height.rounded())) scrollX=\(Int(scrollX.rounded())) count=0 pairs= reason=\(reason)")
+        let reason = !attached ? "not-attached" : (hidden || width < 8 || height < 8 ? "not-visible" : layout)
+        note("gutter state mode=editing wrap=\(wrap ? 1 : 0) enabled=\(enabled ? 1 : 0) attached=\(attached ? 1 : 0) hidden=\(hidden ? 1 : 0) w=\(Int(width.rounded())) h=\(Int(height.rounded())) scrollX=\(Int(scrollX.rounded())) layout=\(layout) count=0 pairs= reason=\(reason)")
     }
 
     private static var enabledDiagnostics: Bool { enabled }

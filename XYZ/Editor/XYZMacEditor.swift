@@ -29,6 +29,8 @@ final class XYZMacTextView: NSTextView {
     }
     /// The pane that owns this text view and its gutter. Set when the pane attaches the document.
     weak var editorPane: EditorPane?
+    /// Owns the TextKit 2 content storage. The text container does not, and releasing it drops `textLayoutManager`.
+    var textKit2Storage: NSTextContentStorage?
     /// The live gutter, for the offscreen snapshot. Nil until line numbers are turned on.
     var lineNumberGutter: LineNumberGutter? {
         guard showsLineNumbers, let gutter = editorPane?.gutter, gutter.superview != nil, !gutter.isHidden else {
@@ -615,6 +617,25 @@ private struct FindScan {
         enclosingScrollView?.needsDisplay = true
     }
 
+    /// Gives the gutter a real wrap width and a viewport. Does not read `layoutManager`:
+    /// that TextKit 1 property replaces `textLayoutManager`, and a wrapped gutter then draws nothing.
+    func prepareLineNumberLayout() {
+        guard showsLineNumbers, let manager = textLayoutManager else { return }
+        let widthReady = max(bounds.width, enclosingScrollView?.bounds.width ?? 0)
+        guard widthReady > 1 else { return }
+        if style.wraps, let width = enclosingScrollView?.contentSize.width, width > 1 {
+            textContainer?.widthTracksTextView = true
+            let next = NSSize(width: max(1, width - 1), height: CGFloat.greatestFiniteMagnitude)
+            if textContainer?.containerSize.width != next.width {
+                textContainer?.containerSize = next
+            }
+        }
+        let viewport = manager.textViewportLayoutController
+        if viewport.viewportRange == nil {
+            viewport.layoutViewport()
+        }
+    }
+
     /// The side padding from Settings. Line numbers live in the sibling gutter, not in this inset.
     private func expectedInset(for paneWidth: CGFloat) -> NSSize {
         NSSize(width: style.sideInset(for: paneWidth), height: style.verticalInset)
@@ -1010,7 +1031,10 @@ final class EditorPane: NSView {
         if gutter.superview === self, subviews.last !== gutter {
             addSubview(gutter, positioned: .above, relativeTo: scrollView)
         }
+        scrollView.layoutSubtreeIfNeeded()
+        gutter.textView?.prepareLineNumberLayout()
         gutter.noteGeometryChanged()
+        let layout = gutter.textView?.textLayoutManager == nil ? "textkit1" : "textkit2"
         XYZDiagnostics.gutterMount(
             wrap: gutter.textView?.style.wraps == true,
             enabled: show,
@@ -1018,7 +1042,8 @@ final class EditorPane: NSView {
             hidden: gutter.isHidden,
             width: gutter.frame.width,
             height: gutter.frame.height,
-            scrollX: scrollView.frame.minX
+            scrollX: scrollView.frame.minX,
+            layout: layout
         )
     }
 
@@ -1069,7 +1094,7 @@ struct XYZMacEditor: NSViewRepresentable {
     var onTextChange: (String) -> Void
 
     func makeNSView(context: Context) -> EditorPane {
-        let textView = XYZMacTextView(usingTextLayoutManager: true)
+        let textView = Self.makeTextKit2View()
         textView.isRichText = true
         textView.importsGraphics = false
         textView.allowsImageEditing = false
@@ -1139,9 +1164,46 @@ struct XYZMacEditor: NSViewRepresentable {
         context.coordinator.restyle(edited: nil)
         context.coordinator.observeScroll(of: scrollView)
         applyWrap(textView: textView, scrollView: scrollView, wraps: style.wraps)
-        textView.layoutManager?.allowsNonContiguousLayout = true
-        assert(textView.textLayoutManager != nil, "XYZEditor requires TextKit 2")
+        // Leave `layoutManager` unread. On this path it installs TextKit 1 and the assert
+        // in a debug build is the crash the hosted check hit. Release builds kept editing
+        // and drew no wrapped line numbers.
+        noteHostedTextSystem(textView, stage: "make")
         return pane
+    }
+
+    /// TextKit 2 stack for the window. `init(usingTextLayoutManager:)` is the fallback when the
+    /// explicit stack does not attach, which is what the detached harness used.
+    private static func makeTextKit2View() -> XYZMacTextView {
+        let container = NSTextContainer(size: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
+        container.lineFragmentPadding = 0
+        container.widthTracksTextView = true
+        let layoutManager = NSTextLayoutManager()
+        let content = NSTextContentStorage()
+        content.addTextLayoutManager(layoutManager)
+        layoutManager.textContainer = container
+        let explicit = XYZMacTextView(frame: .zero, textContainer: container)
+        let chosen: XYZMacTextView
+        let how: String
+        if explicit.textLayoutManager != nil {
+            explicit.textKit2Storage = content
+            chosen = explicit
+            how = "explicit"
+        } else {
+            chosen = XYZMacTextView(usingTextLayoutManager: true)
+            how = chosen.textLayoutManager == nil ? "textkit1" : "convenience"
+        }
+        if ProcessInfo.processInfo.arguments.contains(GutterSnapshotCheck.argument) {
+            print("GUTTER_PROD stage=init path=\(how)")
+            fflush(stdout)
+        }
+        return chosen
+    }
+
+    private func noteHostedTextSystem(_ textView: XYZMacTextView, stage: String) {
+        guard ProcessInfo.processInfo.arguments.contains(GutterSnapshotCheck.argument) else { return }
+        let path = textView.textLayoutManager == nil ? "textkit1" : "textkit2"
+        print("GUTTER_PROD stage=\(stage) path=\(path) numbers=\(lineNumbers ? 1 : 0) wrap=\(style.wraps ? 1 : 0)")
+        fflush(stdout)
     }
 
     func updateNSView(_ pane: EditorPane, context: Context) {
@@ -1651,11 +1713,17 @@ enum EditorTypography {
         keepViewportLayout(textView, displayViewport: true)
     }
 
-    /// `setAttributes` can clear `allowsNonContiguousLayout`. Put it back so scrolling stays on the viewport.
+    /// Keeps viewport layout after an attribute edit. TextKit 1 uses `allowsNonContiguousLayout`.
+    /// Reading `layoutManager` on a TextKit 2 view installs TextKit 1, so that read stays on the
+    /// TextKit 1 branch.
     private static func keepViewportLayout(_ textView: NSTextView, displayViewport: Bool = false) {
+        if let manager = textView.textLayoutManager {
+            if displayViewport {
+                manager.textViewportLayoutController.layoutViewport()
+            }
+            return
+        }
         textView.layoutManager?.allowsNonContiguousLayout = true
-        guard displayViewport, let manager = textView.textLayoutManager else { return }
-        manager.textViewportLayoutController.layoutViewport()
     }
 
     /// Muted colors in the spirit of VS Code Dark Modern and Light Modern.

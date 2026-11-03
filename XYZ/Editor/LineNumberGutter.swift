@@ -126,6 +126,7 @@ final class LineNumberGutter: NSView {
         } else if drawn > 0 {
             emptyPaintRetries = 0
         }
+        let path = textView.textLayoutManager == nil ? "textkit1" : "textkit2"
         XYZDiagnostics.gutterDraw(
             dirty: dirtyRect,
             bounds: bounds,
@@ -133,7 +134,7 @@ final class LineNumberGutter: NSView {
             first: first,
             last: last,
             color: Self.colorDescription(plainColor),
-            api: placed.api,
+            api: "\(placed.api) \(path)",
             pairs: pairs.joined(separator: ","),
             wrap: textView.style.wraps,
             mode: "editing"

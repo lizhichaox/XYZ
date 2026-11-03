@@ -44,39 +44,43 @@ enum GutterSnapshotCheck {
         return nil
     }
 
-    /// The SwiftUI editor inside a real window, the path the harness skipped.
+    /// `XYZMacEditor` inside a window. The detached pane below never calls `makeNSView`.
     private static func renderProductionEditors() -> String? {
         if let failure = renderProductionEditor(wraps: true) { return failure }
         if let failure = renderProductionEditor(wraps: false) { return failure }
         return nil
     }
 
-    private static func renderProductionEditor(wraps: Bool) -> String? {
-        let text = "one\n" + String(repeating: "wrap ", count: 24) + "\n\nfour\n"
+    private static func productionEditor(text: String, wraps: Bool, lineNumbers: Bool) -> XYZMacEditor {
         var style = XYZEditorStyle()
         style.wraps = wraps
         style.fontSize = 16
         style.monospaced = true
         style.latin = "menlo"
-        let editor = MainActor.assumeIsolated {
-            XYZMacEditor(
-                text: text,
-                isEditable: true,
-                undoManager: nil,
-                reloadToken: 1,
-                style: style,
-                scrollLink: EditorScrollLink(),
-                markup: false,
-                spellCheck: false,
-                syntax: .plain,
-                lineNumbers: true,
-                find: nil,
-                onSelection: nil,
-                onTextChange: { _ in }
-            )
-        }
+        return XYZMacEditor(
+            text: text,
+            isEditable: lineNumbers,
+            undoManager: nil,
+            reloadToken: 1,
+            style: style,
+            scrollLink: EditorScrollLink(),
+            markup: false,
+            spellCheck: false,
+            syntax: .plain,
+            lineNumbers: lineNumbers,
+            find: nil,
+            onSelection: nil,
+            onTextChange: { _ in }
+        )
+    }
+
+    private static func renderProductionEditor(wraps: Bool) -> String? {
+        let text = "one\n" + String(repeating: "wrap ", count: 24) + "\n\nfour\n"
         print("GUTTER_PROD stage=host wrap=\(wraps ? 1 : 0)")
         fflush(stdout)
+        let editor = MainActor.assumeIsolated {
+            productionEditor(text: text, wraps: wraps, lineNumbers: true)
+        }
         let host = NSHostingView(rootView: editor)
         let width: CGFloat = wraps ? 240 : 520
         host.frame = NSRect(x: 0, y: 0, width: width, height: 480)
@@ -87,29 +91,84 @@ enum GutterSnapshotCheck {
             defer: false
         )
         window.contentView = host
-        print("GUTTER_PROD stage=layout wrap=\(wraps ? 1 : 0)")
-        fflush(stdout)
+        if let failure = checkProduction(host: host, window: window, wraps: wraps, label: "load") {
+            return failure
+        }
+        let hidden = MainActor.assumeIsolated {
+            productionEditor(text: text, wraps: wraps, lineNumbers: false)
+        }
+        host.rootView = hidden
+        if let failure = checkProductionHidden(host: host, window: window, wraps: wraps) {
+            return failure
+        }
+        let shown = MainActor.assumeIsolated {
+            productionEditor(text: text, wraps: wraps, lineNumbers: true)
+        }
+        host.rootView = shown
+        return checkProduction(host: host, window: window, wraps: wraps, label: "toggle")
+    }
+
+    private static func settle(_ host: NSHostingView<XYZMacEditor>, _ window: NSWindow) {
         host.layoutSubtreeIfNeeded()
         window.displayIfNeeded()
+        RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.2))
+        host.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+    }
+
+    private static func checkProductionHidden(
+        host: NSHostingView<XYZMacEditor>,
+        window: NSWindow,
+        wraps: Bool
+    ) -> String? {
+        settle(host, window)
         guard let pane = findPane(in: host) else {
-            return "production wrap=\(wraps ? 1 : 0): EditorPane was not mounted evidence=missing"
+            return "production wrap=\(wraps ? 1 : 0) label=hide: EditorPane was not mounted evidence=missing"
         }
         let gutter = pane.gutter
-        let attached = gutter.superview === pane
-        print("GUTTER_PROD wrap=\(wraps ? 1 : 0) hidden=\(gutter.isHidden ? 1 : 0) attached=\(attached ? 1 : 0) w=\(Int(gutter.frame.width.rounded())) h=\(Int(gutter.frame.height.rounded())) scrollX=\(Int(pane.scrollView.frame.minX.rounded()))")
+        let hidden = gutter.isHidden || gutter.frame.width < 8
+        print("GUTTER_PROD wrap=\(wraps ? 1 : 0) label=hide hidden=\(gutter.isHidden ? 1 : 0) w=\(Int(gutter.frame.width.rounded()))")
         fflush(stdout)
+        if !hidden {
+            return "production wrap=\(wraps ? 1 : 0) label=hide: gutter stayed visible w=\(gutter.frame.width)"
+        }
+        return nil
+    }
+
+    private static func checkProduction(
+        host: NSHostingView<XYZMacEditor>,
+        window: NSWindow,
+        wraps: Bool,
+        label: String
+    ) -> String? {
+        print("GUTTER_PROD stage=layout wrap=\(wraps ? 1 : 0) label=\(label)")
+        fflush(stdout)
+        settle(host, window)
+        guard let pane = findPane(in: host) else {
+            return "production wrap=\(wraps ? 1 : 0) label=\(label): EditorPane was not mounted evidence=missing"
+        }
+        guard let textView = pane.scrollView.documentView as? XYZMacTextView else {
+            return "production wrap=\(wraps ? 1 : 0) label=\(label): text view missing evidence=missing"
+        }
+        let path = textView.textLayoutManager == nil ? "textkit1" : "textkit2"
+        let gutter = pane.gutter
+        let attached = gutter.superview === pane
+        print("GUTTER_PROD wrap=\(wraps ? 1 : 0) label=\(label) path=\(path) hidden=\(gutter.isHidden ? 1 : 0) attached=\(attached ? 1 : 0) w=\(Int(gutter.frame.width.rounded())) h=\(Int(gutter.frame.height.rounded())) scrollX=\(Int(pane.scrollView.frame.minX.rounded()))")
+        fflush(stdout)
+        if path != "textkit2" {
+            return "production wrap=\(wraps ? 1 : 0) label=\(label): text layout path is textkit1 evidence=missing"
+        }
         if !attached {
-            return "production wrap=\(wraps ? 1 : 0): gutter is not attached"
+            return "production wrap=\(wraps ? 1 : 0) label=\(label): gutter is not attached"
         }
         if gutter.isHidden || gutter.frame.width < 20 || gutter.frame.height < 40 {
-            return "production wrap=\(wraps ? 1 : 0): gutter not visible w=\(gutter.frame.width) h=\(gutter.frame.height) hidden=\(gutter.isHidden)"
+            return "production wrap=\(wraps ? 1 : 0) label=\(label): gutter not visible w=\(gutter.frame.width) h=\(gutter.frame.height) hidden=\(gutter.isHidden)"
         }
         if pane.scrollView.frame.minX + 1 < gutter.frame.maxX {
-            return "production wrap=\(wraps ? 1 : 0): scroll view covers the gutter scrollX=\(pane.scrollView.frame.minX) gutterMaxX=\(gutter.frame.maxX)"
+            return "production wrap=\(wraps ? 1 : 0) label=\(label): scroll view covers the gutter scrollX=\(pane.scrollView.frame.minX) gutterMaxX=\(gutter.frame.maxX)"
         }
-        window.displayIfNeeded()
         guard let rep = bitmap(of: pane) else {
-            return "production wrap=\(wraps ? 1 : 0): could not paint the window"
+            return "production wrap=\(wraps ? 1 : 0) label=\(label): could not paint the window"
         }
         let sample = gutter.convert(gutter.bounds, to: pane)
         let background = NSColor.xyzEditor
@@ -120,20 +179,21 @@ enum GutterSnapshotCheck {
         }
         let ink = nonBackgroundPixels(in: rep, rect: sample, background: plate)
         if ink < 30 {
-            return "production wrap=\(wraps ? 1 : 0): gutter painted \(ink) contrasting pixels evidence=missing"
+            let snapshot = gutter.testingSnapshot()
+            return "production wrap=\(wraps ? 1 : 0) label=\(label): gutter painted \(ink) contrasting pixels api=\(snapshot.api) evidence=missing"
         }
         let snapshot = gutter.testingSnapshot()
         let numbered = snapshot.rows.filter(\.shows).map(\.line)
-        print("GUTTER_PROD_LABELS wrap=\(wraps ? 1 : 0) api=\(snapshot.api) numbered=\(numbered) visual=\(snapshot.rows.count)")
+        print("GUTTER_PROD_LABELS wrap=\(wraps ? 1 : 0) label=\(label) api=\(snapshot.api) numbered=\(numbered) visual=\(snapshot.rows.count)")
         fflush(stdout)
         if numbered.first != 1 {
-            return "production wrap=\(wraps ? 1 : 0): numbered \(numbered) api=\(snapshot.api)"
+            return "production wrap=\(wraps ? 1 : 0) label=\(label): numbered \(numbered) api=\(snapshot.api)"
         }
         if numbered != Array(1...numbered.count) {
-            return "production wrap=\(wraps ? 1 : 0): numbered \(numbered) is not a source prefix"
+            return "production wrap=\(wraps ? 1 : 0) label=\(label): numbered \(numbered) is not a source prefix"
         }
         if wraps && snapshot.rows.count <= numbered.count {
-            return "production wrap=1: long line did not wrap visual=\(snapshot.rows.count)"
+            return "production wrap=1 label=\(label): long line did not wrap visual=\(snapshot.rows.count)"
         }
         return nil
     }
@@ -220,6 +280,8 @@ enum GutterSnapshotCheck {
         return nil
     }
 
+    /// Detached `EditorPane`. It never calls `XYZMacEditor.makeNSView` and never reads
+    /// `layoutManager`, so a pass here does not mean the window drew numbers.
     private static func layoutGutter(text: String, wraps: Bool, width: CGFloat) -> (api: String, rows: [(line: Int, shows: Bool, y: CGFloat)])? {
         let pane = EditorPane(frame: NSRect(x: 0, y: 0, width: width, height: 1600))
         let textView = XYZMacTextView(usingTextLayoutManager: true)
