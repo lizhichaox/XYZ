@@ -12,6 +12,7 @@ enum FindBarAction {
     case useSelection
     case selectNextOccurrence
     case focus
+    case cancel
 }
 
 @MainActor
@@ -34,6 +35,12 @@ final class EditorFindModel: ObservableObject {
 
     var query: FindQuery {
         FindQuery(pattern: pattern, matchCase: matchCase, wholeWord: wholeWord, regex: regex)
+    }
+
+    func dismiss() {
+        searchTask?.cancel()
+        visible = false
+        perform?(.cancel)
     }
 
     func show(replace: Bool) {
@@ -96,7 +103,7 @@ struct EditorFindBar: View {
                     .buttonStyle(.borderless)
                     .help("Find Next")
                     .accessibilityLabel("Find Next")
-                Button("Close") { model.visible = false }.buttonStyle(.borderless)
+                Button("Close") { model.dismiss() }.buttonStyle(.borderless)
             }
             if model.showsReplace {
                 HStack(spacing: 6) {
@@ -116,6 +123,7 @@ struct EditorFindBar: View {
         .background(Color.editorBackground)
         .overlay(alignment: .bottom) { Rectangle().fill(Color.primary.opacity(0.12)).frame(height: 1) }
         .onAppear { focused = true }
+        .onExitCommand { model.dismiss() }
         .onChange(of: model.pattern) { _, _ in model.scheduleRefresh() }
         .onChange(of: model.matchCase) { _, _ in model.scheduleRefresh() }
         .onChange(of: model.wholeWord) { _, _ in model.scheduleRefresh() }

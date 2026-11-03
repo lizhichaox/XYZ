@@ -270,6 +270,9 @@ final class XYZMacTextView: NSTextView {
             selectNextOccurrence()
         case .focus:
             model.focusToken &+= 1
+        case .cancel:
+            findTask?.cancel()
+            findGeneration += 1
         }
     }
 
@@ -505,11 +508,53 @@ private struct FindScan {
 
     /// The caret's number is darker, and Editing draws a band behind that line.
     func caretMoved() {
-        if isEditable {
-            setNeedsDisplay(visibleRect)
+        if showsLineNumbers {
+            gutter.setNeedsDisplay(gutter.bounds.intersection(visibleRect))
         }
-        guard showsLineNumbers else { return }
-        gutter.setNeedsDisplay(visibleRect)
+        guard isEditable else { return }
+        guard let band = currentLineBand() else { return }
+        if let previous = lastLineBand, !previous.equalTo(band) {
+            setNeedsDisplay(previous)
+        }
+        lastLineBand = band
+        setNeedsDisplay(band)
+    }
+
+    private var lastLineBand: NSRect?
+    private var lineIndexCache: LineIndex?
+    private var lineIndexToken = 0
+
+    /// Line starts for the status bar. Built off the main thread so closing find does not scan the file.
+    func warmLineIndex() {
+        lineIndexToken += 1
+        let token = lineIndexToken
+        let text = string
+        Task.detached(priority: .utility) { [weak self] in
+            let index = LineIndex(text)
+            await MainActor.run { [weak self] in
+                guard let self, token == self.lineIndexToken else { return }
+                self.lineIndexCache = index
+            }
+        }
+    }
+
+    func cachedLineIndex() -> LineIndex? {
+        lineIndexCache
+    }
+
+    /// The current line, already laid out. Does not ask TextKit to lay out the rest of the file.
+    private func currentLineBand() -> NSRect? {
+        guard let manager = textLayoutManager, let content = manager.textContentManager else { return nil }
+        let length = (string as NSString).length
+        let clamped = min(max(0, selectedRange().location), length)
+        guard let start = content.location(content.documentRange.location, offsetBy: clamped),
+              let fragment = manager.textLayoutFragment(for: start) else { return nil }
+        return NSRect(
+            x: 0,
+            y: textContainerOrigin.y + fragment.layoutFragmentFrame.minY,
+            width: bounds.width,
+            height: fragment.layoutFragmentFrame.height
+        )
     }
 
     override func drawBackground(in rect: NSRect) {
@@ -770,6 +815,7 @@ struct XYZMacEditor: NSViewRepresentable {
         scrollView.documentView = textView
         applyChrome(textView: textView, scrollView: scrollView, style: style)
         textView.string = text
+        textView.warmLineIndex()
         context.coordinator.restyle(edited: nil)
         applyWrap(textView: textView, scrollView: scrollView, wraps: style.wraps)
         textView.layoutManager?.allowsNonContiguousLayout = true
@@ -944,10 +990,12 @@ struct XYZMacEditor: NSViewRepresentable {
                 textView.string = replacement
                 textView.undoManager?.enableUndoRegistration()
                 laterRestyle?.cancel()
-                restyle(edited: nil)
+                textView.warmLineIndex()
                 isApplyingExternalText = false
-                onTextChange(replacement)
-                reportSelection(textView)
+                let visible = EditorTypography.visibleSpan(in: textView)
+                DispatchQueue.main.async { [weak self] in
+                    self?.restyle(edited: visible)
+                }
             }
         }
 
@@ -968,11 +1016,13 @@ struct XYZMacEditor: NSViewRepresentable {
         }
 
         private func reportSelection(_ textView: NSTextView) {
+            guard let textView = textView as? XYZMacTextView, let index = textView.cachedLineIndex() else { return }
             let range = textView.selectedRange()
             onSelection?(EditorCaret.measure(
                 text: textView.string,
                 utf16Location: range.location,
-                utf16Length: range.length
+                utf16Length: range.length,
+                index: index
             ))
         }
 
@@ -1103,7 +1153,12 @@ enum EditorTypography {
         let paragraph = style.paragraphStyle(naturalLineHeight: naturalLineHeight(font))
         let ns = storage.string as NSString
         let full = NSRange(location: 0, length: ns.length)
-        let span = full.length > immediateLimit ? lineSpan(ns, around: edited) : full
+        let span: NSRange
+        if full.length > immediateLimit {
+            span = lineSpan(ns, around: edited ?? visibleSpan(in: textView))
+        } else {
+            span = full
+        }
         textView.undoManager?.disableUndoRegistration()
         storage.beginEditing()
         if span.length > 0, span.location >= 0, NSMaxRange(span) <= ns.length {
@@ -1186,6 +1241,22 @@ enum EditorTypography {
                 ? NSColor(srgbRed: 0.61, green: 0.86, blue: 1.0, alpha: 1)
                 : NSColor(srgbRed: 0.02, green: 0.32, blue: 0.65, alpha: 1)
         }
+    }
+
+    /// The characters already on screen. Does not lay out the rest of the file.
+    static func visibleSpan(in textView: NSTextView) -> NSRange {
+        let ns = textView.string as NSString
+        guard ns.length > 0,
+              let manager = textView.textLayoutManager,
+              let content = manager.textContentManager,
+              let viewport = manager.textViewportLayoutController.viewportRange else {
+            return NSRange(location: 0, length: min(ns.length, 4_000))
+        }
+        let start = content.offset(from: content.documentRange.location, to: viewport.location)
+        let end = content.offset(from: content.documentRange.location, to: viewport.endLocation)
+        let location = min(max(0, start), ns.length)
+        let length = min(max(0, end - location), ns.length - location)
+        return NSRange(location: location, length: length)
     }
 
     private static func lineSpan(_ ns: NSString, around edited: NSRange?) -> NSRange {

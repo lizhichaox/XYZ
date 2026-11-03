@@ -10,7 +10,7 @@
 - The sidebar has no filter field. ⌘K is the folder search: file names and paths, including hidden files when they are shown, and text in the files. The sidebar is Explorer, the folder, then Outline.
 - ⌘K lists more than a handful of matches in one file, and a “more” row when the rest are cut off. The query includes the last character typed.
 - Syntax coloring adds muted colors for strings, numbers, types, and, in config files, section headers and keys.
-- ⌘F shows the find bar immediately. Counting matches waits a moment and runs off the main thread, so a large file does not freeze the window. The bar sits over the text instead of pushing it down.
+- ⌘F shows the find bar immediately. Counting matches waits a moment and runs off the main thread, so a large file does not freeze the window. The bar sits over the text instead of pushing it down. Closing it only hides the bar. Closing a tab updates the tab strip first and swaps the file afterward, without recoloring the whole document.
 
 ## 0.5.0
 

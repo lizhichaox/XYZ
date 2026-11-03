@@ -261,8 +261,12 @@ final class ReadingSurface: NSView, NSSearchFieldDelegate {
     }
 
     private func hideFind() {
+        findTask?.cancel()
         setFindVisible(false)
-        window?.makeFirstResponder(webView)
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.window?.makeFirstResponder(self.webView)
+        }
     }
 
     private var findTask: Task<Void, Never>?

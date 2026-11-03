@@ -488,29 +488,30 @@ final class WorkspaceSession: ObservableObject {
     /// Closes a tab. A tab with unsaved edits that could not be written stays open.
     @discardableResult
     func closeTab(_ id: String, force: Bool = false) -> Bool {
-        if let open = buffers[id] {
-            open.flush()
-            if !force, open.isDirty || open.conflictText != nil {
-                show(open)
-                return false
-            }
+        if let open = buffers[id], !force, open.isDirty || open.conflictText != nil {
+            show(open)
+            return false
         }
-        release(id, save: false)
         var strip = tabStrip
         let next = strip.close(id: id)
         tabStrip = strip
-        if let next, let open = buffers[next] {
-            show(open)
-        } else if next == nil {
-            buffer = nil
-            selectedPath = nil
-            previewBridge.send("")
-        }
+        tabMRU.close(id)
         if !force {
             closedTabs.push(id)
         }
-        tabMRU.close(id)
-        onTabsChanged?()
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.buffers[id]?.flush()
+            self.release(id, save: false)
+            if let next, let open = self.buffers[next] {
+                self.show(open)
+            } else if next == nil {
+                self.buffer = nil
+                self.selectedPath = nil
+                self.previewBridge.send("")
+            }
+            self.onTabsChanged?()
+        }
         return true
     }
 

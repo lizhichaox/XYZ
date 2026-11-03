@@ -19,10 +19,14 @@ public struct EditorCaret: Equatable, Sendable {
     /// `utf16Location` and `utf16Length` are an `NSTextView` selection.
     /// The column counts characters, so one Chinese character is one column.
     public static func measure(text: String, utf16Location: Int, utf16Length: Int) -> EditorCaret {
+        measure(text: text, utf16Location: utf16Location, utf16Length: utf16Length, index: LineIndex(text))
+    }
+
+    /// Uses a line index that already exists, so a caret move does not scan the whole file.
+    public static func measure(text: String, utf16Location: Int, utf16Length: Int, index: LineIndex) -> EditorCaret {
         let ns = text as NSString
         let location = min(max(0, utf16Location), ns.length)
         let length = min(max(0, utf16Length), ns.length - location)
-        let index = LineIndex(text)
         let line = index.line(at: location)
         let lineStart = index.starts[max(0, line - 1)]
         let column = characterCount(ns, from: lineStart, to: location) + 1
