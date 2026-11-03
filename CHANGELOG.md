@@ -27,7 +27,7 @@ Not done: a TextKit 2 rewrite, an Electron or web editor, a new document framewo
 - `02dac3c` numbers each visible row from the source line, and only the first fragment of a wrapped line. An empty note is line 1. The production window passes numbers from the mode, not from the old preference keys.
 - `ee0b4bd` drops a stale open and a stale disk sample, and follows a save when the text moved during the write. The text view's drawing code was not edited.
 - `d834720` also looks at names already on disk before creating `Untitled.md` or `Untitled Folder`.
-- Header clicks and divider drags are attempted in the cloud check and printed. They do not decide the build. They have not passed. On `d834720` the script stopped because a click on `deep.md` did not open it.
+- Header clicks and divider drags are attempted in the cloud check. On `d834720` and later runs a click on `deep.md` left the selection empty, and every check after that click was skipped. Those checks now run on their own fixtures. The nested-file click stays a failed case. The body result and the UI acceptance result are separate. Acceptance is not complete while any of those cases fail. `56bd310` is not a double-green build: its pull request passed and its push failed because the capture-control picture was misread.
 
 ### Where this was checked
 

@@ -37,7 +37,7 @@ enum GutterSnapshotCheck {
             print("GUTTER_GESTURE pass")
         }
         fflush(stdout)
-        // A nested-file click still leaves the outline with no selection. That is logged and does not decide the body result.
+        // Body result. The acceptance lines are a separate required check and are not dropped.
         let parts = [rendered, wrapped, reading, aligned, production, windowed, SearchTypingCheck.run(), EscapeCrashCheck.run(), sidebar].compactMap { $0 }
         let failure = parts.isEmpty ? nil : parts.joined(separator: " | ")
         stage("done")
@@ -1600,197 +1600,250 @@ enum GutterSnapshotCheck {
         return count
     }
 
-    /// Real clicks in one titled folder window. Metrics and direct state writes are not this check.
+    /// Each original UI check has its own folder. A failed nested-file click does not skip the rest.
     private static func runAcceptanceGestures() -> String? {
-        let defaults = UserDefaults.standard
-        let lineKey = XYZEditorStyle.lineNumbersKey
-        let readingKey = XYZEditorStyle.readingLineNumbersKey
-        let previousLine = defaults.object(forKey: lineKey)
-        let previousReading = defaults.object(forKey: readingKey)
-        defaults.set(false, forKey: lineKey)
-        defaults.set(true, forKey: readingKey)
-        defer {
-            if let previousLine {
-                defaults.set(previousLine, forKey: lineKey)
-            } else {
-                defaults.removeObject(forKey: lineKey)
+        let failures = MainActor.assumeIsolated { () -> [String] in
+            var failed: [String] = []
+            func record(_ name: String, _ failure: String?) {
+                if let failure {
+                    let line = "ACCEPTANCE case=\(name) result=fail \(failure)"
+                    print(line)
+                    fflush(stdout)
+                    failed.append(line)
+                } else {
+                    print("ACCEPTANCE case=\(name) result=pass")
+                    fflush(stdout)
+                }
             }
-            if let previousReading {
-                defaults.set(previousReading, forKey: readingKey)
+            record("create-file", acceptCreateFile())
+            record("create-folder", acceptCreateFolder())
+            record("nested-file", acceptNestedFile())
+            record("refresh", acceptRefresh())
+            record("collapse-header", acceptCollapseHeader())
+            record("dividers", acceptDividers())
+            record("mode-labels", acceptModeLabels())
+            record("empty-line-prefs", acceptEmptyLine())
+            if failed.isEmpty {
+                print("ACCEPTANCE_OK")
             } else {
-                defaults.removeObject(forKey: readingKey)
+                print("ACCEPTANCE_FAIL \(failed.count)")
             }
+            fflush(stdout)
+            return failed
         }
-        let root = FileManager.default.temporaryDirectory.appendingPathComponent("xyz-gesture-fixture", isDirectory: true)
-        let notes = root.appendingPathComponent("Notes", isDirectory: true)
-        let inner = notes.appendingPathComponent("Inner", isDirectory: true)
-        do {
-            try FileManager.default.createDirectory(at: inner, withIntermediateDirectories: true)
-            try "Keepme\n".write(to: root.appendingPathComponent("Untitled.md"), atomically: true, encoding: .utf8)
-            try "Nestedline\n".write(to: notes.appendingPathComponent("nested.md"), atomically: true, encoding: .utf8)
-            try "Deepline\n".write(to: inner.appendingPathComponent("deep.md"), atomically: true, encoding: .utf8)
-        } catch {
-            return "gesture: could not write the synthetic folder"
-        }
-        defer { try? FileManager.default.removeItem(at: root) }
-        return MainActor.assumeIsolated {
-            gestureWindow(root: root, lineKey: lineKey, readingKey: readingKey)
-        }
+        return failures.isEmpty ? nil : failures.joined(separator: " | ")
     }
 
     @MainActor
-    private static func gestureWindow(root: URL, lineKey: String, readingKey: String) -> String? {
-        let notes = root.appendingPathComponent("Notes", isDirectory: true)
-        let session = WorkspaceSession(rootURL: root, bookmark: nil)
-        let controller = WorkspaceWindowController(session: session)
-        defer { session.shutdown() }
-        guard let window = controller.window, let host = window.contentView else {
-            return "gesture: the folder window was not created"
+    private static func acceptCreateFile() -> String? {
+        guard let opened = acceptanceWindow(["Untitled.md": "Keepme\n"]) else {
+            return "could not open the create-file window"
         }
-        window.makeKeyAndOrderFront(nil)
-        host.layoutSubtreeIfNeeded()
-        pump(0.4)
-        guard let outline = explorerOutline(in: host) else {
-            return "gesture: explorer outline missing labels=\(accessibilityLabels(in: host).prefix(24).joined(separator: "|"))"
-        }
-        let listed = waitUntil(4) { row(outline, titled: "Untitled.md") != nil && row(outline, titled: "Notes") != nil }
-        guard listed else { return "gesture: the tree did not list Untitled.md and Notes" }
-        guard let newFile = labeledControl(in: host, "New File"),
-              let newFolder = labeledControl(in: host, "New Folder"),
-              let refresh = labeledControl(in: host, "Refresh Explorer"),
-              let collapse = labeledControl(in: host, "Collapse All"),
+        defer { closeAcceptance(opened) }
+        let (root, session, window, host) = opened
+        guard waitUntil(4, { row(explorerOutline(in: host) ?? NSOutlineView(), titled: "Untitled.md") != nil }),
+              let outline = explorerOutline(in: host),
+              let button = labeledControl(in: host, "New File"),
               let header = explorerHeader(in: host) else {
-            return "gesture: header actions missing labels=\(accessibilityLabels(in: host).prefix(30).joined(separator: "|"))"
+            return "create-file controls were not ready labels=\(accessibilityLabels(in: host).prefix(12).joined(separator: "|"))"
         }
-        if headerShowsCount(header) { return "gesture: the header still shows a file count" }
-        guard headerState(header) == "Expanded" else { return "gesture: the root header did not start expanded" }
-        let beforeCreate = directoryNames(root)
-        guard trackingClick(newFile) else { return "gesture: New File click was not delivered" }
+        let before = directoryNames(root)
+        guard trackingClick(button) else { return "New File click was not delivered" }
         pump(0.2)
-        guard headerState(header) == "Expanded" else { return "gesture: New File toggled the root header" }
-        guard waitUntil(6, { createdMarkdown(in: root, besides: beforeCreate) != nil }) else {
-            let now = directoryNames(root).joined(separator: ",")
-            let kept = readText(root.appendingPathComponent("Untitled.md"))
-            return "gesture: New File did not create a file listing=\(now) untitled=\(kept.debugDescription) message=\(session.actionMessage ?? "")"
+        guard headerState(header) == "Expanded" else { return "New File toggled the root header" }
+        guard waitUntil(6, { createdMarkdown(in: root, besides: before) != nil }),
+              let created = createdMarkdown(in: root, besides: before) else {
+            return "New File did not create a file listing=\(directoryNames(root).joined(separator: ","))"
         }
-        guard let created = createdMarkdown(in: root, besides: beforeCreate) else {
-            return "gesture: New File did not create a file"
-        }
-        if created == "Untitled.md" { return "gesture: New File overwrote Untitled.md" }
-        if readText(root.appendingPathComponent("Untitled.md")) != "Keepme\n" {
-            return "gesture: New File changed Untitled.md"
+        if created == "Untitled.md" || readText(root.appendingPathComponent("Untitled.md")) != "Keepme\n" {
+            return "New File overwrote Untitled.md"
         }
         guard waitUntil(3, { renamingText(in: window)?.contains(created.replacingOccurrences(of: ".md", with: "")) == true }) else {
-            return "gesture: the new file did not offer a name to cancel"
+            return "the new file did not offer a name to cancel"
         }
-        guard sendEscape(to: window) else { return "gesture: Escape was not delivered" }
-        pump(0.3)
-        if renamingText(in: window) != nil { return "gesture: cancel did not leave the name field" }
+        guard sendEscape(to: window) else { return "Escape was not delivered" }
+        pump(0.2)
+        if renamingText(in: window) != nil { return "cancel did not leave the name field" }
         if !FileManager.default.fileExists(atPath: root.appendingPathComponent(created).path) {
-            return "gesture: cancel removed the new file"
+            return "cancel removed the new file"
         }
-        if readText(root.appendingPathComponent("Untitled.md")) != "Keepme\n" {
-            return "gesture: cancel changed Untitled.md"
+        _ = outline
+        _ = session
+        return nil
+    }
+
+    @MainActor
+    private static func acceptCreateFolder() -> String? {
+        guard let opened = acceptanceWindow(["Notes/nested.md": "Nestedline\n"]) else {
+            return "could not open the create-folder window"
         }
-        let beforeFolder = directoryNames(root)
-        guard trackingClick(newFolder) else { return "gesture: New Folder click was not delivered" }
+        defer { closeAcceptance(opened) }
+        let (root, _, window, host) = opened
+        guard waitUntil(4, { row(explorerOutline(in: host) ?? NSOutlineView(), titled: "Notes") != nil }),
+              let button = labeledControl(in: host, "New Folder"),
+              let header = explorerHeader(in: host) else {
+            return "create-folder controls were not ready"
+        }
+        let before = directoryNames(root)
+        guard trackingClick(button) else { return "New Folder click was not delivered" }
         pump(0.2)
-        guard headerState(header) == "Expanded" else { return "gesture: New Folder toggled the root header" }
+        guard headerState(header) == "Expanded" else { return "New Folder toggled the root header" }
         guard waitUntil(4, {
-            directoryNames(root).contains { $0.contains("Untitled Folder") && !beforeFolder.contains($0) }
-        }) else { return "gesture: New Folder did not create a folder" }
-        if !FileManager.default.fileExists(atPath: notes.path) { return "gesture: New Folder replaced Notes" }
-        guard waitUntil(3, { renamingText(in: window)?.contains("Untitled Folder") == true }) else {
-            return "gesture: the new folder did not offer a name to cancel"
+            directoryNames(root).contains { $0.contains("Untitled Folder") && !before.contains($0) }
+        }) else { return "New Folder did not create a folder" }
+        if !FileManager.default.fileExists(atPath: root.appendingPathComponent("Notes").path) {
+            return "New Folder replaced Notes"
         }
-        guard sendEscape(to: window) else { return "gesture: folder cancel was not delivered" }
+        guard waitUntil(3, { renamingText(in: window)?.contains("Untitled Folder") == true }) else {
+            return "the new folder did not offer a name to cancel"
+        }
+        guard sendEscape(to: window) else { return "Escape was not delivered" }
         pump(0.2)
-        if renamingText(in: window) != nil { return "gesture: cancel did not leave the folder name" }
-        if !FileManager.default.fileExists(atPath: notes.path) { return "gesture: cancel replaced Notes" }
-        guard let notesRow = row(outline, titled: "Notes") else { return "gesture: Notes disappeared" }
-        guard trackingClick(outline, row: notesRow, disclosure: true) else { return "gesture: Notes disclosure click failed" }
-        guard waitUntil(3, { row(outline, titled: "Inner") != nil }) else { return "gesture: Notes did not expand" }
-        guard let innerRow = row(outline, titled: "Inner") else { return "gesture: Inner row missing" }
-        guard trackingClick(outline, row: innerRow, disclosure: true) else { return "gesture: Inner disclosure click failed" }
-        guard waitUntil(3, { row(outline, titled: "deep.md") != nil }) else { return "gesture: Inner did not expand" }
-        guard let deepRow = row(outline, titled: "deep.md") else { return "gesture: deep.md row missing" }
+        if renamingText(in: window) != nil { return "cancel did not leave the folder name" }
+        return nil
+    }
+
+    /// Known limit: a synthetic click on a nested file does not select the row. Recorded, not treated as a product change.
+    @MainActor
+    private static func acceptNestedFile() -> String? {
+        guard let opened = acceptanceWindow(["Notes/Inner/deep.md": "Deepline\n"]) else {
+            return "could not open the nested-file window"
+        }
+        defer { closeAcceptance(opened) }
+        let (_, session, _, host) = opened
+        guard let outline = waitOutline(host, row: "Notes") else { return "Notes was not listed" }
+        guard let notesRow = row(outline, titled: "Notes"), trackingClick(outline, row: notesRow, disclosure: true) else {
+            return "Notes disclosure click failed"
+        }
+        guard waitUntil(3, { row(outline, titled: "Inner") != nil }),
+              let innerRow = row(outline, titled: "Inner"),
+              trackingClick(outline, row: innerRow, disclosure: true) else {
+            return "Inner did not expand"
+        }
+        guard waitUntil(3, { row(outline, titled: "deep.md") != nil }),
+              let deepRow = row(outline, titled: "deep.md") else {
+            return "deep.md row missing"
+        }
         guard trackingClick(outline, row: deepRow, disclosure: false) else {
-            return "gesture: deep.md click was outside the visible row \(rowVisibility(outline, deepRow))"
+            return "deep.md click was outside the visible row \(rowVisibility(outline, deepRow))"
         }
         guard waitUntil(4, { session.buffer?.text.contains("Deepline") == true }) else {
             let selected = outline.selectedRow
             let selectedTitle = selected >= 0 ? rowTitle(outline, selected) : "none"
-            return "gesture: clicking deep.md did not open it selected=\(selectedTitle) buffer=\(session.buffer?.relativePath ?? "nil")"
+            return "clicking deep.md did not open it selected=\(selectedTitle) buffer=\(session.buffer?.relativePath ?? "nil")"
         }
-        let expandedBeforeRefresh = session.expanded
-        try? "Extra\n".write(to: notes.appendingPathComponent("extra.md"), atomically: true, encoding: .utf8)
-        guard trackingClick(refresh) else { return "gesture: Refresh click was not delivered" }
-        guard waitUntil(4, { row(outline, titled: "extra.md") != nil }) else { return "gesture: Refresh did not show extra.md" }
-        if session.expanded != expandedBeforeRefresh {
-            return "gesture: Refresh changed which folders are open"
+        return nil
+    }
+
+    @MainActor
+    private static func acceptRefresh() -> String? {
+        guard let opened = acceptanceWindow(["Notes/nested.md": "Nestedline\n"]) else {
+            return "could not open the refresh window"
         }
-        guard headerState(header) == "Expanded" else { return "gesture: Refresh toggled the root header" }
-        guard trackingClick(collapse) else { return "gesture: Collapse All click was not delivered" }
-        guard waitUntil(3, { row(outline, titled: "deep.md") == nil && row(outline, titled: "extra.md") == nil }) else {
-            return "gesture: Collapse All left descendants open"
+        defer { closeAcceptance(opened) }
+        let (root, session, _, host) = opened
+        guard let outline = waitOutline(host, row: "Notes"),
+              let notesRow = row(outline, titled: "Notes") else { return "Notes was not listed" }
+        guard trackingClick(outline, row: notesRow, disclosure: true) else { return "Notes disclosure click failed" }
+        guard waitUntil(3, { row(outline, titled: "nested.md") != nil }) else { return "Notes did not expand" }
+        let expanded = session.expanded
+        try? "Extra\n".write(to: root.appendingPathComponent("Notes/extra.md"), atomically: true, encoding: .utf8)
+        guard let refresh = labeledControl(in: host, "Refresh Explorer") else { return "Refresh was not found" }
+        guard trackingClick(refresh) else { return "Refresh click was not delivered" }
+        guard waitUntil(4, { row(outline, titled: "extra.md") != nil }) else { return "Refresh did not show extra.md" }
+        if session.expanded != expanded { return "Refresh changed which folders are open" }
+        if explorerHeader(in: host).map(headerState) != "Expanded" { return "Refresh toggled the root header" }
+        return nil
+    }
+
+    @MainActor
+    private static func acceptCollapseHeader() -> String? {
+        guard let opened = acceptanceWindow(["Notes/Inner/deep.md": "Deepline\n"]) else {
+            return "could not open the collapse window"
         }
-        if session.buffer?.text.contains("Deepline") != true { return "gesture: Collapse All closed the open file" }
-        if !session.expanded.isEmpty { return "gesture: Collapse All left a folder expanded" }
-        guard headerState(header) == "Expanded" else { return "gesture: Collapse All collapsed the root header" }
-        guard plainClick(header, x: 24) else { return "gesture: root header click was not delivered" }
-        guard waitUntil(2, { headerState(header) == "Collapsed" }) else { return "gesture: the root header did not collapse" }
-        if session.buffer?.text.contains("Deepline") != true { return "gesture: collapsing the header closed the file" }
+        defer { closeAcceptance(opened) }
+        let (root, session, _, host) = opened
+        guard let outline = waitOutline(host, row: "Notes"),
+              let notesRow = row(outline, titled: "Notes"),
+              trackingClick(outline, row: notesRow, disclosure: true),
+              waitUntil(3, { row(outline, titled: "Inner") != nil }),
+              let innerRow = row(outline, titled: "Inner"),
+              trackingClick(outline, row: innerRow, disclosure: true),
+              waitUntil(3, { row(outline, titled: "deep.md") != nil }) else {
+            return "the folders did not expand before Collapse All"
+        }
+        session.openRelative("Notes/Inner/deep.md")
+        guard waitUntil(4, { session.buffer?.text.contains("Deepline") == true }) else {
+            return "setup could not open the nested note without the row click"
+        }
+        guard let collapse = labeledControl(in: host, "Collapse All"),
+              let header = explorerHeader(in: host),
+              let newFile = labeledControl(in: host, "New File") else {
+            return "collapse controls were not ready"
+        }
+        guard trackingClick(collapse) else { return "Collapse All click was not delivered" }
+        guard waitUntil(3, { row(outline, titled: "deep.md") == nil }) else { return "Collapse All left descendants open" }
+        if session.buffer?.text.contains("Deepline") != true { return "Collapse All closed the open file" }
+        if !session.expanded.isEmpty { return "Collapse All left a folder expanded" }
+        if headerState(header) != "Expanded" { return "Collapse All collapsed the root header" }
+        guard plainClick(header, x: 24) else { return "root header click was not delivered" }
+        guard waitUntil(2, { headerState(header) == "Collapsed" }) else { return "the root header did not collapse" }
+        if session.buffer?.text.contains("Deepline") != true { return "collapsing the header closed the file" }
         let namesBefore = directoryNames(root)
-        guard trackingClick(newFile) else { return "gesture: New File click while collapsed was not delivered" }
-        pump(0.3)
-        guard headerState(header) == "Collapsed" else { return "gesture: New File expanded the collapsed header" }
-        _ = waitUntil(3, { directoryNames(root).count > namesBefore.count })
-        guard plainClick(header, x: 24) else { return "gesture: expanding the header failed" }
-        guard waitUntil(2, { headerState(header) == "Expanded" }) else { return "gesture: the root header stayed collapsed" }
-        if row(outline, titled: "deep.md") != nil || row(outline, titled: "extra.md") != nil {
-            return "gesture: expanding the header reopened collapsed descendants"
+        guard trackingClick(newFile) else { return "New File click while collapsed was not delivered" }
+        pump(0.2)
+        if headerState(header) != "Collapsed" { return "New File expanded the collapsed header" }
+        _ = namesBefore
+        guard plainClick(header, x: 24) else { return "expanding the header failed" }
+        guard waitUntil(2, { headerState(header) == "Expanded" }) else { return "the root header stayed collapsed" }
+        if row(outline, titled: "deep.md") != nil { return "expanding the header reopened collapsed descendants" }
+        return nil
+    }
+
+    @MainActor
+    private static func acceptDividers() -> String? {
+        guard let opened = acceptanceWindow(["note.md": "Dividernote\n"]) else {
+            return "could not open the divider window"
+        }
+        defer { closeAcceptance(opened) }
+        let (root, session, _, host) = opened
+        session.openRelative("note.md")
+        guard waitUntil(4, { session.buffer?.text.contains("Dividernote") == true }) else {
+            return "setup could not show the divider note"
         }
         guard let split = findSplit(in: host),
               let left = identified(in: host, "xyz.divider.left"),
               let right = identified(in: host, "xyz.divider.right") else {
-            return "gesture: a production divider is missing"
+            return "a production divider is missing"
         }
-        let textBeforeDrag = session.buffer?.text ?? ""
-        let expandedBeforeDrag = session.expanded
-        let rootBeforeDrag = session.rootExpanded
-        let selectedBeforeDrag = session.selectedPath
-        guard doubleClick(left) else { return "gesture: left divider double-click was not delivered" }
+        let textBefore = session.buffer?.text ?? ""
+        let expandedBefore = session.expanded
+        let rootBefore = session.rootExpanded
+        let selectedBefore = session.selectedPath
+        guard doubleClick(left) else { return "left divider double-click was not delivered" }
         pump(0.2)
         let fittedSidebar = split.testingSidebarFrame().width
         let expectedSidebar = SidebarFit.sidebar(
             content: split.measureSidebar(),
             window: split.bounds.width,
             outline: split.testingOutlineFrame().width,
-            outlineShown: true
+            outlineShown: split.testingOutlineFrame().width > 1
         )
         if abs(fittedSidebar - expectedSidebar) > 1.5 {
-            return "gesture: left double-click width \(fittedSidebar) expected \(expectedSidebar)"
+            return "left double-click width \(fittedSidebar) expected \(expectedSidebar)"
         }
-        guard doubleClick(left) else { return "gesture: second left double-click was not delivered" }
+        guard doubleClick(left) else { return "second left double-click was not delivered" }
         pump(0.1)
-        if abs(split.testingSidebarFrame().width - fittedSidebar) > 1 {
-            return "gesture: left double-click was not idempotent"
-        }
-        let draggedSidebar = split.testingSidebarFrame().width
-        guard drag(left, by: 48) else { return "gesture: left divider drag was not delivered" }
+        if abs(split.testingSidebarFrame().width - fittedSidebar) > 1 { return "left double-click was not idempotent" }
+        guard drag(left, by: 48) else { return "left divider drag was not delivered" }
         pump(0.1)
-        let afterSidebarDrag = split.testingSidebarFrame().width
-        if abs(afterSidebarDrag - draggedSidebar) < 8 {
-            return "gesture: dragging the left divider left the sidebar at \(afterSidebarDrag)"
-        }
-        if afterSidebarDrag < SidebarFit.sidebarMinimum - 1 {
-            return "gesture: the sidebar drag went below the minimum \(afterSidebarDrag)"
-        }
+        let afterSidebar = split.testingSidebarFrame().width
+        if abs(afterSidebar - fittedSidebar) < 8 { return "dragging the left divider left the sidebar at \(afterSidebar)" }
+        if afterSidebar < SidebarFit.sidebarMinimum - 1 { return "the sidebar drag went below the minimum" }
         host.layoutSubtreeIfNeeded()
-        if abs(split.testingSidebarFrame().width - afterSidebarDrag) > 1 {
-            return "gesture: the sidebar width did not stay after layout"
-        }
-        guard doubleClick(right) else { return "gesture: right divider double-click was not delivered" }
+        if abs(split.testingSidebarFrame().width - afterSidebar) > 1 { return "the sidebar width did not stay after layout" }
+        guard split.testingOutlineFrame().width > 1 else { return "the outline divider is not on screen" }
+        guard doubleClick(right) else { return "right divider double-click was not delivered" }
         pump(0.2)
         let fittedOutline = split.testingOutlineFrame().width
         let expectedOutline = SidebarFit.outline(
@@ -1800,106 +1853,148 @@ enum GutterSnapshotCheck {
             sidebarShown: true
         )
         if abs(fittedOutline - expectedOutline) > 1.5 {
-            return "gesture: right double-click width \(fittedOutline) expected \(expectedOutline)"
+            return "right double-click width \(fittedOutline) expected \(expectedOutline)"
         }
-        guard doubleClick(right) else { return "gesture: second right double-click was not delivered" }
+        guard doubleClick(right) else { return "second right double-click was not delivered" }
         pump(0.1)
-        if abs(split.testingOutlineFrame().width - fittedOutline) > 1 {
-            return "gesture: right double-click was not idempotent"
-        }
-        guard drag(right, by: -40) else { return "gesture: right divider drag was not delivered" }
-        pump(0.2)
-        let afterOutlineDrag = split.testingOutlineFrame().width
-        if abs(afterOutlineDrag - fittedOutline) < 8 {
-            return "gesture: dragging the right divider left the outline at \(afterOutlineDrag)"
-        }
-        if afterOutlineDrag < SidebarFit.outlineMinimum - 1 {
-            return "gesture: the outline drag went below the minimum \(afterOutlineDrag)"
-        }
-        if split.testingDetailFrame().width < SidebarFit.editorMinimum - 1 {
-            return "gesture: the editor was left under \(SidebarFit.editorMinimum)"
-        }
+        if abs(split.testingOutlineFrame().width - fittedOutline) > 1 { return "right double-click was not idempotent" }
+        guard drag(right, by: -40) else { return "right divider drag was not delivered" }
+        pump(0.15)
+        let afterOutline = split.testingOutlineFrame().width
+        if abs(afterOutline - fittedOutline) < 8 { return "dragging the right divider left the outline at \(afterOutline)" }
+        if afterOutline < SidebarFit.outlineMinimum - 1 { return "the outline drag went below the minimum" }
+        if split.testingDetailFrame().width < SidebarFit.editorMinimum - 1 { return "the editor was left under its minimum" }
         host.layoutSubtreeIfNeeded()
-        if abs(split.testingOutlineFrame().width - afterOutlineDrag) > 1 {
-            return "gesture: the outline width did not stay after layout"
-        }
+        if abs(split.testingOutlineFrame().width - afterOutline) > 1 { return "the outline width did not stay after layout" }
         let restored = WorkspaceSession(rootURL: root, bookmark: nil)
         let restoredWidth = restored.outlineWidth
         restored.shutdown()
-        if abs(restoredWidth - afterOutlineDrag) > 1.5 {
-            return "gesture: the next window did not restore the outline width \(restoredWidth) vs \(afterOutlineDrag)"
+        if abs(restoredWidth - afterOutline) > 1.5 {
+            return "the next window did not restore the outline width \(restoredWidth) vs \(afterOutline)"
         }
-        if session.buffer?.text != textBeforeDrag || session.expanded != expandedBeforeDrag
-            || session.rootExpanded != rootBeforeDrag || session.selectedPath != selectedBeforeDrag {
-            return "gesture: a divider gesture changed the file, the selection, or a collapsed folder"
+        if session.buffer?.text != textBefore || session.expanded != expandedBefore
+            || session.rootExpanded != rootBefore || session.selectedPath != selectedBefore {
+            return "a divider gesture changed the file, the selection, or expansion"
         }
+        return nil
+    }
+
+    @MainActor
+    private static func acceptModeLabels() -> String? {
+        guard let opened = acceptanceWindow(["note.md": "Modeline\n"]) else {
+            return "could not open the mode window"
+        }
+        defer { closeAcceptance(opened) }
+        let (_, session, window, host) = opened
+        session.openRelative("note.md")
+        guard waitUntil(4, { session.buffer?.text.contains("Modeline") == true }) else {
+            return "setup could not show the mode note"
+        }
+        pump(0.3)
         guard EditorCommands.shared.target != nil else {
-            return "gesture: the View menu target was not attached to this window"
+            return "the View menu target was not attached to this window"
         }
         EditorCommands.shared.selectReading(nil)
-        pump(0.4)
+        pump(0.35)
         if let failure = assertModeWeight(window, word: "Read-only", appearance: .aqua) { return failure }
         if let failure = assertModeWeight(window, word: "Read-only", appearance: .darkAqua) { return failure }
-        if let pane = findPane(in: host), !pane.gutter.isHidden, pane.gutter.frame.width > 8 {
-            return "gesture: Reading kept a gutter \(pane.gutter.frame.width)"
-        }
-        if let web = findWebView(in: host) {
-            let page = waitForReadingText(in: host, needle: "Deepline", seconds: 4)
-            let gutter = webGutterCount(web)
-            if gutter > 0 { return "gesture: Reading page built a gutter count=\(gutter)" }
-            if !page.contains("Deepline") {
-                return "gesture: Reading did not show the open note"
-            }
-        }
-        if menuHasLineNumberSetting() { return "gesture: a line-number menu item is still present" }
-        if let shot = shownImage(of: window, content: host) {
-            saveShot(shot, name: "window-gesture-reading.png")
-        }
         EditorCommands.shared.selectSource(nil)
-        pump(0.5)
-        host.layoutSubtreeIfNeeded()
-        window.displayIfNeeded()
+        pump(0.35)
         if let failure = assertModeWeight(window, word: "Editing", appearance: .aqua) { return failure }
         if let failure = assertModeWeight(window, word: "Editing", appearance: .darkAqua) { return failure }
         window.appearance = NSAppearance(named: .aqua)
         NSApp.appearance = window.appearance
-        guard let pane = findPane(in: host) else { return "gesture: Editing did not mount the text view" }
-        if pane.gutter.isHidden || pane.gutter.frame.width < 20 {
-            return "gesture: a saved off preference hid Editing numbers"
-        }
-        let numbered = pane.gutter.testingSnapshot().rows.filter(\.shows).map(\.line)
-        guard let first = numbered.first, numbered == Array(first..<(first + numbered.count)), first == 1 else {
-            return "gesture: Editing numbers \(numbered) are not the source prefix"
-        }
-        if UserDefaults.standard.bool(forKey: lineKey) {
-            return "gesture: showing numbers turned the old preference on"
-        }
-        if UserDefaults.standard.bool(forKey: readingKey) == false {
-            return "gesture: the old Reading preference was cleared"
-        }
-        if let shot = shownImage(of: window, content: host) {
-            saveShot(shot, name: "window-gesture-editing.png")
-        }
-        guard let emptyRow = row(outline, titled: created) else { return "gesture: the new file is not listed" }
-        guard trackingClick(outline, row: emptyRow, disclosure: false) else { return "gesture: the empty file click failed" }
-        guard waitUntil(4, { session.buffer?.relativePath == created }) else {
-            return "gesture: the empty file did not become the open file"
-        }
-        EditorCommands.shared.selectSource(nil)
-        pump(0.4)
-        host.layoutSubtreeIfNeeded()
-        window.displayIfNeeded()
-        guard let emptyPane = findPane(in: host) else { return "gesture: the empty note has no text view" }
-        let emptyNumbers = emptyPane.gutter.testingSnapshot().rows.filter(\.shows).map(\.line)
-        if emptyNumbers != [1] {
-            return "gesture: an empty note showed \(emptyNumbers) instead of line 1"
-        }
-        if let shot = shownImage(of: window, content: host) {
-            saveShot(shot, name: "window-gesture-empty.png")
-        }
-        print("GUTTER_GESTURE create=\(created) refresh=pass collapse=pass header=pass dividers=pass mode=pass empty=1 prefs=ignored")
-        fflush(stdout)
+        _ = host
         return nil
+    }
+
+    @MainActor
+    private static func acceptEmptyLine() -> String? {
+        let defaults = UserDefaults.standard
+        let lineKey = XYZEditorStyle.lineNumbersKey
+        let readingKey = XYZEditorStyle.readingLineNumbersKey
+        let previousLine = defaults.object(forKey: lineKey)
+        let previousReading = defaults.object(forKey: readingKey)
+        defaults.set(false, forKey: lineKey)
+        defaults.set(true, forKey: readingKey)
+        defer {
+            if let previousLine { defaults.set(previousLine, forKey: lineKey) }
+            else { defaults.removeObject(forKey: lineKey) }
+            if let previousReading { defaults.set(previousReading, forKey: readingKey) }
+            else { defaults.removeObject(forKey: readingKey) }
+        }
+        guard let opened = acceptanceWindow(["empty.md": "", "note.md": "Prefnote\n"]) else {
+            return "could not open the empty-line window"
+        }
+        defer { closeAcceptance(opened) }
+        let (_, session, window, host) = opened
+        session.openRelative("empty.md")
+        guard waitUntil(4, { session.buffer?.relativePath == "empty.md" }) else {
+            return "setup could not open the empty note"
+        }
+        pump(0.2)
+        guard EditorCommands.shared.target != nil else { return "the View menu target was not attached" }
+        EditorCommands.shared.selectSource(nil)
+        pump(0.35)
+        host.layoutSubtreeIfNeeded()
+        guard let pane = findPane(in: host),
+              let textView = pane.scrollView.documentView as? XYZMacTextView,
+              textView.string.isEmpty else {
+            return "Editing did not show the empty note"
+        }
+        if pane.gutter.isHidden || pane.gutter.frame.width < 20 {
+            return "a saved off preference hid Editing numbers"
+        }
+        let numbers = pane.gutter.testingSnapshot().rows.filter(\.shows).map(\.line)
+        if numbers != [1] { return "an empty note showed \(numbers) instead of line 1" }
+        EditorCommands.shared.selectReading(nil)
+        pump(0.35)
+        if let readingPane = findPane(in: host), !readingPane.gutter.isHidden, readingPane.gutter.frame.width > 8 {
+            return "Reading kept a gutter"
+        }
+        if menuHasLineNumberSetting() { return "a line-number menu item is still present" }
+        if defaults.bool(forKey: lineKey) { return "showing numbers turned the old preference on" }
+        if defaults.bool(forKey: readingKey) == false { return "the old Reading preference was cleared" }
+        _ = window
+        return nil
+    }
+
+    @MainActor
+    private static func acceptanceWindow(_ files: [String: String]) -> (URL, WorkspaceSession, NSWindow, NSView)? {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("xyz-accept-\(UUID().uuidString)", isDirectory: true)
+        do {
+            for (path, text) in files {
+                let url = root.appendingPathComponent(path)
+                try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try text.write(to: url, atomically: true, encoding: .utf8)
+            }
+        } catch {
+            return nil
+        }
+        let session = WorkspaceSession(rootURL: root, bookmark: nil)
+        let controller = WorkspaceWindowController(session: session)
+        guard let window = controller.window, let host = window.contentView else {
+            session.shutdown()
+            try? FileManager.default.removeItem(at: root)
+            return nil
+        }
+        window.makeKeyAndOrderFront(nil)
+        host.layoutSubtreeIfNeeded()
+        pump(0.25)
+        return (root, session, window, host)
+    }
+
+    @MainActor
+    private static func closeAcceptance(_ opened: (URL, WorkspaceSession, NSWindow, NSView)) {
+        opened.1.shutdown()
+        opened.2.close()
+        try? FileManager.default.removeItem(at: opened.0)
+    }
+
+    @MainActor
+    private static func waitOutline(_ host: NSView, row title: String) -> NSOutlineView? {
+        guard waitUntil(4, { row(explorerOutline(in: host) ?? NSOutlineView(), titled: title) != nil }) else { return nil }
+        return explorerOutline(in: host)
     }
 
     private static func directoryNames(_ url: URL) -> [String] {

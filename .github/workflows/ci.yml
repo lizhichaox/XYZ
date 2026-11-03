@@ -100,6 +100,20 @@ jobs:
           kill "$PID" || true
           exit 1
 
+      - name: Check original UI acceptance
+        if: always() && steps.macos.conclusion == 'success'
+        run: |
+          set -euo pipefail
+          LOG="$PWD/build/macos/gutter.log"
+          test -f "$LOG"
+          if grep -q 'ACCEPTANCE_OK' "$LOG"; then
+            echo "UI acceptance passed"
+            exit 0
+          fi
+          echo "UI acceptance is not complete"
+          grep 'ACCEPTANCE' "$LOG" || true
+          exit 1
+
       - name: Upload editor window shots
         if: always()
         uses: actions/upload-artifact@v4
