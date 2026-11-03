@@ -353,6 +353,17 @@ private struct HTMLRenderingWalker: MarkupWalker {
         return cleaned.isEmpty ? nil : cleaned
     }
 
+    /// The marker line only. A soft break is the next source line, not part of the title.
+    fileprivate static func firstLine(_ paragraph: Paragraph) -> String {
+        var result = ""
+        for index in 0..<paragraph.childCount {
+            guard let child = paragraph.child(at: index) else { continue }
+            if child is SoftBreak || child is LineBreak { break }
+            result.append(plainText(child))
+        }
+        return result
+    }
+
     fileprivate static func plainText(_ markup: Markup) -> String {
         if let text = markup as? Text {
             return text.string
@@ -416,9 +427,7 @@ struct Callout {
 
     static func parsed(_ blockQuote: BlockQuote) -> Callout? {
         guard let paragraph = blockQuote.child(at: 0) as? Paragraph else { return nil }
-        let plain = HTMLRenderingWalker.plainText(paragraph)
-        let line = plain.split(whereSeparator: \.isNewline).first.map(String.init) ?? plain
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        let trimmed = HTMLRenderingWalker.firstLine(paragraph).trimmingCharacters(in: .whitespaces)
         guard trimmed.hasPrefix("[!"), trimmed.count > 3 else { return nil }
         guard let end = trimmed.firstIndex(of: "]"), trimmed.index(after: trimmed.startIndex) < end else { return nil }
         let kind = trimmed[trimmed.index(trimmed.startIndex, offsetBy: 2)..<end]

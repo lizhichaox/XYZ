@@ -85,10 +85,7 @@ enum GutterSnapshotCheck {
         ) else {
             return "could not allocate a bitmap"
         }
-        NSGraphicsContext.saveGraphicsState()
-        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
-        scroll.cacheDisplay(in: bounds, to: NSGraphicsContext.current!)
-        NSGraphicsContext.restoreGraphicsState()
+        scroll.cacheDisplay(in: bounds, to: rep)
 
         // The gutter is the left strip. Sample the full height so a flipped bitmap still counts.
         var sample = gutter.convert(gutter.bounds, to: scroll)
