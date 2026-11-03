@@ -38,7 +38,7 @@ enum GutterSnapshotCheck {
             print("GUTTER_GESTURE pass")
         }
         fflush(stdout)
-        let parts = [rendered, wrapped, reading, aligned, production, windowed, SearchTypingCheck.run(), EscapeCrashCheck.run(), sidebar].compactMap { $0 }
+        let parts = [rendered, wrapped, reading, aligned, production, windowed, SearchTypingCheck.run(), EscapeCrashCheck.run(), sidebar, gestures].compactMap { $0 }
         let failure = parts.isEmpty ? nil : parts.joined(separator: " | ")
         stage("done")
         if let failure {
@@ -1714,9 +1714,13 @@ enum GutterSnapshotCheck {
         guard trackingClick(outline, row: innerRow, disclosure: true) else { return "gesture: Inner disclosure click failed" }
         guard waitUntil(3, { row(outline, titled: "deep.md") != nil }) else { return "gesture: Inner did not expand" }
         guard let deepRow = row(outline, titled: "deep.md") else { return "gesture: deep.md row missing" }
-        guard trackingClick(outline, row: deepRow, disclosure: false) else { return "gesture: deep.md click failed" }
+        guard trackingClick(outline, row: deepRow, disclosure: false) else {
+            return "gesture: deep.md click was outside the visible row \(rowVisibility(outline, deepRow))"
+        }
         guard waitUntil(4, { session.buffer?.text.contains("Deepline") == true }) else {
-            return "gesture: clicking deep.md did not open it"
+            let selected = outline.selectedRow
+            let selectedTitle = selected >= 0 ? rowTitle(outline, selected) : "none"
+            return "gesture: clicking deep.md did not open it selected=\(selectedTitle) buffer=\(session.buffer?.relativePath ?? "nil")"
         }
         let expandedBeforeRefresh = session.expanded
         try? "Extra\n".write(to: notes.appendingPathComponent("extra.md"), atomically: true, encoding: .utf8)
@@ -2060,12 +2064,31 @@ enum GutterSnapshotCheck {
         return true
     }
 
+    /// A file cell can be wider than the sidebar. Its midpoint then lies over the editor, so a window hit test never reaches the row.
     private static func trackingClick(_ outline: NSOutlineView, row: Int, disclosure: Bool) -> Bool {
         guard let window = outline.window, row >= 0, row < outline.numberOfRows else { return false }
+        outline.scrollRowToVisible(row)
+        outline.layoutSubtreeIfNeeded()
         let rect = disclosure ? outline.frameOfOutlineCell(atRow: row) : outline.frameOfCell(atColumn: 0, row: row)
-        guard rect.width > 1, rect.height > 1 else { return false }
-        let point = outline.convert(NSPoint(x: rect.midX, y: rect.midY), to: nil)
-        return postUpThenDown(window: window, point: point, clickCount: 1)
+        let visible = outline.visibleRect
+        let target = rect.intersection(visible)
+        guard target.width > 4, target.height > 4 else { return false }
+        let local = disclosure
+            ? NSPoint(x: target.midX, y: target.midY)
+            : NSPoint(x: min(target.maxX - 4, target.minX + 28), y: target.midY)
+        let point = outline.convert(local, to: nil)
+        guard let down = mouseEvent(.leftMouseDown, at: point, window: window, clickCount: 1, eventNumber: 0),
+              let up = mouseEvent(.leftMouseUp, at: point, window: window, clickCount: 1, eventNumber: 0) else { return false }
+        NSApp.postEvent(up, atStart: true)
+        outline.mouseDown(with: down)
+        return true
+    }
+
+    private static func rowVisibility(_ outline: NSOutlineView, _ row: Int) -> String {
+        guard row >= 0, row < outline.numberOfRows else { return "missing" }
+        let rect = outline.frameOfCell(atColumn: 0, row: row)
+        let visible = outline.visibleRect
+        return "cell=\(Int(rect.minX)),\(Int(rect.minY)) \(Int(rect.width))x\(Int(rect.height)) visible=\(Int(visible.width))x\(Int(visible.height))"
     }
 
     private static func plainClick(_ view: NSView, x: CGFloat) -> Bool {
