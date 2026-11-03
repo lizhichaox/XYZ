@@ -404,7 +404,12 @@ final class WorkspaceSession: ObservableObject {
     }
 
     func createItem(directory: Bool, in parent: String) {
-        let names = Set((children[parent] ?? []).map(\.name))
+        let listed = Set((children[parent] ?? []).map(\.name))
+        let onDisk = Set(
+            (try? FileManager.default.contentsOfDirectory(at: url(for: parent), includingPropertiesForKeys: nil))?
+                .map(\.lastPathComponent) ?? []
+        )
+        let names = listed.union(onDisk)
         let preferred = directory ? "Untitled Folder" : "Untitled.md"
         let name = WorkspaceItemName.unique(preferred: preferred, existing: names)
         let relative = WorkspacePaths.child(parent: parent, name: name)

@@ -1655,8 +1655,10 @@ enum GutterSnapshotCheck {
         guard trackingClick(newFile) else { return "gesture: New File click was not delivered" }
         pump(0.2)
         guard headerState(header) == "Expanded" else { return "gesture: New File toggled the root header" }
-        guard waitUntil(4, { createdMarkdown(in: root, besides: beforeCreate) != nil }) else {
-            return "gesture: New File did not create a file"
+        guard waitUntil(6, { createdMarkdown(in: root, besides: beforeCreate) != nil }) else {
+            let now = directoryNames(root).joined(separator: ",")
+            let kept = readText(root.appendingPathComponent("Untitled.md"))
+            return "gesture: New File did not create a file listing=\(now) untitled=\(kept.debugDescription) message=\(session.actionMessage ?? "")"
         }
         guard let created = createdMarkdown(in: root, besides: beforeCreate) else {
             return "gesture: New File did not create a file"
@@ -2036,8 +2038,13 @@ enum GutterSnapshotCheck {
 
     private static func trackingClick(_ view: NSView) -> Bool {
         guard let window = view.window else { return false }
+        window.makeKeyAndOrderFront(nil)
         let point = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
-        return postUpThenDown(window: window, point: point, clickCount: 1)
+        guard let down = mouseEvent(.leftMouseDown, at: point, window: window, clickCount: 1, eventNumber: 0),
+              let up = mouseEvent(.leftMouseUp, at: point, window: window, clickCount: 1, eventNumber: 0) else { return false }
+        NSApp.postEvent(up, atStart: true)
+        view.mouseDown(with: down)
+        return true
     }
 
     private static func trackingClick(_ outline: NSOutlineView, row: Int, disclosure: Bool) -> Bool {
