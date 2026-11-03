@@ -106,10 +106,12 @@ enum TextZoom {
         let current = defaults.object(forKey: XYZEditorStyle.fontSizeKey) as? Double ?? XYZEditorStyle.defaultFontSize
         let next = XYZEditorStyle.clampedFontSize(current + delta)
         defaults.set(next, forKey: XYZEditorStyle.fontSizeKey)
+        XYZDiagnostics.note("zoom size=\(Int(next))")
     }
 
     static func reset() {
         UserDefaults.standard.set(XYZEditorStyle.defaultFontSize, forKey: XYZEditorStyle.fontSizeKey)
+        XYZDiagnostics.note("zoom size=\(Int(XYZEditorStyle.defaultFontSize))")
     }
 }
 #endif

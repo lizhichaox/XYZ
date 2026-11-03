@@ -276,7 +276,17 @@ final class OutlineFollowTests: XCTestCase {
     func testReadingFollowsTheViewportAndEditingFollowsTheCaret() {
         XCTAssertEqual(FileOutline.followedLine(reading: true, viewportLine: 40, caretLine: 2), 40)
         XCTAssertEqual(FileOutline.followedLine(reading: true, viewportLine: 0, caretLine: 2), 2)
-        XCTAssertEqual(FileOutline.followedLine(reading: false, viewportLine: 40, caretLine: 2), 2)
+        XCTAssertEqual(FileOutline.followedLine(reading: false, viewportLine: 40, caretLine: 2), 40)
+        XCTAssertEqual(FileOutline.followedLine(reading: false, viewportLine: 8, caretLine: 2), 2)
+    }
+}
+
+final class PhantomWindowPolicyTests: XCTestCase {
+    func testTextInputWindowIsLeftAlone() {
+        XCTAssertTrue(PhantomWindowPolicy.leaveAlone(className: "TUINSWindow", visible: false, alpha: 0))
+        XCTAssertTrue(PhantomWindowPolicy.leaveAlone(className: "TUINSWindow", visible: true, alpha: 1))
+        XCTAssertTrue(PhantomWindowPolicy.leaveAlone(className: "NSWindow", visible: false, alpha: 0))
+        XCTAssertFalse(PhantomWindowPolicy.leaveAlone(className: "NSWindow", visible: true, alpha: 1))
     }
 }
 

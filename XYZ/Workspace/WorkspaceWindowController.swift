@@ -378,7 +378,9 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
         if controller(for: window) != nil { return (false, "workspace") }
         if isAuxiliary(window) { return (false, "auxiliary") }
         if let reason = systemWindowReason(window) { return (false, reason) }
-        if !window.isVisible || window.alphaValue == 0 { return (false, "not shown") }
+        if PhantomWindowPolicy.leaveAlone(className: "NSWindow", visible: window.isVisible, alpha: Double(window.alphaValue)) {
+            return (false, "not shown")
+        }
         let size = window.frame.size
         let content = window.contentRect(forFrameRect: window.frame).size
         let defaultSquare = near(size.width, 500) && near(size.height, 500)
@@ -398,7 +400,7 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
     /// `TUINSWindow` is macOS text input. Closing it does nothing and it is not one of our windows.
     private static func systemWindowReason(_ window: NSWindow) -> String? {
         let name = String(describing: type(of: window))
-        if name == "NSWindow" || name == "NSPanel" { return nil }
+        guard PhantomWindowPolicy.leaveAlone(className: name, visible: true, alpha: 1) else { return nil }
         return "system \(name)"
     }
 

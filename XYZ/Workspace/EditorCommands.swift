@@ -614,6 +614,7 @@ final class EditorCommands: NSObject {
         let defaults = UserDefaults.standard
         let current = defaults.object(forKey: XYZEditorStyle.wordWrapKey) as? Bool ?? true
         defaults.set(!current, forKey: XYZEditorStyle.wordWrapKey)
+        XYZDiagnostics.note("wrap on=\(!current)")
     }
 
     @objc func toggleSource(_ sender: Any?) {

@@ -362,6 +362,11 @@ struct WorkspaceSidebar: NSViewRepresentable {
             field.isEditable = false
             field.isBezeled = false
             field.drawsBackground = false
+            let movement = notification.userInfo?["NSTextMovement"] as? Int
+            if movement == NSTextMovement.cancel.rawValue {
+                reloadIfNeeded(force: true)
+                return
+            }
             if let message = session.rename(relativePath: path, to: field.stringValue) {
                 present(message)
                 reloadIfNeeded(force: true)

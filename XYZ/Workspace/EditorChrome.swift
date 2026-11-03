@@ -38,12 +38,14 @@ final class EditorFindModel: ObservableObject {
     }
 
     func dismiss() {
+        XYZDiagnostics.note("find close replace=\(showsReplace)")
         searchTask?.cancel()
         visible = false
         perform?(.cancel)
     }
 
     func show(replace: Bool) {
+        XYZDiagnostics.note("find open replace=\(replace)")
         visible = true
         if replace { showsReplace = true }
         perform?(.focus)
@@ -172,6 +174,9 @@ struct EditorTabBar: View {
                                 closeRight: {
                                     session.closeTabs(toTheRightOf: tab.id)
                                 },
+                                closeAll: {
+                                    session.closeAllTabs()
+                                },
                                 copyPath: {
                                     session.copyString(session.url(for: tab.id).path)
                                 },
@@ -218,6 +223,7 @@ private struct EditorTabItem: View {
     var close: () -> Void
     var closeOthers: () -> Void
     var closeRight: () -> Void
+    var closeAll: () -> Void
     var copyPath: () -> Void
     var copyRelative: () -> Void
     var reveal: () -> Void
@@ -258,11 +264,13 @@ private struct EditorTabItem: View {
             Rectangle().fill(Color.primary.opacity(0.12)).frame(width: 1)
         }
         .onHover { hovering = $0 }
+        .background(MiddleClickCatcher(action: close))
         .help(tab.id)
         .contextMenu {
             Button("Close") { close() }
             Button("Close Others") { closeOthers() }
             Button("Close to the Right") { closeRight() }
+            Button("Close All") { closeAll() }
             Divider()
             Button("Copy Path") { copyPath() }
             Button("Copy Relative Path") { copyRelative() }
@@ -325,6 +333,41 @@ private struct EditorTabItem: View {
             return Font.system(size: 12).italic()
         }
         return Font.system(size: 12, weight: active ? .semibold : .regular)
+    }
+}
+
+/// Middle-click closes a tab. Left clicks pass through to the tab's own controls.
+private struct MiddleClickCatcher: NSViewRepresentable {
+    var action: () -> Void
+
+    func makeNSView(context: Context) -> MiddleClickView {
+        let view = MiddleClickView()
+        view.action = action
+        return view
+    }
+
+    func updateNSView(_ view: MiddleClickView, context: Context) {
+        view.action = action
+    }
+}
+
+private final class MiddleClickView: NSView {
+    var action: () -> Void = {}
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        guard bounds.contains(point) else { return nil }
+        switch NSApp.currentEvent?.type {
+        case .otherMouseDown, .otherMouseUp, .otherMouseDragged:
+            return self
+        default:
+            return nil
+        }
+    }
+
+    override func otherMouseUp(with event: NSEvent) {
+        if event.buttonNumber == 2 {
+            action()
+        }
     }
 }
 
@@ -398,6 +441,7 @@ struct EditorStatusBar: View {
     var showsReadingTime: Bool
     /// Pixel size, zoom, or PDF page. Empty for text.
     var detail: String? = nil
+    var showsWrap = false
     var onEncoding: ((TextEncoding) -> Void)?
     var onLineEnding: ((LineEnding) -> Void)?
 
@@ -417,6 +461,10 @@ struct EditorStatusBar: View {
                 }
             }
             Spacer(minLength: 8)
+            if showsWrap {
+                statusText(String(localized: "Wrap"))
+                separator
+            }
             if let words {
                 statusText(wordLabel(words))
                 separator

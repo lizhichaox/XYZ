@@ -106,6 +106,8 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
     private var sidebarShown = true
     private var outlineShown = false
     private var adjusting = false
+    private var chromeAnimating = false
+    private var chromeTimer: Timer?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -146,7 +148,7 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
             return
         }
         adjusting = true
-        if sidebarShown, let sidebar, sidebar.superview != nil, sidebar.frame.width < 200 {
+        if !chromeAnimating, sidebarShown, let sidebar, sidebar.superview != nil, sidebar.frame.width < 200 {
             let room = bounds.width - (outlineShown ? savedOutline : 0) - 480
             panes.setPosition(min(max(savedPosition, 220), max(220, room)), ofDividerAt: 0)
         }
@@ -180,24 +182,88 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
 
     func setSidebarShown(_ shown: Bool) {
         guard shown != sidebarShown else { return }
-        if sidebarShown, let sidebar, sidebar.superview != nil {
-            savedPosition = sidebar.frame.width
+        if sidebarShown, let sidebar, sidebar.superview != nil, sidebar.frame.width > 1 {
+            savedPosition = max(220, sidebar.frame.width)
         }
         sidebarShown = shown
-        rebuild()
-        applyPositions()
+        XYZDiagnostics.note("sidebar shown=\(shown)")
+        if shown {
+            rebuild()
+            slideDivider(0, to: 0)
+            slideDivider(0, to: savedPosition, animated: true)
+        } else {
+            slideDivider(0, to: 0, animated: true) { [weak self] in
+                self?.rebuild()
+                self?.placeDividers()
+            }
+        }
     }
 
     func setOutline(shown: Bool, width: CGFloat) {
-        savedOutline = width
+        if !chromeAnimating {
+            savedOutline = width
+        }
         guard shown != outlineShown else {
             applyOutlineWidthIfNeeded()
             placeDividers()
             return
         }
         outlineShown = shown
-        rebuild()
-        applyPositions()
+        XYZDiagnostics.note("outline shown=\(shown)")
+        if shown {
+            rebuild()
+            let open = max(160, bounds.width - savedOutline)
+            slideDivider(outlineDividerIndex(), to: bounds.width)
+            slideDivider(outlineDividerIndex(), to: open, animated: true)
+        } else {
+            slideDivider(outlineDividerIndex(), to: bounds.width, animated: true) { [weak self] in
+                self?.rebuild()
+                self?.placeDividers()
+            }
+        }
+    }
+
+    private func outlineDividerIndex() -> Int {
+        max(0, panes.subviews.count - 2)
+    }
+
+    /// Moves one divider. `animated` eases the width the way VS Code does, without taking focus.
+    private func slideDivider(_ index: Int, to target: CGFloat, animated: Bool = false, completion: (() -> Void)? = nil) {
+        chromeTimer?.invalidate()
+        chromeTimer = nil
+        guard panes.subviews.indices.contains(index) else {
+            completion?()
+            return
+        }
+        let start = panes.subviews[index].frame.maxX
+        if !animated || abs(start - target) < 1 {
+            chromeAnimating = true
+            panes.setPosition(target, ofDividerAt: index)
+            chromeAnimating = false
+            placeDividers()
+            completion?()
+            return
+        }
+        let began = Date()
+        chromeAnimating = true
+        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] timer in
+            guard let self else {
+                timer.invalidate()
+                return
+            }
+            let t = min(1, Date().timeIntervalSince(began) / 0.16)
+            let eased = 1 - (1 - t) * (1 - t)
+            self.panes.setPosition(start + (target - start) * eased, ofDividerAt: index)
+            self.placeDividers()
+            if t >= 1 {
+                timer.invalidate()
+                self.chromeTimer = nil
+                self.chromeAnimating = false
+                completion?()
+            }
+        }
+        chromeTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
     }
 
     private func rebuild() {
@@ -228,7 +294,7 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
     }
 
     private func applyOutlineWidthIfNeeded() {
-        guard outlineShown, let outline, outline.superview != nil, bounds.width > 1 else { return }
+        guard !chromeAnimating, outlineShown, let outline, outline.superview != nil, bounds.width > 1 else { return }
         let index = panes.subviews.count - 2
         guard index >= 0 else { return }
         let target = bounds.width - savedOutline
@@ -313,6 +379,7 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
     }
 
     func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
+        if chromeAnimating { return 0 }
         if isRightDivider(dividerIndex, in: splitView) {
             return sidebarShown ? 220 + 480 : 480
         }
@@ -320,6 +387,7 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
     }
 
     func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
+        if chromeAnimating { return splitView.bounds.width }
         if isRightDivider(dividerIndex, in: splitView) {
             return max(480, splitView.bounds.width - 160)
         }
@@ -337,14 +405,14 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
         sidebar?.needsLayout = true
         detail?.needsLayout = true
         outline?.needsLayout = true
-        if outlineShown, let outline, outline.superview != nil {
+        if !chromeAnimating, outlineShown, let outline, outline.superview != nil {
             let width = outline.frame.width
             if abs(width - savedOutline) > 0.5 {
                 savedOutline = width
                 onOutlineWidth?(width)
             }
         }
-        if sidebarShown, let sidebar, sidebar.superview != nil {
+        if !chromeAnimating, sidebarShown, let sidebar, sidebar.superview != nil {
             savedPosition = sidebar.frame.width
         }
     }
@@ -519,6 +587,7 @@ struct WorkspaceView: View {
     @StateObject private var commands = WorkspaceCommandBridge()
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var titlebarInset: CGFloat = 0
+    @AppStorage(XYZEditorStyle.wordWrapKey) private var wordWrap = true
     @StateObject private var outline = OutlineModel()
     @AppStorage(HiddenFilesSetting.key) private var storedHiddenFiles = true
 
@@ -557,6 +626,7 @@ struct WorkspaceView: View {
                     words: nil,
                     showsReadingTime: false,
                     detail: nil,
+                    showsWrap: statusEditing && wordWrap,
                     onEncoding: encodingChange,
                     onLineEnding: endingChange
                 )

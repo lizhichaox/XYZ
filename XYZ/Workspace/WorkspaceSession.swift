@@ -116,6 +116,8 @@ final class WorkspaceSession: ObservableObject {
     private var didStart = false
     private var buffers: [String: WorkspaceFileBuffer] = [:]
     private var pendingRevealLine: Int?
+    /// Last line seen for a path in this session, restored when that file is opened again.
+    private var scrollMemory: [String: Int] = [:]
     private var pendingRevealNeedle: String?
     private var reloadTasks: [String: Task<Void, Never>] = [:]
     private var loadGeneration: [String: Int] = [:]
@@ -149,6 +151,7 @@ final class WorkspaceSession: ObservableObject {
         let next = max(0, line)
         guard viewportLine != next else { return }
         viewportLine = next
+        XYZDiagnostics.note("outline viewport=\(next)")
     }
 
     func clearViewportLine() {
@@ -319,6 +322,14 @@ final class WorkspaceSession: ObservableObject {
         openRelative(String(path.dropFirst(root.count + 1)))
     }
 
+    private func rememberScrollLine() {
+        guard let path = buffer?.relativePath else { return }
+        let line = max(viewportLine, caret.line)
+        if line > 1 {
+            scrollMemory[path] = line
+        }
+    }
+
     func recentOpenPaths() -> [String] {
         tabMRU.order(open: tabStrip.tabs.map(\.id))
     }
@@ -462,10 +473,15 @@ final class WorkspaceSession: ObservableObject {
         if adoptExisting, claimExistingFile?(node.relativePath) == true {
             return
         }
-        revealAncestors(of: node.relativePath)
         let path = node.relativePath
+        if buffer?.relativePath != path {
+            rememberScrollLine()
+        }
+        revealAncestors(of: path)
         if let line {
             pendingRevealLine = line
+        } else if path != buffer?.relativePath, let saved = scrollMemory[path], saved > 1 {
+            pendingRevealLine = saved
         } else {
             pendingRevealLine = nil
             scrollLink.clearQueuedReveal()
@@ -530,6 +546,12 @@ final class WorkspaceSession: ObservableObject {
     func closeOtherTabs(keeping id: String) {
         for other in tabStrip.ids(otherThan: id) {
             _ = closeTab(other)
+        }
+    }
+
+    func closeAllTabs() {
+        for id in tabStrip.tabs.map(\.id) {
+            _ = closeTab(id)
         }
     }
 

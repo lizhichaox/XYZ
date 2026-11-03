@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.14
+
+- The outline follows the heading on screen while Reading, and while Editing is scrolled away from the caret. Choosing a heading still jumps to it.
+- Reading margins grow slightly with the window. The note still fills the pane. Headings, code, and tables stay compact and grey.
+- Opening a file again in the same session returns to the line you left. Switching Reading and Editing still keeps the scroll position.
+- Editing draws a quiet indent guide. The status bar shows Wrap while that is on, and still shows the line, column, encoding, and line ending. Reading hides the line and column.
+- A tab's menu can close every tab. Middle-click closes that tab. Esc cancels a rename in the sidebar.
+- Showing or hiding a sidebar eases its width. The text-input window (`TUINSWindow`) is no longer treated as an empty document, and the phantom sweep stops when nothing of ours is left.
+
 ## 0.5.13
 
 - "No Outline" is centered in the outline pane. An empty folder, and the other lone sidebar messages, are centered the same way.

@@ -22,10 +22,12 @@ public enum FileOutline {
     /// Past this many scalars the rest of the file is left out, so a huge file stays responsive.
     public static let scalarLimit = 250_000
 
-    /// Reading follows the line at the top of the page. Editing follows the caret.
-    /// A viewport line of zero means the page has not reported one yet.
+    /// Reading follows the line at the top of the page. Editing follows the caret, unless
+    /// the page has been scrolled well away from that caret. A viewport line of zero
+    /// means the page has not reported one yet.
     public static func followedLine(reading: Bool, viewportLine: Int, caretLine: Int) -> Int {
         if reading, viewportLine > 0 { return viewportLine }
+        if viewportLine > 0, abs(viewportLine - caretLine) > 12 { return viewportLine }
         return caretLine
     }
 
