@@ -617,8 +617,25 @@ enum GutterSnapshotCheck {
             if checkReading {
                 let page = waitForReadingText(in: host, needle: "Glyphsample", seconds: 4)
                 if let web = findWebView(in: host) {
-                    print("GUTTER_WINDOW web=\(Int(web.frame.width))x\(Int(web.frame.height)) hidden=\(web.isHidden ? 1 : 0) superview=\(web.superview == nil ? 0 : 1)")
+                    print("GUTTER_WINDOW web=\(Int(web.frame.width))x\(Int(web.frame.height)) hidden=\(web.isHidden ? 1 : 0) alpha=\(web.alphaValue) superview=\(web.superview == nil ? 0 : 1)")
                     fflush(stdout)
+                    if let snapshot = webSnapshot(web) {
+                        saveShot(snapshot, name: "reading-webview-snapshot-\(label).png")
+                        let painted = recognizedText(in: snapshot, languages: ["zh-Hans", "en-US"])
+                        let showsNote = contains(painted, "Glyphsample") && contains(painted, "Secondline")
+                            && (contains(painted, "中文") || contains(painted, "短句"))
+                        print("GUTTER_CHECK reading-snapshot=\(showsNote ? "pass" : "fail") words=\(String(painted.prefix(120)))")
+                        fflush(stdout)
+                        if !showsNote {
+                            readingFailure = "window \(label): Reading web snapshot did not show the rendered note words=\(String(painted.prefix(60)))"
+                        }
+                    } else {
+                        print("GUTTER_CHECK reading-snapshot=missing")
+                        fflush(stdout)
+                        readingFailure = "window \(label): Reading web snapshot was not produced"
+                    }
+                } else {
+                    readingFailure = "window \(label): Reading web view is not in the folder window"
                 }
                 pump(0.4)
                 window.displayIfNeeded()
@@ -894,6 +911,23 @@ enum GutterSnapshotCheck {
             pump(0.1)
         }
         return latest
+    }
+
+    /// WebKit's own picture of the page. Not a WindowServer screenshot.
+    private static func webSnapshot(_ web: WKWebView) -> CGImage? {
+        var image: CGImage?
+        var done = false
+        web.takeSnapshot(with: nil) { shot, _ in
+            if let shot, let data = shot.tiffRepresentation, let rep = NSBitmapImageRep(data: data) {
+                image = rep.cgImage
+            }
+            done = true
+        }
+        let start = Date()
+        while !done, Date().timeIntervalSince(start) < 4 {
+            pump(0.05)
+        }
+        return image
     }
 
     private static func findWebView(in view: NSView) -> WKWebView? {
