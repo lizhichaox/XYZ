@@ -1454,7 +1454,19 @@ private struct WorkspaceDetail: View {
                 Text("Choose a file in the sidebar.\n⌘P opens one. ⌘K searches the folder.")
             }
         } else if showsPreview {
-            reading
+            // The web view's layer does not appear in the window. The note text does.
+            ZStack {
+                reading
+                ScrollView {
+                    Text(session.buffer?.text ?? "")
+                        .font(.system(size: 15))
+                        .foregroundStyle(.primary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(28)
+                }
+                .background(Color.editorBackground)
+            }
         } else if showsEditor {
             editor
         } else if let buffer = session.buffer, buffer.kind == .tooLarge {

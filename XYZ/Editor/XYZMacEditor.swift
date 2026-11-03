@@ -1046,28 +1046,34 @@ final class SourceBodyMirror: NSView {
     override func draw(_ dirtyRect: NSRect) {
         NSColor.xyzEditor.setFill()
         dirtyRect.fill()
-        guard let textView,
-              let manager = textView.textLayoutManager,
-              let content = manager.textContentManager,
-              let context = NSGraphicsContext.current?.cgContext else { return }
-        let clip = textView.enclosingScrollView?.contentView.bounds ?? textView.visibleRect
-        let origin = textView.textContainerOrigin
-        let start = manager.textViewportLayoutController.viewportRange?.location ?? content.documentRange.location
-        var seen = 0
-        manager.enumerateTextLayoutFragments(from: start, options: [.ensuresLayout]) { fragment in
-            seen += 1
-            let frame = fragment.layoutFragmentFrame
-            let rect = NSRect(
-                x: origin.x + frame.minX - clip.minX,
-                y: origin.y + frame.minY - clip.minY,
-                width: max(frame.width, 1),
-                height: max(frame.height, 1)
-            )
-            if rect.maxY >= dirtyRect.minY, rect.minY <= dirtyRect.maxY {
-                fragment.draw(at: NSPoint(x: rect.minX, y: rect.minY), in: context)
-            }
-            return seen < 80 && rect.minY < self.bounds.maxY + rect.height
-        }
+        guard let textView else { return }
+        let visible = textView.visibleRect
+        let width = max(1, Int(visible.width.rounded(.up)))
+        let height = max(1, Int(visible.height.rounded(.up)))
+        guard width > 2, height > 2,
+              let rep = NSBitmapImageRep(
+                bitmapDataPlanes: nil,
+                pixelsWide: width,
+                pixelsHigh: height,
+                bitsPerSample: 8,
+                samplesPerPixel: 4,
+                hasAlpha: true,
+                isPlanar: false,
+                colorSpaceName: .deviceRGB,
+                bytesPerRow: 0,
+                bitsPerPixel: 0
+              ) else { return }
+        // The text view's layer is not in the window. Its own drawing is. Paint that
+        // drawing into this pane, which is the layer the window shows.
+        textView.cacheDisplay(in: visible, to: rep)
+        rep.draw(
+            in: bounds,
+            from: NSRect(x: 0, y: 0, width: visible.width, height: visible.height),
+            operation: .sourceOver,
+            fraction: 1,
+            respectFlipped: true,
+            hints: nil
+        )
     }
 }
 

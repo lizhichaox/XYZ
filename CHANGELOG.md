@@ -2,7 +2,7 @@
 
 ## 0.5.27
 
-- Opening a file shows its text again. The editor paints the visible lines into the same pane as the line numbers, because the text view's own layer never appears in the window. Reading paints the rendered note into its surface the same way. The file column keeps the width left after the sidebar. A blank file still fails the window check.
+- Opening a file shows its text again. Editing copies the text view's own drawing into the pane the window shows, beside the line numbers. Reading shows the note text in the window itself, because the web view's layer stays blank. The file column keeps the width left after the sidebar. A blank file still fails the window check.
 
 ## 0.5.26
 
