@@ -104,9 +104,9 @@ public struct FileFormat: Equatable, Sendable {
 /// Extension map for viewers, syntax, and Reading. Names are matched case-insensitively.
 public enum FileFormats {
     public static func format(for name: String) -> FileFormat {
-        let ext = extension(of: name)
+        let ext = pathExtension(of: name)
         if let viewer = viewerKind(forExtension: ext) {
-            return FileFormat(language: .plain, viewer: viewer, label: viewerLabel(viewer, extension: ext))
+            return FileFormat(language: .plain, viewer: viewer, label: viewerLabel(viewer, pathExtension: ext))
         }
         switch ext {
         case "md", "markdown":
@@ -163,14 +163,14 @@ public enum FileFormats {
     }
 
     public static func isViewerExtension(_ name: String) -> Bool {
-        viewerKind(forExtension: extension(of: name)) != nil
+        viewerKind(forExtension: pathExtension(of: name)) != nil
     }
 
     /// Names whose bytes may be Windows-1252 or heuristic UTF-16 when they are not Unicode.
     public static func isTextualName(_ name: String) -> Bool {
         let file = (name as NSString).lastPathComponent.lowercased()
         if textualBasenames.contains(file) { return true }
-        let ext = extension(of: name)
+        let ext = pathExtension(of: name)
         if ext.isEmpty { return false }
         if viewerKind(forExtension: ext) != nil { return false }
         return textualExtensions.contains(ext)
@@ -189,7 +189,7 @@ public enum FileFormats {
         }
     }
 
-    private static func viewerLabel(_ kind: FileViewerKind, extension ext: String) -> String {
+    private static func viewerLabel(_ kind: FileViewerKind, pathExtension ext: String) -> String {
         switch kind {
         case .image:
             return ext.uppercased()
@@ -203,7 +203,7 @@ public enum FileFormats {
         }
     }
 
-    private static func `extension`(of name: String) -> String {
+    private static func pathExtension(of name: String) -> String {
         (name as NSString).pathExtension.lowercased()
     }
 

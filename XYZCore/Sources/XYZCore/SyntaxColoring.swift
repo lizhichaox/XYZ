@@ -142,11 +142,6 @@ public enum SyntaxColoring {
         spans: inout [SyntaxSpan],
         emitFrom: Int
     ) -> Bool {
-        if commentEnd > index {
-            index = commentEnd
-            commentEnd = 0
-            return true
-        }
         guard let block = rules.blockComment else { return false }
         let start = block.start as NSString
         guard index + start.length <= limit,

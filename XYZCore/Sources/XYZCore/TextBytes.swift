@@ -140,17 +140,17 @@ public enum TextBytes {
 
     private static func decodeUnicode(_ data: Data) -> UnicodeText? {
         if data.starts(with: [0xEF, 0xBB, 0xBF]) {
-            let body = data.dropFirst(3)
+            let body = Data(data.dropFirst(3))
             guard let text = String(data: body, encoding: .utf8) else { return nil }
             return UnicodeText(text: text, encoding: .utf8BOM)
         }
         if data.starts(with: [0xFF, 0xFE]) {
             if data.count >= 4, data[2] == 0, data[3] == 0 { return nil }
-            guard let text = String(data: data.dropFirst(2), encoding: .utf16LittleEndian) else { return nil }
+            guard let text = String(data: Data(data.dropFirst(2)), encoding: .utf16LittleEndian) else { return nil }
             return UnicodeText(text: text, encoding: .utf16LEBOM)
         }
         if data.starts(with: [0xFE, 0xFF]) {
-            guard let text = String(data: data.dropFirst(2), encoding: .utf16BigEndian) else { return nil }
+            guard let text = String(data: Data(data.dropFirst(2)), encoding: .utf16BigEndian) else { return nil }
             return UnicodeText(text: text, encoding: .utf16BEBOM)
         }
         if String(data: data, encoding: .utf8) != nil, let text = String(data: data, encoding: .utf8) {
@@ -219,7 +219,7 @@ public enum TextBytes {
         var mixed: Bool
     }
 
-    static func splitEndings(_ text: String) -> EndingSplit {
+    private static func splitEndings(_ text: String) -> EndingSplit {
         var lf = 0
         var crlf = 0
         var cr = 0

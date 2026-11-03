@@ -2,7 +2,11 @@
 import AppKit
 import AVKit
 import PDFKit
+#if canImport(QuickLookUI)
+import QuickLookUI
+#else
 import Quartz
+#endif
 import SwiftUI
 import XYZCore
 
