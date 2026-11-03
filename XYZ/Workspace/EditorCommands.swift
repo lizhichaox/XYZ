@@ -173,11 +173,6 @@ final class EditorCommands: NSObject {
             actualSize(nil)
             return true
         }
-        if flags == [.command, .shift] && key.lowercased() == "f" {
-            guard target?.supportsWorkspaceFiles == true else { return false }
-            focusFilter(nil)
-            return true
-        }
         if flags == [.command, .shift] && key == "." {
             guard target?.supportsWorkspaceFiles == true else { return false }
             toggleHidden(nil)
@@ -488,6 +483,10 @@ final class EditorCommands: NSObject {
     }
 
     @objc func focusFilter(_ sender: Any?) {
+        guard target?.supportsWorkspaceFiles == true else {
+            NSSound.beep()
+            return
+        }
         target?.focusFilter()
     }
 
@@ -524,8 +523,6 @@ final class EditorCommands: NSObject {
         case "xyz.outline":
             menuItem.state = UserDefaults.standard.bool(forKey: OutlineSetting.key) ? .on : .off
             return target?.supportsWorkspaceFiles == true
-        case "xyz.workspace.filter":
-            return target?.supportsWorkspaceFiles == true
         case "xyz.workspace.hidden":
             let shown = target?.showsHiddenFiles == true
             menuItem.title = shown ? String(localized: "Hide Hidden Files") : String(localized: "Show Hidden Files")
@@ -561,7 +558,7 @@ enum PaletteTitles {
         case "view.goToHeading": return String(localized: "Go to Heading")
         case "view.outline": return String(localized: "Show Outline")
         case "workspace.toggleSidebar": return String(localized: "Toggle Sidebar")
-        case "workspace.focusFilter": return String(localized: "Filter Files")
+        case "workspace.focusFilter": return String(localized: "Find in Files")
         case "file.new": return String(localized: "New File")
         case "folder.new": return String(localized: "New Folder")
         case "folder.open": return String(localized: "Open Folder")
@@ -635,8 +632,20 @@ enum EditorMenuSupport {
             ensureFileItems(in: file)
         }
         FormatMenu.removeMarkdownItems(from: main)
+        removeLegacyFilterItem(in: main)
         if let edit = editMenu(in: main) {
             ensureEditItems(in: edit)
+        }
+    }
+
+    /// ⇧⌘F used to filter the sidebar. Find in Files is ⌘K, in the Edit menu.
+    private static func removeLegacyFilterItem(in menu: NSMenu) {
+        for item in menu.items {
+            if item.identifier?.rawValue == "xyz.workspace.filter" {
+                menu.removeItem(item)
+            } else if let submenu = item.submenu {
+                removeLegacyFilterItem(in: submenu)
+            }
         }
     }
 
@@ -697,6 +706,14 @@ enum EditorMenuSupport {
                 item.keyEquivalentModifierMask = []
             }
             if key == "i", flags == .command, item.title == String(localized: "Italic") {
+                item.keyEquivalent = ""
+                item.keyEquivalentModifierMask = []
+            }
+            if key == "k", flags == .command, item.title != String(localized: "Find in Files") {
+                item.keyEquivalent = ""
+                item.keyEquivalentModifierMask = []
+            }
+            if key == "f", flags == [.command, .shift] {
                 item.keyEquivalent = ""
                 item.keyEquivalentModifierMask = []
             }
@@ -789,14 +806,6 @@ enum EditorMenuSupport {
             action: #selector(EditorCommands.newWorkspaceWindow(_:)),
             in: menu
         )
-        let filter = item(
-            identifier: "xyz.workspace.filter",
-            title: String(localized: "Filter Files"),
-            key: "f",
-            flags: [.command, .shift],
-            action: #selector(EditorCommands.focusFilter(_:)),
-            in: menu
-        )
         let hidden = item(
             identifier: "xyz.workspace.hidden",
             title: String(localized: "Hide Hidden Files"),
@@ -824,8 +833,7 @@ enum EditorMenuSupport {
         let anchor = menu.items.first { $0.title == FileMenuSupport.title }
         if let anchor, let index = menu.items.firstIndex(of: anchor) {
             move(newWindow, to: index, in: menu)
-            move(filter, to: min((menu.items.firstIndex(of: newWindow) ?? index) + 1, menu.items.count), in: menu)
-            move(hidden, to: min((menu.items.firstIndex(of: filter) ?? index) + 1, menu.items.count), in: menu)
+            move(hidden, to: min((menu.items.firstIndex(of: newWindow) ?? index) + 1, menu.items.count), in: menu)
             move(reopen, to: min((menu.items.firstIndex(of: hidden) ?? index) + 1, menu.items.count), in: menu)
             move(revealActive, to: min((menu.items.firstIndex(of: reopen) ?? index) + 1, menu.items.count), in: menu)
         }

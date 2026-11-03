@@ -139,12 +139,12 @@
         }
       }
     },
-    "Choose a file in the sidebar.\n⌘P opens one. ⌘⇧F searches names and text.": {
+    "Choose a file in the sidebar.\n⌘P opens one. ⌘K searches the folder.": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在边栏中选择一个文件。\n⌘P 快速打开，⌘⇧F 搜索名称和正文。"
+            "value": "在边栏中选择一个文件。\n⌘P 快速打开，⌘K 搜索文件夹。"
           }
         }
       }
@@ -348,6 +348,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "过滤文件"
+          }
+        }
+      }
+    },
+    "Find in Files": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在文件中查找"
           }
         }
       }

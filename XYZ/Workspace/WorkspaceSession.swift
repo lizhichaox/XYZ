@@ -946,10 +946,13 @@ final class WorkspaceSession: ObservableObject {
         }
     }
 
-    /// Replace every match in the folder. The alert confirms the count. Each file is its own undo.
+    /// Replace every match in the folder. Only while Editing. The alert confirms the count. Each file is its own undo.
     func replaceAllInFolder(undoManager: UndoManager?) {
+        guard let buffer, EditorModeChoice.isEditing(viewMode, access: Self.access(of: buffer)) else {
+            NSSound.beep()
+            return
+        }
         let query = contentQuery
-        _ = beginEditing(source: "replace")
         let replacement = folderReplacement
         let include = includeGlob
         let exclude = excludeGlob

@@ -208,7 +208,10 @@ struct WorkspaceSidebar: NSViewRepresentable {
                 path: WorkspacePaths.abbreviatedHomePath(session.rootURL.path, home: home)
             )
             let filtering = !session.nameQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            column.setReplaceVisible(filtering)
+            let editing = session.buffer.map {
+                EditorModeChoice.isEditing(session.viewMode, access: WorkspaceSession.access(of: $0))
+            } ?? false
+            column.setReplaceVisible(filtering && editing)
         }
 
         private func assign(_ field: NSTextField, _ value: String) {

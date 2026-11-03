@@ -367,7 +367,7 @@ private struct WorkspaceDetail: View {
             ContentUnavailableView {
                 Label("No File Open", systemImage: "doc.text")
             } description: {
-                Text("Choose a file in the sidebar.\n⌘P opens one. ⌘⇧F searches names and text.")
+                Text("Choose a file in the sidebar.\n⌘P opens one. ⌘K searches the folder.")
             }
         } else if showsPreview {
             reading
@@ -622,7 +622,17 @@ final class WorkspaceCommandBridge: ObservableObject, EditorCommandTarget {
     }
 
     func focusFilter() {
-        session?.focusSearch()
+        let hidden = columnVisibility.wrappedValue == .detailOnly
+        if hidden {
+            columnVisibility.wrappedValue = .all
+        }
+        if hidden {
+            DispatchQueue.main.async { [weak session] in
+                session?.focusSearch()
+            }
+        } else {
+            session?.focusSearch()
+        }
     }
 
     func toggleHiddenFiles() {

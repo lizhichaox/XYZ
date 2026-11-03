@@ -110,9 +110,9 @@ public struct PaletteCommand: Equatable, Sendable, Identifiable {
         PaletteCommand(id: "workspace.toggleSidebar", title: "Toggle Sidebar", shortcut: "⌘B", keywords: ["sidebar"]),
         PaletteCommand(
             id: "workspace.focusFilter",
-            title: "Filter Files",
-            shortcut: "⇧⌘F",
-            keywords: ["search", "filter", "grep", "contents"]
+            title: "Find in Files",
+            shortcut: "⌘K",
+            keywords: ["search", "filter", "grep", "contents", "folder"]
         ),
         PaletteCommand(id: "file.new", title: "New File", keywords: ["create"]),
         PaletteCommand(id: "folder.new", title: "New Folder", keywords: ["create"]),

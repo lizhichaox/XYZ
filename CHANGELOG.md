@@ -5,6 +5,7 @@
 - The title bar is one row: traffic lights, and the window title centered as `<file> — <folder>`. The row drags, and a double click zooms. There is no toolbar.
 - The sidebar starts with Explorer, then the filter, then the folder. Rows are short, with a file icon and a full-width highlight. Outline is a section at the bottom of the sidebar, collapsed until View → Show Outline. ⌘B toggles the sidebar and does nothing else.
 - There is no Markdown formatting menu. Bold, italic, link, code, headings, lists, and the other Format commands are gone. Find, replace, line edits, ⌘/, and ⌃Tab stay.
+- ⌘K finds text across the open folder. It is Edit → Find in Files, and ⇧⌘F no longer does that. Replace across files is available only in Editing, and it still asks before changing files. ⌘F stays find-in-file. ⌘P stays the command palette.
 - Tabs sit under the title bar, across the editor. Each tab has an icon, the name, and a close button on the active tab and on hover. The path is a short breadcrumb row under the tabs. Editing shows line numbers and a highlight on the current line. The status bar runs the full width of the window.
 
 ## 0.4.0
