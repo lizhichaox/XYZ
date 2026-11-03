@@ -191,18 +191,28 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
     private func lockColumnFrames() {
         let area = panes.bounds
         guard area.width > 1, area.height > 1 else { return }
-        let side = sidebarShown ? clampedSidebarWidth() : 0
-        var outlineWidth: CGFloat = 0
-        if outlineShown {
-            outlineWidth = min(max(160, savedOutline), max(160, area.width - side - 320))
-        }
+        let views = panes.subviews
+        guard !views.isEmpty else { return }
+        let showsSide = views.contains { $0 === sidebar }
+        let showsOutline = views.contains { $0 === outline }
+        let side: CGFloat = showsSide ? clampedSidebarWidth() : 0
+        let outlineWidth: CGFloat = showsOutline
+            ? min(max(160, savedOutline), max(160, area.width - side - 320))
+            : 0
         let main = max(1, area.width - side - outlineWidth)
-        if sidebarShown, let sidebar {
-            sidebar.frame = NSRect(x: 0, y: 0, width: side, height: area.height)
-        }
-        detail?.frame = NSRect(x: side, y: 0, width: main, height: area.height)
-        if outlineShown, let outline {
-            outline.frame = NSRect(x: side + main, y: 0, width: outlineWidth, height: area.height)
+        var x: CGFloat = 0
+        for view in views {
+            let width: CGFloat
+            if view === sidebar {
+                width = side
+            } else if view === outline {
+                width = outlineWidth
+            } else {
+                width = main
+            }
+            let span = max(width, 1)
+            view.frame = NSRect(x: x, y: 0, width: span, height: area.height)
+            x += span
         }
     }
 
