@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.25
+
+- Editing shows the document text and the line-number gutter at the same time. The hosted text view is the TextKit 2 viewport again, so glyphs are drawn in the clip. A separate content storage could number lines without painting the body.
+- `-XYZCheckGutter` samples foreground pixels in the text clip, in light and dark, with wrapping on and off, after resize, scroll, and hiding the gutter. A synthetic edit is written to a temporary file and read back. The source buffer must stay intact.
+
 ## 0.5.24
 
 - Editing shows its line-number gutter in the real window, with wrapping on or off. The hosted editor stays on TextKit 2. Reading `layoutManager` was installing TextKit 1, and a wrapped gutter then had no fragments to number.

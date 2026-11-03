@@ -29,8 +29,6 @@ final class XYZMacTextView: NSTextView {
     }
     /// The pane that owns this text view and its gutter. Set when the pane attaches the document.
     weak var editorPane: EditorPane?
-    /// Owns the TextKit 2 content storage. The text container does not, and releasing it drops `textLayoutManager`.
-    var textKit2Storage: NSTextContentStorage?
     /// The live gutter, for the offscreen snapshot. Nil until line numbers are turned on.
     var lineNumberGutter: LineNumberGutter? {
         guard showsLineNumbers, let gutter = editorPane?.gutter, gutter.superview != nil, !gutter.isHidden else {
@@ -620,6 +618,7 @@ private struct FindScan {
     /// Gives the gutter a real wrap width and a viewport. The clip width is the wrap measure.
     /// `contentSize` is the laid-out text, which is already one long row before wrapping is applied.
     /// Does not read `layoutManager`: that TextKit 1 property replaces `textLayoutManager`.
+    /// Does not change the text view's height. A height of 1 hides the body while the gutter still numbers.
     func prepareLineNumberLayout() {
         guard showsLineNumbers, let manager = textLayoutManager else { return }
         guard let scroll = enclosingScrollView else { return }
@@ -629,8 +628,8 @@ private struct FindScan {
         if style.wraps {
             textContainer?.widthTracksTextView = true
             isHorizontallyResizable = false
-            if abs(frame.width - clip) > 0.5 {
-                setFrameSize(NSSize(width: clip, height: max(frame.height, 1)))
+            if frame.height > 1, frame.width > clip + 0.5 {
+                setFrameSize(NSSize(width: clip, height: frame.height))
                 widthChanged = true
             }
             let next = max(1, clip - 1)
@@ -1180,32 +1179,17 @@ struct XYZMacEditor: NSViewRepresentable {
         return pane
     }
 
-    /// TextKit 2 stack for the window. `init(usingTextLayoutManager:)` is the fallback when the
-    /// explicit stack does not attach, which is what the detached harness used.
+    /// `init(usingTextLayoutManager:)` installs this view as the text viewport, so the body is drawn.
+    /// A hand-built content storage can leave `textLayoutManager` non-nil, which is enough for the
+    /// gutter to number lines, without ever attaching those glyphs to the view.
     private static func makeTextKit2View() -> XYZMacTextView {
-        let container = NSTextContainer(size: NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
-        container.lineFragmentPadding = 0
-        container.widthTracksTextView = true
-        let layoutManager = NSTextLayoutManager()
-        let content = NSTextContentStorage()
-        content.addTextLayoutManager(layoutManager)
-        layoutManager.textContainer = container
-        let explicit = XYZMacTextView(frame: .zero, textContainer: container)
-        let chosen: XYZMacTextView
-        let how: String
-        if explicit.textLayoutManager != nil {
-            explicit.textKit2Storage = content
-            chosen = explicit
-            how = "explicit"
-        } else {
-            chosen = XYZMacTextView(usingTextLayoutManager: true)
-            how = chosen.textLayoutManager == nil ? "textkit1" : "convenience"
-        }
+        let textView = XYZMacTextView(usingTextLayoutManager: true)
         if ProcessInfo.processInfo.arguments.contains(GutterSnapshotCheck.argument) {
+            let how = textView.textLayoutManager == nil ? "textkit1" : "convenience"
             print("GUTTER_PROD stage=init path=\(how)")
             fflush(stdout)
         }
-        return chosen
+        return textView
     }
 
     private func noteHostedTextSystem(_ textView: XYZMacTextView, stage: String) {

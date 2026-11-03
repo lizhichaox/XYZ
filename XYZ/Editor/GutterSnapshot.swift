@@ -48,13 +48,29 @@ enum GutterSnapshotCheck {
 
     /// `XYZMacEditor` inside a window. The detached pane below never calls `makeNSView`.
     private static func renderProductionEditors() -> String? {
-        if let failure = renderProductionEditor(wraps: true) { return failure }
-        if let failure = renderProductionEditor(wraps: false) { return failure }
-        return nil
+        let text = productionFixture
+        for appearance in [NSAppearance.Name.aqua, NSAppearance.Name.darkAqua] {
+            if let failure = renderProductionEditor(text: text, wraps: true, appearance: appearance) { return failure }
+            if let failure = renderProductionEditor(text: text, wraps: false, appearance: appearance) { return failure }
+        }
+        return checkProductionRoundTrip(text: text)
+    }
+
+    /// Synthetic body. English, Chinese, emoji, one long line, and enough rows to scroll.
+    private static var productionFixture: String {
+        let rows = (1...24).map { "row \($0)" }
+        return (["Alpha line", "中文短句", String(repeating: "wrap 长 ", count: 18), "emoji 😀"] + rows).joined(separator: "\n")
+    }
+
+    private final class ProductionTextSink {
+        var lengths: [Int] = []
+        func take(_ text: String) {
+            lengths.append((text as NSString).length)
+        }
     }
 
     @MainActor
-    private static func productionEditor(text: String, wraps: Bool, lineNumbers: Bool) -> XYZMacEditor {
+    private static func productionEditor(text: String, wraps: Bool, lineNumbers: Bool, sink: ProductionTextSink) -> XYZMacEditor {
         var style = XYZEditorStyle()
         style.wraps = wraps
         style.fontSize = 16
@@ -73,16 +89,17 @@ enum GutterSnapshotCheck {
             lineNumbers: lineNumbers,
             find: nil,
             onSelection: nil,
-            onTextChange: { _ in }
+            onTextChange: { sink.take($0) }
         )
     }
 
-    private static func renderProductionEditor(wraps: Bool) -> String? {
-        let text = "one\n" + String(repeating: "wrap ", count: 24) + "\n\nfour\n"
-        print("GUTTER_PROD stage=host wrap=\(wraps ? 1 : 0)")
+    private static func renderProductionEditor(text: String, wraps: Bool, appearance name: NSAppearance.Name) -> String? {
+        let appearance = NSAppearance(named: name) ?? NSAppearance(named: .aqua)!
+        let sink = ProductionTextSink()
+        print("GUTTER_PROD stage=host wrap=\(wraps ? 1 : 0) appearance=\(name.rawValue)")
         fflush(stdout)
         let editor = MainActor.assumeIsolated {
-            productionEditor(text: text, wraps: wraps, lineNumbers: true)
+            productionEditor(text: text, wraps: wraps, lineNumbers: true, sink: sink)
         }
         let host = NSHostingView(rootView: editor)
         let width: CGFloat = wraps ? 240 : 520
@@ -93,22 +110,27 @@ enum GutterSnapshotCheck {
             backing: .buffered,
             defer: false
         )
+        window.appearance = appearance
+        host.appearance = appearance
         window.contentView = host
-        if let failure = checkProduction(host: host, window: window, wraps: wraps, label: "load") {
+        if let failure = checkProduction(host: host, window: window, wraps: wraps, label: "load", fixture: text, sink: sink) {
+            return failure
+        }
+        if let failure = resizeAndScroll(host: host, window: window, wraps: wraps, fixture: text) {
             return failure
         }
         let hidden = MainActor.assumeIsolated {
-            productionEditor(text: text, wraps: wraps, lineNumbers: false)
+            productionEditor(text: text, wraps: wraps, lineNumbers: false, sink: sink)
         }
         host.rootView = hidden
-        if let failure = checkProductionHidden(host: host, window: window, wraps: wraps) {
+        if let failure = checkProductionHidden(host: host, window: window, wraps: wraps, fixture: text, sink: sink) {
             return failure
         }
         let shown = MainActor.assumeIsolated {
-            productionEditor(text: text, wraps: wraps, lineNumbers: true)
+            productionEditor(text: text, wraps: wraps, lineNumbers: true, sink: sink)
         }
         host.rootView = shown
-        return checkProduction(host: host, window: window, wraps: wraps, label: "toggle")
+        return checkProduction(host: host, window: window, wraps: wraps, label: "toggle", fixture: text, sink: sink)
     }
 
     private static func settle(_ host: NSHostingView<XYZMacEditor>, _ window: NSWindow) {
@@ -122,7 +144,9 @@ enum GutterSnapshotCheck {
     private static func checkProductionHidden(
         host: NSHostingView<XYZMacEditor>,
         window: NSWindow,
-        wraps: Bool
+        wraps: Bool,
+        fixture: String,
+        sink: ProductionTextSink
     ) -> String? {
         settle(host, window)
         guard let pane = findPane(in: host) else {
@@ -135,14 +159,16 @@ enum GutterSnapshotCheck {
         if !hidden {
             return "production wrap=\(wraps ? 1 : 0) label=hide: gutter stayed visible w=\(gutter.frame.width)"
         }
-        return nil
+        return checkDocumentBody(pane: pane, window: window, wraps: wraps, label: "hide", fixture: fixture, sink: sink, requireGutter: false)
     }
 
     private static func checkProduction(
         host: NSHostingView<XYZMacEditor>,
         window: NSWindow,
         wraps: Bool,
-        label: String
+        label: String,
+        fixture: String,
+        sink: ProductionTextSink
     ) -> String? {
         print("GUTTER_PROD stage=layout wrap=\(wraps ? 1 : 0) label=\(label)")
         fflush(stdout)
@@ -174,12 +200,8 @@ enum GutterSnapshotCheck {
             return "production wrap=\(wraps ? 1 : 0) label=\(label): could not paint the window"
         }
         let sample = gutter.convert(gutter.bounds, to: pane)
-        let background = NSColor.xyzEditor
-        var plate = background
         let appearance = window.appearance ?? NSAppearance(named: .aqua)!
-        appearance.performAsCurrentDrawingAppearance {
-            plate = background.usingColorSpace(.deviceRGB) ?? background
-        }
+        let plate = resolved(NSColor.xyzEditor, appearance)
         let ink = nonBackgroundPixels(in: rep, rect: sample, background: plate)
         if ink < 30 {
             let snapshot = gutter.testingSnapshot()
@@ -189,16 +211,206 @@ enum GutterSnapshotCheck {
         let numbered = snapshot.rows.filter(\.shows).map(\.line)
         print("GUTTER_PROD_LABELS wrap=\(wraps ? 1 : 0) label=\(label) api=\(snapshot.api) numbered=\(numbered) visual=\(snapshot.rows.count)")
         fflush(stdout)
-        if numbered.first != 1 {
-            return "production wrap=\(wraps ? 1 : 0) label=\(label): numbered \(numbered) api=\(snapshot.api)"
+        if label == "load" || label == "toggle" {
+            if numbered.first != 1 {
+                return "production wrap=\(wraps ? 1 : 0) label=\(label): numbered \(numbered) api=\(snapshot.api)"
+            }
+            if numbered != Array(1...numbered.count) {
+                return "production wrap=\(wraps ? 1 : 0) label=\(label): numbered \(numbered) is not a source prefix"
+            }
+            if wraps && snapshot.rows.count <= numbered.count {
+                return "production wrap=1 label=\(label): long line did not wrap visual=\(snapshot.rows.count)"
+            }
         }
-        if numbered != Array(1...numbered.count) {
-            return "production wrap=\(wraps ? 1 : 0) label=\(label): numbered \(numbered) is not a source prefix"
+        return checkDocumentBody(pane: pane, window: window, wraps: wraps, label: label, fixture: fixture, sink: sink, requireGutter: true)
+    }
+
+    private static func resizeAndScroll(
+        host: NSHostingView<XYZMacEditor>,
+        window: NSWindow,
+        wraps: Bool,
+        fixture: String
+    ) -> String? {
+        let narrower = NSSize(width: wraps ? 180 : 400, height: 320)
+        window.setContentSize(narrower)
+        host.frame = NSRect(origin: .zero, size: narrower)
+        settle(host, window)
+        guard let pane = findPane(in: host) else {
+            return "production wrap=\(wraps ? 1 : 0) label=resize: EditorPane was not mounted evidence=missing"
         }
-        if wraps && snapshot.rows.count <= numbered.count {
-            return "production wrap=1 label=\(label): long line did not wrap visual=\(snapshot.rows.count)"
+        if let failure = checkDocumentBody(pane: pane, window: window, wraps: wraps, label: "resize", fixture: fixture, sink: nil, requireGutter: true) {
+            return failure
+        }
+        guard let textView = pane.scrollView.documentView as? XYZMacTextView else {
+            return "production wrap=\(wraps ? 1 : 0) label=scroll: text view missing evidence=missing"
+        }
+        let clip = pane.scrollView.contentView
+        var origin = clip.bounds.origin
+        origin.y += 80
+        clip.scroll(to: origin)
+        pane.scrollView.reflectScrolledClipView(clip)
+        settle(host, window)
+        return checkDocumentBody(pane: pane, window: window, wraps: wraps, label: "scroll", fixture: fixture, sink: nil, requireGutter: true)
+    }
+
+    /// Foreground glyphs inside the clip. Fragment counts and gutter ink do not count.
+    private static func checkDocumentBody(
+        pane: EditorPane,
+        window: NSWindow,
+        wraps: Bool,
+        label: String,
+        fixture: String,
+        sink: ProductionTextSink?,
+        requireGutter: Bool
+    ) -> String? {
+        guard let textView = pane.scrollView.documentView as? XYZMacTextView else {
+            return "production wrap=\(wraps ? 1 : 0) label=\(label): text view missing evidence=missing"
+        }
+        let stored = (textView.string as NSString).length
+        let expected = (fixture as NSString).length
+        if stored != expected || textView.string != fixture {
+            return "production wrap=\(wraps ? 1 : 0) label=\(label): storage \(stored) expected \(expected) evidence=missing"
+        }
+        if let sink, sink.lengths.contains(0) {
+            return "production wrap=\(wraps ? 1 : 0) label=\(label): editor reported an empty buffer"
+        }
+        let visible = textView.visibleRect
+        if visible.width < 40 || visible.height < 40 {
+            return "production wrap=\(wraps ? 1 : 0) label=\(label): text clip is \(Int(visible.width))x\(Int(visible.height)) evidence=missing"
+        }
+        if requireGutter, pane.scrollView.frame.minX + 1 < pane.gutter.frame.maxX {
+            return "production wrap=\(wraps ? 1 : 0) label=\(label): scroll view covers the gutter"
+        }
+        let appearance = window.appearance ?? NSAppearance(named: .aqua)!
+        let ink = textForegroundPixels(in: textView, appearance: appearance)
+        print("GUTTER_PROD_TEXT wrap=\(wraps ? 1 : 0) label=\(label) ink=\(ink) storage=\(stored) clip=\(Int(visible.width))x\(Int(visible.height))")
+        fflush(stdout)
+        if ink < 40 {
+            return "production wrap=\(wraps ? 1 : 0) label=\(label): text clip painted \(ink) foreground pixels evidence=missing"
         }
         return nil
+    }
+
+    private static func checkProductionRoundTrip(text: String) -> String? {
+        let sink = ProductionTextSink()
+        let editor = MainActor.assumeIsolated {
+            productionEditor(text: text, wraps: true, lineNumbers: true, sink: sink)
+        }
+        let host = NSHostingView(rootView: editor)
+        host.frame = NSRect(x: 0, y: 0, width: 240, height: 480)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.appearance = NSAppearance(named: .aqua)
+        host.appearance = window.appearance
+        window.contentView = host
+        settle(host, window)
+        guard let pane = findPane(in: host), let textView = pane.scrollView.documentView as? XYZMacTextView else {
+            return "production label=edit: text view missing evidence=missing"
+        }
+        let edited = "Q" + text
+        let applied = textView.applySourceEdit(SourceReplacement(
+            range: SourceRange(location: 0, length: 0),
+            text: "Q",
+            selection: SourceRange(location: 1, length: 0)
+        ))
+        if !applied || textView.string != edited {
+            let stored = (textView.string as NSString).length
+            return "production label=edit: replacement stored \(stored) applied=\(applied ? 1 : 0) evidence=missing"
+        }
+        if sink.lengths.contains(0) {
+            return "production label=edit: editor reported an empty buffer"
+        }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("xyz-editor-roundtrip.txt")
+        do {
+            try textView.string.write(to: url, atomically: true, encoding: .utf8)
+            let read = try String(contentsOf: url, encoding: .utf8)
+            if read != edited {
+                return "production label=edit: temporary file length \((read as NSString).length) expected \((edited as NSString).length)"
+            }
+        } catch {
+            return "production label=edit: temporary file was not written"
+        }
+        try? FileManager.default.removeItem(at: url)
+        settle(host, window)
+        let ink = textForegroundPixels(in: textView, appearance: window.appearance ?? NSAppearance(named: .aqua)!)
+        print("GUTTER_PROD_TEXT wrap=1 label=edit ink=\(ink) storage=\((textView.string as NSString).length)")
+        fflush(stdout)
+        if ink < 40 {
+            return "production label=edit: text clip painted \(ink) foreground pixels evidence=missing"
+        }
+        return nil
+    }
+
+    /// Glyphs drawn by the text view or its fragment subviews, inside the visible clip.
+    private static func textForegroundPixels(in textView: XYZMacTextView, appearance: NSAppearance) -> Int {
+        let ink = resolved(NSColor.xyzInk, appearance)
+        let plate = resolved(NSColor.xyzEditor, appearance)
+        return foregroundPixels(in: textView, visible: textView.visibleRect, ink: ink, plate: plate)
+    }
+
+    private static func foregroundPixels(in view: NSView, visible: NSRect, ink: NSColor, plate: NSColor) -> Int {
+        let sample = view.bounds.intersection(visible)
+        var count = 0
+        if sample.width > 2, sample.height > 2, let rep = cache(view, rect: sample) {
+            count += inkPixels(in: rep, rect: NSRect(origin: .zero, size: sample.size), ink: ink, plate: plate)
+        }
+        if count >= 40 { return count }
+        for sub in view.subviews where !sub.isHidden && sub.alphaValue > 0.01 {
+            let subVisible = view.convert(visible, to: sub)
+            count += foregroundPixels(in: sub, visible: subVisible, ink: ink, plate: plate)
+        }
+        return count
+    }
+
+    private static func resolved(_ color: NSColor, _ appearance: NSAppearance) -> NSColor {
+        var resolved = color
+        appearance.performAsCurrentDrawingAppearance {
+            resolved = color.usingColorSpace(.deviceRGB) ?? color
+        }
+        return resolved
+    }
+
+    private static func cache(_ view: NSView, rect: NSRect) -> NSBitmapImageRep? {
+        guard rect.width > 1, rect.height > 1,
+              let rep = NSBitmapImageRep(
+                bitmapDataPlanes: nil,
+                pixelsWide: max(1, Int(rect.width)),
+                pixelsHigh: max(1, Int(rect.height)),
+                bitsPerSample: 8,
+                samplesPerPixel: 4,
+                hasAlpha: true,
+                isPlanar: false,
+                colorSpaceName: .deviceRGB,
+                bytesPerRow: 0,
+                bitsPerPixel: 0
+              ) else { return nil }
+        view.cacheDisplay(in: rect, to: rep)
+        return rep
+    }
+
+    private static func inkPixels(in rep: NSBitmapImageRep, rect: NSRect, ink: NSColor, plate: NSColor) -> Int {
+        var count = 0
+        let minX = max(0, Int(rect.minX.rounded(.up)))
+        let minY = max(0, Int(rect.minY.rounded(.up)))
+        let maxX = min(rep.pixelsWide, min(Int(rect.maxX.rounded(.down)), minX + 120))
+        let maxY = min(rep.pixelsHigh, min(Int(rect.maxY.rounded(.down)), minY + 80))
+        guard minX < maxX, minY < maxY else { return 0 }
+        for y in minY..<maxY {
+            for x in minX..<maxX {
+                guard let color = rep.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) else { continue }
+                let toPlate = colorDistance(color, plate)
+                let toInk = colorDistance(color, ink)
+                if toPlate > 0.35, toInk + 0.2 < toPlate {
+                    count += 1
+                }
+            }
+        }
+        return count
+    }
+
+    private static func colorDistance(_ color: NSColor, _ other: NSColor) -> CGFloat {
+        abs(color.redComponent - other.redComponent)
+            + abs(color.greenComponent - other.greenComponent)
+            + abs(color.blueComponent - other.blueComponent)
     }
 
     private static func findPane(in view: NSView) -> EditorPane? {
