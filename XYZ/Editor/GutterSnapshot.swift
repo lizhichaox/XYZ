@@ -207,20 +207,8 @@ enum GutterSnapshotCheck {
             let snapshot = gutter.testingSnapshot()
             return "production wrap=\(wraps ? 1 : 0) label=\(label): gutter painted \(ink) contrasting pixels api=\(snapshot.api) evidence=missing"
         }
-        let snapshot = gutter.testingSnapshot()
-        let numbered = snapshot.rows.filter(\.shows).map(\.line)
-        print("GUTTER_PROD_LABELS wrap=\(wraps ? 1 : 0) label=\(label) api=\(snapshot.api) numbered=\(numbered) visual=\(snapshot.rows.count)")
-        fflush(stdout)
-        if label == "load" || label == "toggle" {
-            if numbered.first != 1 {
-                return "production wrap=\(wraps ? 1 : 0) label=\(label): numbered \(numbered) api=\(snapshot.api)"
-            }
-            if numbered != Array(1...numbered.count) {
-                return "production wrap=\(wraps ? 1 : 0) label=\(label): numbered \(numbered) is not a source prefix"
-            }
-            if wraps && snapshot.rows.count <= numbered.count {
-                return "production wrap=1 label=\(label): long line did not wrap visual=\(snapshot.rows.count)"
-            }
+        if let failure = checkVisibleNumbers(pane: pane, wraps: wraps, label: label, requireFirst: true) {
+            return failure
         }
         return checkDocumentBody(pane: pane, window: window, wraps: wraps, label: label, fixture: fixture, sink: sink, requireGutter: true)
     }
@@ -250,7 +238,38 @@ enum GutterSnapshotCheck {
         clip.scroll(to: origin)
         pane.scrollView.reflectScrolledClipView(clip)
         settle(host, window)
-        return checkDocumentBody(pane: pane, window: window, wraps: wraps, label: "scroll", fixture: fixture, sink: nil, requireGutter: true)
+        if let failure = checkDocumentBody(pane: pane, window: window, wraps: wraps, label: "scroll", fixture: fixture, sink: nil, requireGutter: true) {
+            return failure
+        }
+        if let failure = checkVisibleNumbers(pane: pane, wraps: wraps, label: "scroll", requireFirst: false) {
+            return failure
+        }
+        clip.scroll(to: NSPoint(x: origin.x, y: 0))
+        pane.scrollView.reflectScrolledClipView(clip)
+        settle(host, window)
+        return nil
+    }
+
+    /// Visible labels are source lines in order. The top of the document is line 1. A scrolled
+    /// viewport may start later, and it still must not skip or renumber.
+    private static func checkVisibleNumbers(pane: EditorPane, wraps: Bool, label: String, requireFirst: Bool) -> String? {
+        let snapshot = pane.gutter.testingSnapshot()
+        let numbered = snapshot.rows.filter(\.shows).map(\.line)
+        print("GUTTER_PROD_LABELS wrap=\(wraps ? 1 : 0) label=\(label) api=\(snapshot.api) numbered=\(numbered) visual=\(snapshot.rows.count)")
+        fflush(stdout)
+        guard let first = numbered.first else {
+            return "production wrap=\(wraps ? 1 : 0) label=\(label): no visible source numbers api=\(snapshot.api) evidence=missing"
+        }
+        if requireFirst, first != 1 {
+            return "production wrap=\(wraps ? 1 : 0) label=\(label): numbered \(numbered) api=\(snapshot.api)"
+        }
+        if numbered != Array(first..<(first + numbered.count)) {
+            return "production wrap=\(wraps ? 1 : 0) label=\(label): numbered \(numbered) is not a source run api=\(snapshot.api)"
+        }
+        if wraps && requireFirst && snapshot.rows.count <= numbered.count {
+            return "production wrap=1 label=\(label): long line did not wrap visual=\(snapshot.rows.count)"
+        }
+        return nil
     }
 
     /// Foreground glyphs inside the clip. Fragment counts and gutter ink do not count.
