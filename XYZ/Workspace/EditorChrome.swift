@@ -72,7 +72,7 @@ private struct EditorTabItem: View {
             Button(action: close) {
                 Image(systemName: "xmark")
                     .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(active ? Color.secondary : Color.tertiary)
+                    .foregroundStyle(active ? HierarchicalShapeStyle.secondary : HierarchicalShapeStyle.tertiary)
                     .frame(width: 16, height: 16)
                     .contentShape(Rectangle())
             }
