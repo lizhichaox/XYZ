@@ -40,6 +40,14 @@ public enum SidebarReveal {
 public enum ExplorerSection {
     public static func toggle(_ expanded: Bool) -> Bool { !expanded }
 
+    /// Where New File and New Folder land. A selected folder is the parent.
+    /// A selected file uses its folder. Nothing selected uses the workspace root.
+    public static func creationParent(selectedPath: String?, isDirectory: Bool) -> String {
+        guard let selectedPath, !selectedPath.isEmpty else { return "" }
+        if isDirectory { return selectedPath }
+        return WorkspacePaths.parent(of: selectedPath)
+    }
+
     /// Files in the tree. Directories are not counted. Hidden files count only while they are listed.
     public static func fileCount(entries: [WorkspacePathEntry], showsHidden: Bool) -> Int {
         entries.reduce(into: 0) { total, entry in

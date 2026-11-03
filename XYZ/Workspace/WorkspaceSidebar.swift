@@ -105,6 +105,7 @@ struct WorkspaceSidebar: NSViewRepresentable {
             column.header.onMenu = { [weak self] event in
                 self?.popRootMenu(event)
             }
+            wireHeaderActions()
             outline.target = self
             outline.doubleAction = #selector(pinClickedRow(_:))
         }
@@ -117,6 +118,7 @@ struct WorkspaceSidebar: NSViewRepresentable {
             column?.header.onMenu = { [weak self] event in
                 self?.popRootMenu(event)
             }
+            wireHeaderActions()
             syncChrome(session)
             if let message = session.actionMessage {
                 session.actionMessage = nil
@@ -165,16 +167,29 @@ struct WorkspaceSidebar: NSViewRepresentable {
             NSMenu.popUpContextMenu(menu, with: event, for: header)
         }
 
+        private func wireHeaderActions() {
+            column?.header.onNewFile = { [weak self] in
+                guard let session = self?.session else { return }
+                session.createItem(directory: false, in: session.creationParent())
+            }
+            column?.header.onNewFolder = { [weak self] in
+                guard let session = self?.session else { return }
+                session.createItem(directory: true, in: session.creationParent())
+            }
+            column?.header.onRefresh = { [weak self] in
+                self?.session?.refreshFileTree()
+            }
+            column?.header.onCollapseAll = { [weak self] in
+                self?.session?.collapseAllFolders()
+            }
+        }
+
         private func syncChrome(_ session: WorkspaceSession) {
             guard let column else { return }
             let home = FileManager.default.homeDirectoryForCurrentUser.path
             column.header.show(
                 name: session.displayName,
                 expanded: session.rootExpanded,
-                fileCount: ExplorerSection.fileCount(
-                    entries: session.indexedEntries,
-                    showsHidden: session.showsHiddenFiles
-                ),
                 path: WorkspacePaths.abbreviatedHomePath(session.rootURL.path, home: home)
             )
             column.setTreeVisible(session.rootExpanded)
@@ -981,9 +996,13 @@ fileprivate final class SidebarColumnView: NSView {
 fileprivate final class SidebarRootHeader: NSView {
     var onToggle: (() -> Void)?
     var onMenu: ((NSEvent) -> Void)?
+    var onNewFile: (() -> Void)?
+    var onNewFolder: (() -> Void)?
+    var onRefresh: (() -> Void)?
+    var onCollapseAll: (() -> Void)?
     private let chevron = NSImageView()
     private let label = NSTextField(labelWithString: "")
-    private let countLabel = NSTextField(labelWithString: "")
+    private let actions = NSStackView()
     private var expanded = true
 
     override init(frame frameRect: NSRect) {
@@ -998,29 +1017,36 @@ fileprivate final class SidebarRootHeader: NSView {
         label.drawsBackground = false
         label.lineBreakMode = .byTruncatingTail
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        countLabel.translatesAutoresizingMaskIntoConstraints = false
-        countLabel.isEditable = false
-        countLabel.isSelectable = false
-        countLabel.isBezeled = false
-        countLabel.drawsBackground = false
-        countLabel.font = .systemFont(ofSize: 11)
-        countLabel.textColor = .xyzSecondaryText
-        countLabel.alignment = .right
-        countLabel.setContentHuggingPriority(.required, for: .horizontal)
-        countLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
+        actions.translatesAutoresizingMaskIntoConstraints = false
+        actions.orientation = .horizontal
+        actions.spacing = 0
+        actions.alignment = .centerY
+        actions.setHuggingPriority(.required, for: .horizontal)
+        let specs: [(String, String, Selector)] = [
+            ("doc.badge.plus", String(localized: "New File"), #selector(newFile(_:))),
+            ("folder.badge.plus", String(localized: "New Folder"), #selector(newFolder(_:))),
+            ("arrow.clockwise", String(localized: "Refresh Explorer"), #selector(refreshTree(_:))),
+            ("rectangle.compress.vertical", String(localized: "Collapse All"), #selector(collapseAll(_:))),
+        ]
+        for spec in specs {
+            let button = ExplorerHeaderButton(symbol: spec.0, title: spec.1)
+            button.target = self
+            button.action = spec.2
+            actions.addArrangedSubview(button)
+        }
         addSubview(chevron)
         addSubview(label)
-        addSubview(countLabel)
+        addSubview(actions)
         NSLayoutConstraint.activate([
             chevron.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             chevron.centerYAnchor.constraint(equalTo: centerYAnchor),
             chevron.widthAnchor.constraint(equalToConstant: 12),
             chevron.heightAnchor.constraint(equalToConstant: 12),
             label.leadingAnchor.constraint(equalTo: chevron.trailingAnchor, constant: 4),
-            label.trailingAnchor.constraint(lessThanOrEqualTo: countLabel.leadingAnchor, constant: -6),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: actions.leadingAnchor, constant: -6),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
-            countLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
-            countLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+            actions.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
+            actions.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
     }
 
@@ -1029,7 +1055,7 @@ fileprivate final class SidebarRootHeader: NSView {
         nil
     }
 
-    func show(name: String, expanded: Bool, fileCount: Int, path: String) {
+    func show(name: String, expanded: Bool, path: String) {
         self.expanded = expanded
         let font = NSFont.systemFont(ofSize: 11, weight: .semibold)
         label.attributedStringValue = NSAttributedString(string: name.localizedUppercase, attributes: [
@@ -1037,14 +1063,17 @@ fileprivate final class SidebarRootHeader: NSView {
             .foregroundColor: NSColor.xyzSecondaryText,
             .kern: 0.6,
         ])
-        countLabel.stringValue = fileCount > 0 ? String(fileCount) : ""
-        countLabel.textColor = .xyzSecondaryText
         applyChevron()
         toolTip = path
         let state = expanded ? String(localized: "Expanded") : String(localized: "Collapsed")
         setAccessibilityLabel("\(name), \(state)")
         setAccessibilityHelp(path)
     }
+
+    @objc private func newFile(_ sender: Any?) { onNewFile?() }
+    @objc private func newFolder(_ sender: Any?) { onNewFolder?() }
+    @objc private func refreshTree(_ sender: Any?) { onRefresh?() }
+    @objc private func collapseAll(_ sender: Any?) { onCollapseAll?() }
 
     override func layout() {
         super.layout()
@@ -1062,20 +1091,132 @@ fileprivate final class SidebarRootHeader: NSView {
     }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
-        if let superview {
-            let local = convert(point, from: superview)
-            if bounds.contains(local) { return self }
+        let local = convert(point, from: superview)
+        guard bounds.contains(local) else { return nil }
+        if actions.frame.contains(local) {
+            return actions.hitTest(local) ?? actions
         }
-        if bounds.contains(point) || frame.contains(point) { return self }
-        return nil
+        return self
     }
 
     override func mouseDown(with event: NSEvent) {
+        let local = convert(event.locationInWindow, from: nil)
+        if actions.frame.contains(local) { return }
         onToggle?()
     }
 
     override func rightMouseDown(with event: NSEvent) {
         onMenu?(event)
+    }
+}
+
+/// Compact Explorer action. Idle is transparent, so the white sidebar stays white.
+fileprivate final class ExplorerHeaderButton: NSControl {
+    private let symbol: String
+    private let titleText: String
+    private var hovered = false
+    private var pressed = false
+
+    init(symbol: String, title: String) {
+        self.symbol = symbol
+        self.titleText = title
+        super.init(frame: NSRect(x: 0, y: 0, width: 22, height: 22))
+        translatesAutoresizingMaskIntoConstraints = false
+        toolTip = title
+        setAccessibilityLabel(title)
+        setAccessibilityRole(.button)
+        refusesFirstResponder = false
+        NSLayoutConstraint.activate([
+            widthAnchor.constraint(equalToConstant: 22),
+            heightAnchor.constraint(equalToConstant: 22),
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override var isFlipped: Bool { true }
+    override var acceptsFirstResponder: Bool { isEnabled }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        ))
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        hovered = true
+        needsDisplay = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        hovered = false
+        pressed = false
+        needsDisplay = true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        guard isEnabled else { return }
+        window?.makeFirstResponder(self)
+        pressed = true
+        needsDisplay = true
+        while let next = window?.nextEvent(matching: [.leftMouseUp, .leftMouseDragged]) {
+            let inside = bounds.contains(convert(next.locationInWindow, from: nil))
+            if pressed != inside {
+                pressed = inside
+                needsDisplay = true
+            }
+            if next.type == .leftMouseUp {
+                if inside { sendAction(action, to: target) }
+                break
+            }
+        }
+        pressed = false
+        needsDisplay = true
+    }
+
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 36 || event.keyCode == 49 {
+            sendAction(action, to: target)
+            return
+        }
+        super.keyDown(with: event)
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let focused = window?.firstResponder === self
+        if hovered || pressed || focused {
+            let alpha: CGFloat = pressed ? 0.18 : 0.10
+            NSColor.xyzSecondaryText.withAlphaComponent(alpha).setFill()
+            NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 4, yRadius: 4).fill()
+        }
+        guard let image = NSImage(systemSymbolName: symbol, accessibilityDescription: titleText)?
+            .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 12, weight: .regular)) else { return }
+        let tint = isEnabled ? NSColor.xyzSecondaryText : NSColor.xyzSecondaryText.withAlphaComponent(0.35)
+        let side: CGFloat = 14
+        let rect = NSRect(x: bounds.midX - side / 2, y: bounds.midY - side / 2, width: side, height: side)
+        image.tinted(with: tint).draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)
+    }
+}
+
+private extension NSImage {
+    func tinted(with color: NSColor) -> NSImage {
+        let copy = NSImage(size: size)
+        copy.lockFocus()
+        let rect = NSRect(origin: .zero, size: size)
+        color.set()
+        rect.fill()
+        draw(in: rect, from: .zero, operation: .destinationIn, fraction: 1)
+        copy.unlockFocus()
+        copy.isTemplate = false
+        return copy
     }
 }
 

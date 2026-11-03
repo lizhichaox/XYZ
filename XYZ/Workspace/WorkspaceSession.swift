@@ -253,6 +253,35 @@ final class WorkspaceSession: ObservableObject {
         rememberExpansion()
     }
 
+    /// Selected folder, or the folder that contains the selected file. Root when nothing is selected.
+    func creationParent() -> String {
+        let path = selectedPath ?? buffer?.relativePath
+        let isDirectory = path.flatMap { node(at: $0)?.isDirectory } ?? false
+        return ExplorerSection.creationParent(selectedPath: path, isDirectory: isDirectory)
+    }
+
+    /// Re-reads the folders already listed. Expansion is left as the user set it.
+    func refreshFileTree() {
+        pendingSidebarReveal = false
+        load(parent: "")
+        for path in expanded.sorted(by: { $0.count < $1.count }) {
+            load(parent: path)
+        }
+        scheduleIndex()
+    }
+
+    /// Closes every nested folder. The open file does not expand them again.
+    func collapseAllFolders() {
+        pendingSidebarReveal = false
+        let paths = expanded
+        expanded = []
+        for path in paths {
+            monitor.unwatch(key: path)
+            reloadTasks[path]?.cancel()
+        }
+        rememberExpansion()
+    }
+
     func setExpanded(_ node: WorkspaceNode, _ isExpanded: Bool) {
         guard node.isDirectory else { return }
         if isExpanded {

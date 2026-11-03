@@ -90,6 +90,9 @@ final class GlobalSearchTests: XCTestCase {
         hidden[2] = WorkspacePathEntry(name: ".secret.md", relativePath: "Notes/.secret.md", isDirectory: false, isHidden: true)
         XCTAssertEqual(ExplorerSection.fileCount(entries: hidden, showsHidden: false), 1)
         XCTAssertEqual(ExplorerSection.fileCount(entries: hidden, showsHidden: true), 2)
+        XCTAssertEqual(ExplorerSection.creationParent(selectedPath: nil, isDirectory: false), "")
+        XCTAssertEqual(ExplorerSection.creationParent(selectedPath: "Notes", isDirectory: true), "Notes")
+        XCTAssertEqual(ExplorerSection.creationParent(selectedPath: "Notes/a.md", isDirectory: false), "Notes")
     }
 
     private func file(_ name: String, _ path: String) -> WorkspacePathEntry {
