@@ -254,6 +254,7 @@ final class DocumentCommandBridge: ObservableObject, EditorCommandTarget {
     var currentText: () -> String = { "" }
 
     var editorViewMode: EditorViewMode { mode }
+    var editorHasOpenFile: Bool { true }
     var editorShowsRenderedReading: Bool {
         mode == .reading && TextMarkup.allows(fileExtension: fileURL?.pathExtension)
     }

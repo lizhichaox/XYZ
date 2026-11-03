@@ -288,8 +288,70 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
             if window is NSPanel { continue }
             if controller(for: window) != nil { continue }
             if window.isVisible { continue }
+            if EscapeKey.isRegistered(window) { continue }
             window.close()
         }
+        closePhantomWindows()
+    }
+
+    private static var phantomObservers: [NSObjectProtocol] = []
+    private static var closingPhantoms = false
+
+    /// SwiftUI used to realize Settings as a hidden 500×500 window after launch. Close that
+    /// size if it still appears, including one restored a moment later.
+    static func installPhantomGuard() {
+        guard phantomObservers.isEmpty else { return }
+        let center = NotificationCenter.default
+        let names: [Notification.Name] = [
+            NSWindow.didMoveNotification,
+            NSWindow.didResizeNotification,
+            NSApplication.didBecomeActiveNotification,
+        ]
+        for name in names {
+            phantomObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { note in
+                let includeVisible = note.name == NSApplication.didBecomeActiveNotification
+                MainActor.assumeIsolated { () -> Void in
+                    closePhantomWindows(includeVisible: includeVisible)
+                }
+            })
+        }
+        for delay in [0.4, 1.5, 4.0] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                MainActor.assumeIsolated { () -> Void in
+                    closePhantomWindows(includeVisible: true)
+                }
+            }
+        }
+    }
+
+    /// A window still at SwiftUI's default 500×500 frame. A document the user is using has already
+    /// been resized to the screen, so a later pass can also drop a visible one left at that size.
+    private static func closePhantomWindows(includeVisible: Bool = false) {
+        if closingPhantoms || NSApp.isHidden { return }
+        closingPhantoms = true
+        defer { closingPhantoms = false }
+        for window in NSApp.windows where isPhantom(window, includeVisible: includeVisible) {
+            if let document = NSDocumentController.shared.document(for: window), document.fileURL == nil {
+                document.close()
+            } else {
+                window.close()
+            }
+        }
+    }
+
+    private static func isPhantom(_ window: NSWindow, includeVisible: Bool) -> Bool {
+        if window.isMiniaturized || window.isKeyWindow || window.isMainWindow { return false }
+        if window is NSPanel { return false }
+        if controller(for: window) != nil { return false }
+        if EscapeKey.isRegistered(window) { return false }
+        if window.isVisible && !includeVisible { return false }
+        let size = window.frame.size
+        guard abs(size.width - 500) < 2, abs(size.height - 500) < 2 else { return false }
+        if window.isVisible {
+            guard let document = NSDocumentController.shared.document(for: window) else { return false }
+            return document.fileURL == nil
+        }
+        return true
     }
 
     /// The number of folder windows that actually opened.
@@ -409,6 +471,7 @@ final class XYZAppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.main.async {
             MainActor.assumeIsolated {
                 WorkspaceWindowController.closeStrayWindows()
+                WorkspaceWindowController.installPhantomGuard()
                 FolderOpening.allowDocumentOpenPanels()
             }
         }

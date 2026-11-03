@@ -9,12 +9,6 @@ struct XYZApp: App {
 
     var body: some Scene {
         documents
-
-        #if os(macOS)
-        Settings {
-            SettingsView()
-        }
-        #endif
     }
 
     @SceneBuilder
@@ -101,20 +95,25 @@ private struct MacViewCommands: Commands {
 /// Find commands in the Edit menu. Shortcuts still go through the editor's key monitor
 /// when a rendered note needs the web view's own find.
 private struct MacFindCommands: Commands {
+    @ObservedObject private var editor = EditorCommandState.shared
+
     var body: some Commands {
         CommandGroup(after: .textEditing) {
             Button("Find") {
                 EditorCommands.shared.showFind(nil)
             }
             .keyboardShortcut("f", modifiers: .command)
+            .disabled(!editor.hasOpenFile)
             Button("Find and Replace") {
                 EditorCommands.shared.showReplace(nil)
             }
             .keyboardShortcut("f", modifiers: [.command, .option])
+            .disabled(!editor.hasOpenFile)
             Button("Use Selection for Find") {
                 EditorCommands.shared.useSelectionForFind(nil)
             }
             .keyboardShortcut("e", modifiers: .command)
+            .disabled(!editor.hasOpenFile)
             Button("Find in Files") {
                 EditorCommands.shared.focusFilter(nil)
             }
@@ -123,10 +122,12 @@ private struct MacFindCommands: Commands {
                 EditorCommands.shared.findNext(nil)
             }
             .keyboardShortcut("g", modifiers: .command)
+            .disabled(!editor.hasOpenFile)
             Button("Find Previous") {
                 EditorCommands.shared.findPrevious(nil)
             }
             .keyboardShortcut("g", modifiers: [.command, .shift])
+            .disabled(!editor.hasOpenFile)
         }
     }
 }
@@ -137,6 +138,14 @@ private struct AboutCommands: Commands {
             Button("About XYZ") {
                 AboutWindow.show()
             }
+        }
+        // A Settings scene builds a hidden 500×500 window at launch. This item creates the
+        // window only when the user asks for it.
+        CommandGroup(replacing: .appSettings) {
+            Button("Settings…") {
+                SettingsWindow.show()
+            }
+            .keyboardShortcut(",", modifiers: .command)
         }
     }
 }

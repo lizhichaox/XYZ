@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.2
+
+- Launch no longer leaves a hidden 500×500 window. Settings opens only when you ask for it.
+- Find, replace, and Go to Line stay disabled until a file is open.
+- Sidebar rows fit the sidebar from the start, before a file is opened.
+- A large source file keeps syntax color on the lines on screen, including in Reading, and colors new lines as you scroll.
+
 ## 0.5.1
 
 - Editing shows the line-number gutter again. The current-line highlight runs across the gutter and the text.

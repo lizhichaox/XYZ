@@ -817,6 +817,7 @@ struct XYZMacEditor: NSViewRepresentable {
         textView.string = text
         textView.warmLineIndex()
         context.coordinator.restyle(edited: nil)
+        context.coordinator.observeScroll(of: scrollView)
         applyWrap(textView: textView, scrollView: scrollView, wraps: style.wraps)
         textView.layoutManager?.allowsNonContiguousLayout = true
         assert(textView.textLayoutManager != nil, "XYZEditor requires TextKit 2")
@@ -972,6 +973,42 @@ struct XYZMacEditor: NSViewRepresentable {
         private var editedRange: NSRange?
         private var laterRestyle: DispatchWorkItem?
         private var metricRecolor: DispatchWorkItem?
+        private var scrollObserver: NSObjectProtocol?
+        private var scrollRecolor: DispatchWorkItem?
+
+        deinit {
+            if let scrollObserver {
+                NotificationCenter.default.removeObserver(scrollObserver)
+            }
+        }
+
+        /// A large file is colored as it scrolls. Small files are already colored in full.
+        func observeScroll(of scrollView: NSScrollView) {
+            if let scrollObserver {
+                NotificationCenter.default.removeObserver(scrollObserver)
+            }
+            scrollView.contentView.postsBoundsChangedNotifications = true
+            scrollObserver = NotificationCenter.default.addObserver(
+                forName: NSView.boundsDidChangeNotification,
+                object: scrollView.contentView,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { () -> Void in
+                    self?.scheduleVisibleRecolor()
+                }
+            }
+        }
+
+        private func scheduleVisibleRecolor() {
+            guard let textView else { return }
+            guard (textView.string as NSString).length > EditorTypography.immediateLimit else { return }
+            scrollRecolor?.cancel()
+            let item = DispatchWorkItem { [weak self] in
+                self?.restyle(edited: nil)
+            }
+            scrollRecolor = item
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(40), execute: item)
+        }
 
         var text: String {
             textView?.string ?? ""
@@ -1155,7 +1192,8 @@ enum EditorTypography {
         let full = NSRange(location: 0, length: ns.length)
         let span: NSRange
         if full.length > immediateLimit {
-            span = lineSpan(ns, around: edited ?? visibleSpan(in: textView))
+            let focus = lineSpan(ns, around: edited ?? visibleSpan(in: textView))
+            span = expanded(focus, in: ns, pad: 2_000)
         } else {
             span = full
         }
@@ -1169,7 +1207,9 @@ enum EditorTypography {
             ], range: span)
             if markup, full.length <= stylingLimit {
                 styleMarkup(storage, style: style, within: span)
-            } else if !markup, language != .plain, language != .markdown, full.length <= stylingLimit {
+            } else if !markup, language != .plain, language != .markdown,
+                      full.length <= stylingLimit || span.length <= 64_000 {
+                // A multi-megabyte file is not scanned from the top. The span is the visible lines.
                 styleSyntax(storage, style: style, language: language, within: span)
             }
         }
@@ -1257,6 +1297,18 @@ enum EditorTypography {
         let location = min(max(0, start), ns.length)
         let length = min(max(0, end - location), ns.length - location)
         return NSRange(location: location, length: length)
+    }
+
+    /// A few lines past the viewport, so a short scroll is already colored.
+    private static func expanded(_ span: NSRange, in ns: NSString, pad: Int) -> NSRange {
+        guard ns.length > 0, span.length > 0 else { return span }
+        let lower = max(0, span.location - pad)
+        let upper = min(ns.length, NSMaxRange(span) + pad)
+        let startLine = ns.lineRange(for: NSRange(location: min(lower, ns.length - 1), length: 0))
+        let endLine = ns.lineRange(for: NSRange(location: min(max(0, upper - 1), ns.length - 1), length: 0))
+        let location = startLine.location
+        let end = NSMaxRange(endLine)
+        return NSRange(location: location, length: max(0, end - location))
     }
 
     private static func lineSpan(_ ns: NSString, around edited: NSRange?) -> NSRange {

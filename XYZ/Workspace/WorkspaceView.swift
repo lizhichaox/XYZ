@@ -604,7 +604,12 @@ final class WorkspaceCommandBridge: ObservableObject, EditorCommandTarget {
     func attach(session: WorkspaceSession, columnVisibility: Binding<NavigationSplitViewVisibility>) {
         self.session = session
         self.columnVisibility = columnVisibility
+        if EditorCommands.shared.target === self {
+            EditorCommandState.shared.setOpenFile(session.buffer != nil)
+        }
     }
+
+    var editorHasOpenFile: Bool { session?.buffer != nil }
 
     var editorViewMode: EditorViewMode { session?.viewMode ?? .reading }
     var editorCanToggle: Bool {

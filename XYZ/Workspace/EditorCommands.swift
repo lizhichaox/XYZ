@@ -39,6 +39,8 @@ protocol EditorCommandTarget: AnyObject {
     var editorIsEditing: Bool { get }
     var editorCanToggle: Bool { get }
     var editorShowsRenderedReading: Bool { get }
+    /// A file is on screen. An empty folder window is not a document.
+    var editorHasOpenFile: Bool { get }
     func beginEditing(source: String) -> Bool
     var showsHiddenFiles: Bool { get }
     var supportsWorkspaceFiles: Bool { get }
@@ -77,6 +79,7 @@ extension EditorCommandTarget {
     var editorIsEditing: Bool { editorViewMode == .source }
     var editorCanToggle: Bool { true }
     var editorShowsRenderedReading: Bool { false }
+    var editorHasOpenFile: Bool { false }
     func beginEditing(source: String) -> Bool {
         guard editorViewMode != .source else { return true }
         editorSelect(.source, source: source)
@@ -160,7 +163,7 @@ final class EditorCommands: NSObject {
             return true
         }
         if flags == .command && key.lowercased() == "r" {
-            guard target != nil else { return false }
+            guard editorHasOpenFile else { return refuseClosedDocument() }
             goToHeading(nil)
             return true
         }
@@ -186,7 +189,7 @@ final class EditorCommands: NSObject {
             return target?.reopenClosedTab() == true
         }
         if flags == .control && key.lowercased() == "g" {
-            guard target != nil else { return false }
+            guard editorHasOpenFile else { return refuseClosedDocument() }
             goToLine(nil)
             return true
         }
@@ -198,11 +201,13 @@ final class EditorCommands: NSObject {
             return false
         }
         if flags == .command && key.lowercased() == "f" {
+            guard editorHasOpenFile else { return refuseClosedDocument() }
             if target?.editorShowsRenderedReading == true { return false }
             target?.findModel?.show(replace: false)
             return target?.findModel != nil
         }
         if flags == [.command, .option] && key.lowercased() == "f" {
+            guard editorHasOpenFile else { return refuseClosedDocument() }
             guard target?.beginEditing(source: "replace") == true else {
                 NSSound.beep()
                 return target != nil
@@ -211,11 +216,13 @@ final class EditorCommands: NSObject {
             return target?.findModel != nil
         }
         if flags == .command && key.lowercased() == "g" {
+            guard editorHasOpenFile else { return refuseClosedDocument() }
             if target?.editorShowsRenderedReading == true, target?.findModel?.visible != true { return false }
             target?.findModel?.perform?(.next)
             return target?.findModel != nil
         }
         if flags == [.command, .shift] && key.lowercased() == "g" {
+            guard editorHasOpenFile else { return refuseClosedDocument() }
             if target?.editorShowsRenderedReading == true, target?.findModel?.visible != true { return false }
             target?.findModel?.perform?(.previous)
             return target?.findModel != nil
@@ -316,6 +323,16 @@ final class EditorCommands: NSObject {
             if let found = firstVisible(type, in: child) { return found }
         }
         return nil
+    }
+
+    private var editorHasOpenFile: Bool { target?.editorHasOpenFile == true }
+
+    /// ⌘F and its neighbors do nothing useful until a file is open. Consume the key so the
+    /// find bar does not appear over the empty window.
+    private func refuseClosedDocument() -> Bool {
+        guard target != nil else { return false }
+        NSSound.beep()
+        return true
     }
 
     private var editorIsFirstResponder: Bool {
@@ -465,10 +482,18 @@ final class EditorCommands: NSObject {
     }
 
     @objc func goToHeading(_ sender: Any?) {
+        guard editorHasOpenFile else {
+            NSSound.beep()
+            return
+        }
         palette.show(target: target, query: "@")
     }
 
     @objc func goToLine(_ sender: Any?) {
+        guard editorHasOpenFile else {
+            NSSound.beep()
+            return
+        }
         palette.show(target: target, query: ":")
     }
 
@@ -498,6 +523,10 @@ final class EditorCommands: NSObject {
     }
 
     @objc func showFind(_ sender: Any?) {
+        guard editorHasOpenFile else {
+            NSSound.beep()
+            return
+        }
         if target?.editorShowsRenderedReading == true {
             NSApp.sendAction(#selector(NSResponder.performTextFinderAction(_:)), to: nil, from: sender)
             return
@@ -506,6 +535,10 @@ final class EditorCommands: NSObject {
     }
 
     @objc func showReplace(_ sender: Any?) {
+        guard editorHasOpenFile else {
+            NSSound.beep()
+            return
+        }
         guard target?.beginEditing(source: "menu") == true else {
             NSSound.beep()
             return
@@ -514,6 +547,10 @@ final class EditorCommands: NSObject {
     }
 
     @objc func findNext(_ sender: Any?) {
+        guard editorHasOpenFile else {
+            NSSound.beep()
+            return
+        }
         if target?.editorShowsRenderedReading == true {
             NSApp.sendAction(#selector(NSResponder.performTextFinderAction(_:)), to: nil, from: sender)
             return
@@ -522,6 +559,10 @@ final class EditorCommands: NSObject {
     }
 
     @objc func findPrevious(_ sender: Any?) {
+        guard editorHasOpenFile else {
+            NSSound.beep()
+            return
+        }
         if target?.editorShowsRenderedReading == true {
             NSApp.sendAction(#selector(NSResponder.performTextFinderAction(_:)), to: nil, from: sender)
             return
@@ -568,6 +609,10 @@ final class EditorCommands: NSObject {
     }
 
     @objc func useSelectionForFind(_ sender: Any?) {
+        guard editorHasOpenFile else {
+            NSSound.beep()
+            return
+        }
         guard let textView = NSApp.keyWindow?.firstResponder as? XYZMacTextView else {
             NSSound.beep()
             return
@@ -629,7 +674,7 @@ final class EditorCommands: NSObject {
         case "xyz.mode.toggleSource":
             return target?.editorCanToggle == true
         case "xyz.goToHeading":
-            return target != nil
+            return target?.editorHasOpenFile == true
         case "xyz.lineNumbers":
             menuItem.state = Self.showsReadingLineNumbers ? .on : .off
             return true
@@ -638,7 +683,7 @@ final class EditorCommands: NSObject {
             menuItem.state = wrapped ? .on : .off
             return true
         case "xyz.goToLine":
-            return target != nil
+            return target?.editorHasOpenFile == true
         case "xyz.tab.reopen", "xyz.file.revealInSidebar", "xyz.workspace.sidebar":
             return target?.supportsWorkspaceFiles == true
         case "xyz.wordCount":
@@ -1118,6 +1163,20 @@ final class EditorAnchorView: NSView {
         guard let target, window?.isKeyWindow == true else { return }
         EditorCommands.shared.target = target
         EditorCommands.shared.hostWindow = window
+        EditorCommandState.shared.setOpenFile(target.editorHasOpenFile)
+    }
+}
+
+/// Whether Edit → Find should be available. The menu reads this; the key monitor reads the target.
+@MainActor
+final class EditorCommandState: ObservableObject {
+    static let shared = EditorCommandState()
+    @Published private(set) var hasOpenFile = false
+
+    func setOpenFile(_ open: Bool) {
+        if hasOpenFile != open {
+            hasOpenFile = open
+        }
     }
 }
 

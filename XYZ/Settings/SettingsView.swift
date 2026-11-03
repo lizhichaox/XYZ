@@ -99,4 +99,39 @@ struct SettingsView: View {
         }
     }
 }
+
+/// Shown from XYZ → Settings…. Built only when asked, so launch does not keep a hidden window.
+@MainActor
+enum SettingsWindow {
+    private static var panel: NSPanel?
+
+    static func show() {
+        let panel = self.panel ?? make()
+        self.panel = panel
+        panel.center()
+        panel.makeKeyAndOrderFront(nil)
+        NSApp.activate()
+    }
+
+    private static func make() -> NSPanel {
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 480, height: 520),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        panel.title = String(localized: "Settings")
+        panel.isReleasedWhenClosed = false
+        panel.hidesOnDeactivate = false
+        EscapeKey.register(panel)
+        let host = NSHostingController(rootView: SettingsView())
+        host.view.frame = NSRect(x: 0, y: 0, width: 480, height: 520)
+        host.view.layoutSubtreeIfNeeded()
+        let fitted = host.view.fittingSize
+        let height = fitted.height > 1 ? fitted.height : 520
+        panel.contentViewController = host
+        panel.setContentSize(NSSize(width: 480, height: height))
+        return panel
+    }
+}
 #endif

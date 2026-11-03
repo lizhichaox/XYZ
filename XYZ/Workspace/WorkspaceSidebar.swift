@@ -27,7 +27,10 @@ struct WorkspaceSidebar: NSViewRepresentable {
         outline.allowsColumnSelection = false
         outline.backgroundColor = .clear
         outline.focusRingType = .none
-        outline.autoresizesOutlineColumn = true
+        // Fitting the cell to its text makes the row wider than the sidebar (220 + one indent).
+        outline.autoresizesOutlineColumn = false
+        outline.indentationMarkerFollowsCell = true
+        outline.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
         outline.setAccessibilityLabel(String(localized: "Folder contents"))
         outline.registerForDraggedTypes([.fileURL])
         outline.setDraggingSourceOperationMask(.move, forLocal: true)
@@ -36,6 +39,9 @@ struct WorkspaceSidebar: NSViewRepresentable {
         let tableColumn = NSTableColumn(identifier: columnID)
         tableColumn.title = ""
         tableColumn.resizingMask = .autoresizingMask
+        tableColumn.width = 220
+        tableColumn.minWidth = 120
+        tableColumn.maxWidth = 420
         outline.addTableColumn(tableColumn)
         outline.outlineTableColumn = tableColumn
 
@@ -697,14 +703,35 @@ fileprivate final class SidebarColumnView: NSView {
         ])
     }
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        needsLayout = true
+    }
+
+    override func viewWillDraw() {
+        fitRowsToSidebar()
+        super.viewWillDraw()
+    }
+
     override func layout() {
         super.layout()
-        let width = scroll.contentSize.width
-        guard width > 1, let column = outline.tableColumns.first else { return }
-        if abs(column.width - width) > 0.5 {
-            column.minWidth = width
-            column.maxWidth = width
-            column.width = width
+        fitRowsToSidebar()
+    }
+
+    /// The outline's own fitting width is wider than the clip until the editor lays out.
+    /// Pin the column to the sidebar before the first paint, including when no file is open.
+    private func fitRowsToSidebar() {
+        let visible = scroll.contentSize.width > 1 ? scroll.contentSize.width : scroll.bounds.width
+        guard visible > 1, let column = outline.tableColumns.first else { return }
+        if abs(column.width - visible) > 0.5 || column.minWidth != visible || column.maxWidth != visible {
+            column.minWidth = visible
+            column.maxWidth = visible
+            column.width = visible
+        }
+        if abs(outline.frame.width - visible) > 0.5 {
+            var frame = outline.frame
+            frame.size.width = visible
+            outline.frame = frame
         }
     }
 

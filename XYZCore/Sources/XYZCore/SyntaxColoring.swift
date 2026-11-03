@@ -25,7 +25,8 @@ public struct SyntaxSpan: Equatable, Sendable {
 /// Plain syntax coloring. Comments, strings, numbers, and keywords only.
 /// There is no completion, diagnostics, or language server.
 public enum SyntaxColoring {
-    /// Files larger than this are left uncolored so a keystroke does not walk a huge buffer.
+    /// A whole file larger than this is not scanned from the start. A caller that passes `within`
+    /// still gets that window colored.
     public static let scanLimit = 250_000
 
     public static func spans(
@@ -33,12 +34,30 @@ public enum SyntaxColoring {
         language: SyntaxLanguage,
         within utf16: Range<Int>? = nil
     ) -> [SyntaxSpan] {
+        spans(in: text as NSString, language: language, within: utf16)
+    }
+
+    public static func spans(
+        in ns: NSString,
+        language: SyntaxLanguage,
+        within utf16: Range<Int>? = nil
+    ) -> [SyntaxSpan] {
         guard let rules = rules(for: language) else { return [] }
-        let ns = text as NSString
-        guard ns.length > 0, ns.length <= scanLimit else { return [] }
-        let limit = min(ns.length, utf16?.upperBound ?? ns.length)
-        let emitFrom = utf16?.lowerBound ?? 0
-        return scan(ns, rules: rules, limit: limit, emitFrom: emitFrom)
+        guard ns.length > 0 else { return [] }
+        if ns.length <= scanLimit {
+            let limit = min(ns.length, utf16?.upperBound ?? ns.length)
+            let emitFrom = min(max(0, utf16?.lowerBound ?? 0), limit)
+            return scan(ns, rules: rules, from: 0, limit: limit, emitFrom: emitFrom)
+        }
+        guard let utf16 else { return [] }
+        let emitFrom = min(max(0, utf16.lowerBound), ns.length)
+        let limit = min(max(emitFrom, utf16.upperBound), ns.length)
+        guard limit > emitFrom else { return [] }
+        let origin = lineStart(ns, emitFrom)
+        if insideBlockComment(ns, before: origin, rules: rules), let block = rules.blockComment {
+            return scanRestOfComment(ns, rules: rules, block: block, from: origin, limit: limit, emitFrom: emitFrom)
+        }
+        return scan(ns, rules: rules, from: origin, limit: limit, emitFrom: emitFrom)
     }
 
     private struct Rules {
@@ -90,9 +109,9 @@ public enum SyntaxColoring {
         }
     }
 
-    private static func scan(_ ns: NSString, rules: Rules, limit: Int, emitFrom: Int) -> [SyntaxSpan] {
+    private static func scan(_ ns: NSString, rules: Rules, from start: Int, limit: Int, emitFrom: Int) -> [SyntaxSpan] {
         var spans: [SyntaxSpan] = []
-        var index = 0
+        var index = max(0, start)
         while index < limit {
             if let end = lineCommentEnd(ns, at: index, limit: limit, rules: rules) {
                 emit(&spans, location: index, end: end, kind: .comment, emitFrom: emitFrom)
@@ -284,6 +303,64 @@ public enum SyntaxColoring {
         emit(&spans, location: index, end: equals, kind: .key, emitFrom: emitFrom)
         index = equals + 1
         return true
+    }
+
+    /// A window in a huge file. If a block comment opened just above it, the window stays a comment.
+    private static func scanRestOfComment(
+        _ ns: NSString,
+        rules: Rules,
+        block: (start: String, end: String),
+        from origin: Int,
+        limit: Int,
+        emitFrom: Int
+    ) -> [SyntaxSpan] {
+        let endMarker = block.end as NSString
+        var cursor = origin
+        var found = limit
+        while cursor + endMarker.length <= limit {
+            if ns.substring(with: NSRange(location: cursor, length: endMarker.length)) == block.end {
+                found = cursor + endMarker.length
+                break
+            }
+            cursor += 1
+        }
+        var spans: [SyntaxSpan] = []
+        emit(&spans, location: origin, end: found, kind: .comment, emitFrom: emitFrom)
+        if found < limit {
+            spans.append(contentsOf: scan(ns, rules: rules, from: found, limit: limit, emitFrom: emitFrom))
+        }
+        return spans
+    }
+
+    private static func lineStart(_ ns: NSString, _ index: Int) -> Int {
+        guard ns.length > 0 else { return 0 }
+        let clamped = min(max(0, index), ns.length - 1)
+        return ns.lineRange(for: NSRange(location: clamped, length: 0)).location
+    }
+
+    private static func insideBlockComment(_ ns: NSString, before index: Int, rules: Rules) -> Bool {
+        guard let block = rules.blockComment, index > 0 else { return false }
+        let start = block.start as NSString
+        let end = block.end as NSString
+        let from = max(0, index - 16_000)
+        var cursor = from
+        var open = false
+        while cursor < index {
+            if cursor + start.length <= index,
+               ns.substring(with: NSRange(location: cursor, length: start.length)) == block.start {
+                open = true
+                cursor += start.length
+                continue
+            }
+            if cursor + end.length <= index,
+               ns.substring(with: NSRange(location: cursor, length: end.length)) == block.end {
+                open = false
+                cursor += end.length
+                continue
+            }
+            cursor += 1
+        }
+        return open
     }
 
     private static func atLineStart(_ ns: NSString, _ index: Int) -> Bool {

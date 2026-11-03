@@ -362,6 +362,19 @@ final class FileFormatTests: XCTestCase {
         XCTAssertTrue(spans.contains { $0.kind == .number })
     }
 
+    func testSyntaxColorsTheVisibleWindowOfALargeFile() {
+        let gap = String(repeating: "a\n", count: 130_000)
+        let tail = "let ready = 1\n"
+        let text = gap + tail
+        let ns = text as NSString
+        let start = ns.length - (tail as NSString).length
+        let spans = SyntaxColoring.spans(in: text, language: .swift, within: start..<ns.length)
+        XCTAssertTrue(spans.contains { $0.kind == .keyword })
+        XCTAssertTrue(spans.contains { $0.kind == .number })
+        XCTAssertFalse(spans.contains { $0.location < start })
+        XCTAssertTrue(SyntaxColoring.spans(in: text, language: .swift).isEmpty)
+    }
+
     func testJSONSyntaxSkipsAStringThatLooksLikeAKeyword() {
         let spans = SyntaxColoring.spans(in: "{\"true\": false}\n", language: .json)
         let keywords = spans.filter { $0.kind == .keyword }
