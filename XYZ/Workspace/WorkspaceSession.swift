@@ -1262,7 +1262,7 @@ final class WorkspaceSession: ObservableObject {
         }
     }
 
-    private struct LoadedFile: Sendable {
+    fileprivate struct LoadedFile: Sendable {
         var kind: WorkspaceFileKind
         var text: String
         var encoding: TextEncoding

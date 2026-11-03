@@ -2,6 +2,7 @@
 import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
+import XYZCore
 
 @MainActor
 final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
