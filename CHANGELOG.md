@@ -2,7 +2,7 @@
 
 ## 0.5.27
 
-- Opening a file shows its text again. The scroller was painting an opaque layer over the body, in Editing and in Reading for plain text and source. The clip only clips a clear layer, and the text view's layer sits in that clip. The file column keeps its width, so the sidebar cannot take the whole window. A blank file still fails the window check.
+- Opening a file shows its text again. The scroller was painting an opaque layer over the body, in Editing and in Reading for plain text and source. The clip only clips a clear layer, and the text view's layer sits in that clip. The file column is given the width that remains after the sidebar. The sidebar no longer keeps the whole window. A blank file still fails the window check.
 
 ## 0.5.26
 

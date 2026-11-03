@@ -669,7 +669,8 @@ enum GutterSnapshotCheck {
         guard let split = findSplit(in: root) else { return "no-split" }
         let side = split.testingSidebarFrame()
         let main = split.testingDetailFrame()
-        return "side=\(Int(side.width))x\(Int(side.height)) detail=\(Int(main.width))x\(Int(main.height)) split=\(Int(split.bounds.width))x\(Int(split.bounds.height))"
+        let outline = split.testingOutlineFrame()
+        return "side=\(Int(side.width))x\(Int(side.height)) detail=\(Int(main.width))x\(Int(main.height)) outline=\(Int(outline.width)) split=\(Int(split.bounds.width))x\(Int(split.bounds.height))"
     }
 
     private static func findSplit(in view: NSView) -> XYZSplitView? {

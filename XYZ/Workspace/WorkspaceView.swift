@@ -56,11 +56,9 @@ private struct WorkspaceSplit<Sidebar: View, Detail: View, Outline: View>: NSVie
 
     func makeNSView(context: Context) -> XYZSplitView {
         let split = XYZSplitView()
-        let side = NSHostingView(rootView: sidebar)
-        let main = NSHostingView(rootView: detail)
-        let outlineHost = NSHostingView(rootView: outline)
-        // Minimum size here is the SwiftUI ideal. The sidebar then takes the whole
-        // window and the open file has no column.
+        let side = PaneHost(rootView: sidebar)
+        let main = PaneHost(rootView: detail)
+        let outlineHost = PaneHost(rootView: outline)
         side.sizingOptions = []
         main.sizingOptions = []
         outlineHost.sizingOptions = []
@@ -131,6 +129,9 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
         panes.delegate = self
         panes.autosaveName = nil
         panes.autoresizingMask = [.width, .height]
+        panes.lockFrames = { [weak self] in
+            self?.lockColumnFrames()
+        }
         addSubview(panes)
         addSubview(leftDivider)
         addSubview(rightDivider)
@@ -180,17 +181,29 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
         placeDividers()
     }
 
-    /// The file column stays on screen. A hosting view that reports the whole window as its
-    /// width leaves the sidebar full-bleed and the open note with nowhere to draw.
+    /// The file column stays on screen. The split view was giving the sidebar its ideal
+    /// width, which is the whole window, and the note column stayed at zero.
     private func enforceColumns() {
-        guard !chromeAnimating, !dividerDrag, bounds.width > 1 else { return }
-        guard sidebarShown, let sidebar, sidebar.superview === panes, panes.subviews.count > 1 else { return }
-        let target = clampedSidebarWidth()
-        let detailWidth = detail?.frame.width ?? 0
-        if abs(sidebar.frame.width - target) > 2 || detailWidth < 200 {
-            panes.setPosition(target, ofDividerAt: 0)
+        guard !chromeAnimating, !dividerDrag else { return }
+        lockColumnFrames()
+    }
+
+    private func lockColumnFrames() {
+        let area = panes.bounds
+        guard area.width > 1, area.height > 1 else { return }
+        let side = sidebarShown ? clampedSidebarWidth() : 0
+        var outlineWidth: CGFloat = 0
+        if outlineShown {
+            outlineWidth = min(max(160, savedOutline), max(160, area.width - side - 320))
         }
-        applyOutlineWidthIfNeeded()
+        let main = max(1, area.width - side - outlineWidth)
+        if sidebarShown, let sidebar {
+            sidebar.frame = NSRect(x: 0, y: 0, width: side, height: area.height)
+        }
+        detail?.frame = NSRect(x: side, y: 0, width: main, height: area.height)
+        if outlineShown, let outline {
+            outline.frame = NSRect(x: side + main, y: 0, width: outlineWidth, height: area.height)
+        }
     }
 
     override func viewDidMoveToWindow() {
@@ -274,7 +287,7 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
         let start = panes.subviews[index].frame.maxX
         if !animated || abs(start - target) < 1 {
             chromeAnimating = true
-            panes.setPosition(target, ofDividerAt: index)
+            rememberDivider(index: index, position: target)
             chromeAnimating = false
             placeDividers()
             completion?()
@@ -289,7 +302,7 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
             }
             let t = min(1, Date().timeIntervalSince(began) / 0.16)
             let eased = 1 - (1 - t) * (1 - t)
-            self.panes.setPosition(start + (target - start) * eased, ofDividerAt: index)
+            self.rememberDivider(index: index, position: start + (target - start) * eased)
             self.placeDividers()
             if t >= 1 {
                 timer.invalidate()
@@ -328,21 +341,23 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
 
     private func applyPositions() {
         guard bounds.width > 1 else { return }
-        if sidebarShown, panes.subviews.count > 1, panes.subviews[0] === sidebar {
-            panes.setPosition(clampedSidebarWidth(), ofDividerAt: 0)
-        }
-        applyOutlineWidthIfNeeded()
+        lockColumnFrames()
         placeDividers()
     }
 
     private func applyOutlineWidthIfNeeded() {
-        guard !chromeAnimating, outlineShown, let outline, outline.superview != nil, bounds.width > 1 else { return }
-        let index = panes.subviews.count - 2
-        guard index >= 0 else { return }
-        let target = bounds.width - savedOutline
-        if abs(outline.frame.width - savedOutline) > 2 {
-            panes.setPosition(target, ofDividerAt: index)
+        guard !chromeAnimating, outlineShown, bounds.width > 1 else { return }
+        lockColumnFrames()
+    }
+
+    /// `position` is the divider's x. The sidebar is to its left. The outline is to the right of the last divider.
+    private func rememberDivider(index: Int, position: CGFloat) {
+        if index == 0 {
+            savedPosition = position
+        } else if panes.bounds.width > 1 {
+            savedOutline = max(160, panes.bounds.width - position)
         }
+        lockColumnFrames()
     }
 
     /// One double-click. The same content returns the same width.
@@ -360,7 +375,7 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
             )
             savedPosition = width
             adjusting = true
-            panes.setPosition(width, ofDividerAt: 0)
+            lockColumnFrames()
             adjusting = false
         case .right:
             guard outlineShown else { return }
@@ -372,10 +387,8 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
                 sidebarShown: sidebarShown
             )
             savedOutline = width
-            let index = panes.subviews.count - 2
-            guard index >= 0 else { return }
             adjusting = true
-            panes.setPosition(bounds.width - width, ofDividerAt: index)
+            lockColumnFrames()
             adjusting = false
             onOutlineWidth?(width)
         }
@@ -388,6 +401,10 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
 
     func testingDetailFrame() -> NSRect {
         detail?.frame ?? .zero
+    }
+
+    func testingOutlineFrame() -> NSRect {
+        outline?.frame ?? .zero
     }
 
     func testingDoubleClick(left: Bool) {
@@ -414,7 +431,7 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
         let clamped = min(max(position, lower), max(lower, upper))
         dividerDrag = true
         adjusting = true
-        panes.setPosition(clamped, ofDividerAt: index)
+        rememberDivider(index: index, position: clamped)
         adjusting = false
         sidebar?.layoutSubtreeIfNeeded()
         detail?.layoutSubtreeIfNeeded()
@@ -521,10 +538,43 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
 }
 
 /// No system divider. The overlay views draw and drag the edges.
+/// A pane that does not report the whole window as its width. The split assigns the frame.
+private final class PaneHost<Content: View>: NSHostingView<Content> {
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: NSView.noIntrinsicMetric)
+    }
+
+    private var restoring = false
+
+    override func layout() {
+        let kept = frame
+        super.layout()
+        guard !restoring, superview is NSSplitView, frame.size != kept.size else { return }
+        restoring = true
+        setFrameSize(kept.size)
+        restoring = false
+    }
+}
+
 private final class PaneSplitView: NSSplitView {
+    var lockFrames: (() -> Void)?
+    var useDefaultArrange = false
+    private var locking = false
+
     override var dividerThickness: CGFloat { 0 }
     override func drawDivider(in rect: NSRect) {}
     override func resetCursorRects() {}
+
+    override func resizeSubviews(withOldSize oldSize: NSSize) {
+        if locking { return }
+        locking = true
+        defer { locking = false }
+        if useDefaultArrange || lockFrames == nil {
+            super.resizeSubviews(withOldSize: oldSize)
+        } else {
+            lockFrames?()
+        }
+    }
 }
 
 /// Width of the names currently shown, measured with the sidebar fonts.
