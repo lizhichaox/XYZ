@@ -123,6 +123,8 @@ final class WorkspaceSession: ObservableObject {
     private var loadGeneration: [String: Int] = [:]
     /// One open of a path. A slower read from an earlier open must not replace the buffer.
     private var openRequest: [String: Int] = [:]
+    /// The latest open the user asked for. An older read must not publish a tab.
+    private var openSerial = 0
     private var indexTask: Task<Void, Never>?
     private var contentTask: Task<Void, Never>?
     private var indexGeneration = 0
@@ -534,16 +536,10 @@ final class WorkspaceSession: ObservableObject {
             pendingRevealLine = nil
             scrollLink.clearQueuedReveal()
         }
-        var strip = tabStrip
-        let replaced = strip.open(path, pin: pin, mode: mode)
-        tabStrip = strip
-        onTabsChanged?()
-        if let replaced {
-            release(replaced, save: true)
-        }
-        selectedPath = path
+        openSerial += 1
+        let serial = openSerial
         if let existing = buffers[path] {
-            show(existing)
+            present(path, pin: pin, mode: mode, buffer: existing)
             return
         }
         openRequest[path, default: 0] += 1
@@ -552,27 +548,33 @@ final class WorkspaceSession: ObservableObject {
         Task { [weak self] in
             let loaded = await Self.readForEditing(url: url, name: node.name)
             await MainActor.run {
-                guard let self, self.tabStrip.contains(path) else { return }
+                guard let self, self.openSerial == serial else { return }
                 let latest = self.openRequest[path] ?? 0
                 guard WorkspaceFilePolicy.shouldInstallRead(
                     request: request,
                     latest: latest,
                     alreadyInstalled: self.buffers[path] != nil
-                ) else {
-                    if self.tabStrip.activeID == path, let existing = self.buffers[path] {
-                        self.show(existing)
-                    }
-                    return
-                }
+                ) else { return }
                 let open = self.makeBuffer(loaded, relativePath: path, url: url)
                 self.buffers[path] = open
                 self.watchFile(open)
                 self.noteRecent(path)
-                if self.tabStrip.activeID == path {
-                    self.show(open)
-                }
+                self.present(path, pin: pin, mode: mode, buffer: open)
             }
         }
+    }
+
+    /// The tab and the buffer land together. A tab published first shows the previous note under the new name.
+    private func present(_ path: String, pin: Bool, mode: EditorViewMode, buffer: WorkspaceFileBuffer) {
+        var strip = tabStrip
+        let replaced = strip.open(path, pin: pin, mode: mode)
+        tabStrip = strip
+        onTabsChanged?()
+        if let replaced, replaced != path {
+            release(replaced, save: true)
+        }
+        selectedPath = path
+        show(buffer)
     }
 
     func newItem(directory: Bool) {

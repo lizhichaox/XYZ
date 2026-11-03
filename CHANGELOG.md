@@ -14,6 +14,7 @@ These are findings from the code and from cloud window pictures, not a guess tre
 - Opening a file and sampling the disk did not keep a generation. Directory loads already did. Two overlapping reads of one path could install a second buffer. A disk sample that started while the buffer still matched the last save could finish after an edit or a save and reload the old bytes, because "editor equals last saved" means "take the disk."
 - New File chose a name from the tree listing only. A click before that listing arrives can target `Untitled.md` even when that file is already on disk.
 - A long-note window was pictured while it still said no file was open, after the session buffer had loaded. `2bcd032` waits and takes the picture again until the note is visible or the attempts run out. That does not explain the empty picture. No further wait was added. Check windows are still left open across cases.
+- The pull-request picture of `ba42002` showed the `plain.txt` tab while the note underneath was still the previous file. The tab was published when the open started, and the text arrived later. The tab and the buffer are now published together. The switch check waits until the text view holds the new note, then takes one picture. That run is not green yet.
 
 ### What was chosen, and what was not
 
