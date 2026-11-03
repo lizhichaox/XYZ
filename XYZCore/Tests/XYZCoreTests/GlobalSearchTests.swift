@@ -58,6 +58,20 @@ final class GlobalSearchTests: XCTestCase {
         XCTAssertLessThan(excerpt.count, line.count)
     }
 
+    func testExplorerSectionCollapsesAndCountsFiles() {
+        XCTAssertFalse(ExplorerSection.toggle(true))
+        XCTAssertTrue(ExplorerSection.toggle(false))
+        let entries = [
+            WorkspacePathEntry(name: "Notes", relativePath: "Notes", isDirectory: true, isHidden: false),
+            file("a.md", "Notes/a.md"),
+            file(".secret.md", "Notes/.secret.md"),
+        ]
+        var hidden = entries
+        hidden[2] = WorkspacePathEntry(name: ".secret.md", relativePath: "Notes/.secret.md", isDirectory: false, isHidden: true)
+        XCTAssertEqual(ExplorerSection.fileCount(entries: hidden, showsHidden: false), 1)
+        XCTAssertEqual(ExplorerSection.fileCount(entries: hidden, showsHidden: true), 2)
+    }
+
     private func file(_ name: String, _ path: String) -> WorkspacePathEntry {
         WorkspacePathEntry(name: name, relativePath: path, isDirectory: false, isHidden: false)
     }

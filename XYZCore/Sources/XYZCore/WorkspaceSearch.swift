@@ -11,6 +11,20 @@ public struct WorkspaceNameSpan: Equatable, Sendable, Hashable {
     }
 }
 
+/// The Explorer section for the open folder. Collapsed hides the file list and stays that way for the session.
+public enum ExplorerSection {
+    public static func toggle(_ expanded: Bool) -> Bool { !expanded }
+
+    /// Files in the tree. Directories are not counted. Hidden files count only while they are listed.
+    public static func fileCount(entries: [WorkspacePathEntry], showsHidden: Bool) -> Int {
+        entries.reduce(into: 0) { total, entry in
+            if entry.isDirectory { return }
+            if !showsHidden, entry.isHidden { return }
+            total += 1
+        }
+    }
+}
+
 /// One path discovered while indexing a folder. The scanner lives in the app; matching does not.
 public struct WorkspacePathEntry: Equatable, Sendable, Hashable {
     public var name: String

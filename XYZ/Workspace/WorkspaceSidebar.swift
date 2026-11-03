@@ -150,7 +150,9 @@ struct WorkspaceSidebar: NSViewRepresentable {
         }
 
         private func toggleRoot() {
-            session?.rootExpanded.toggle()
+            guard let session else { return }
+            session.rootExpanded = ExplorerSection.toggle(session.rootExpanded)
+            XYZDiagnostics.note("explorer section expanded=\(session.rootExpanded)")
         }
 
         private func popRootMenu(_ event: NSEvent) {
@@ -169,8 +171,13 @@ struct WorkspaceSidebar: NSViewRepresentable {
             column.header.show(
                 name: session.displayName,
                 expanded: session.rootExpanded,
+                fileCount: ExplorerSection.fileCount(
+                    entries: session.indexedEntries,
+                    showsHidden: session.showsHiddenFiles
+                ),
                 path: WorkspacePaths.abbreviatedHomePath(session.rootURL.path, home: home)
             )
+            column.setTreeVisible(session.rootExpanded)
         }
 
         nonisolated func expanded(_ item: Any, _ isExpanded: Bool) {
@@ -741,7 +748,7 @@ fileprivate final class SidebarColumnView: NSView {
             string: String(localized: "Explorer").localizedUppercase,
             attributes: [
                 .font: NSFont.systemFont(ofSize: 11, weight: .medium),
-                .foregroundColor: NSColor.secondaryLabelColor,
+                .foregroundColor: NSColor.xyzSecondaryText,
                 .kern: 0.6,
             ]
         )
@@ -792,6 +799,11 @@ fileprivate final class SidebarColumnView: NSView {
             placeholder.trailingAnchor.constraint(lessThanOrEqualTo: scroll.trailingAnchor, constant: -16),
         ])
         didFinishInit = true
+    }
+
+    func setTreeVisible(_ visible: Bool) {
+        scroll.isHidden = !visible
+        if !visible { setPlaceholder(nil) }
     }
 
     func setPlaceholder(_ text: String?) {
@@ -944,7 +956,8 @@ fileprivate final class SidebarRootHeader: NSView {
     var onMenu: ((NSEvent) -> Void)?
     private let chevron = NSImageView()
     private let label = NSTextField(labelWithString: "")
-    private var shownExpanded: Bool?
+    private let countLabel = NSTextField(labelWithString: "")
+    private var expanded = true
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -958,16 +971,29 @@ fileprivate final class SidebarRootHeader: NSView {
         label.drawsBackground = false
         label.lineBreakMode = .byTruncatingTail
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        countLabel.translatesAutoresizingMaskIntoConstraints = false
+        countLabel.isEditable = false
+        countLabel.isSelectable = false
+        countLabel.isBezeled = false
+        countLabel.drawsBackground = false
+        countLabel.font = .systemFont(ofSize: 11)
+        countLabel.textColor = .xyzSecondaryText
+        countLabel.alignment = .right
+        countLabel.setContentHuggingPriority(.required, for: .horizontal)
+        countLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
         addSubview(chevron)
         addSubview(label)
+        addSubview(countLabel)
         NSLayoutConstraint.activate([
-            chevron.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            chevron.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
             chevron.centerYAnchor.constraint(equalTo: centerYAnchor),
             chevron.widthAnchor.constraint(equalToConstant: 12),
             chevron.heightAnchor.constraint(equalToConstant: 12),
             label.leadingAnchor.constraint(equalTo: chevron.trailingAnchor, constant: 4),
-            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: countLabel.leadingAnchor, constant: -6),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
+            countLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
+            countLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
     }
 
@@ -976,43 +1002,45 @@ fileprivate final class SidebarRootHeader: NSView {
         nil
     }
 
-    override func layout() {
-        super.layout()
-        label.preferredMaxLayoutWidth = max(0, label.bounds.width)
-    }
-
-    func show(name: String, expanded: Bool, path: String) {
+    func show(name: String, expanded: Bool, fileCount: Int, path: String) {
+        self.expanded = expanded
         let font = NSFont.systemFont(ofSize: 11, weight: .semibold)
         label.attributedStringValue = NSAttributedString(string: name.localizedUppercase, attributes: [
             .font: font,
             .foregroundColor: NSColor.xyzSecondaryText,
             .kern: 0.6,
         ])
-        if chevron.image == nil {
-            chevron.image = NSImage(systemSymbolName: "chevron.right", accessibilityDescription: nil)
-            chevron.wantsLayer = true
-        }
-        chevron.contentTintColor = .xyzSecondaryText
-        let description = expanded ? String(localized: "Collapse") : String(localized: "Expand")
-        chevron.setAccessibilityLabel(description)
-        let angle: CGFloat = expanded ? 90 : 0
-        if shownExpanded == nil {
-            chevron.frameCenterRotation = angle
-        } else if shownExpanded != expanded {
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = 0.16
-                context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
-                chevron.animator().frameCenterRotation = angle
-            }
-        }
-        shownExpanded = expanded
+        countLabel.stringValue = fileCount > 0 ? String(fileCount) : ""
+        countLabel.textColor = .xyzSecondaryText
+        applyChevron()
         toolTip = path
-        setAccessibilityLabel(name)
+        let state = expanded ? String(localized: "Expanded") : String(localized: "Collapsed")
+        setAccessibilityLabel("\(name), \(state)")
         setAccessibilityHelp(path)
     }
 
+    override func layout() {
+        super.layout()
+        label.preferredMaxLayoutWidth = max(0, label.bounds.width)
+        applyChevron()
+    }
+
+    /// A real symbol, not a rotated frame. Layout resets a frame rotation, which left the twisty stuck.
+    private func applyChevron() {
+        let symbol = expanded ? "chevron.down" : "chevron.right"
+        let description = expanded ? String(localized: "Collapse") : String(localized: "Expand")
+        chevron.image = NSImage(systemSymbolName: symbol, accessibilityDescription: description)
+        chevron.contentTintColor = .xyzSecondaryText
+        chevron.setAccessibilityLabel(description)
+    }
+
     override func hitTest(_ point: NSPoint) -> NSView? {
-        frame.contains(point) ? self : nil
+        if let superview {
+            let local = convert(point, from: superview)
+            if bounds.contains(local) { return self }
+        }
+        if bounds.contains(point) || frame.contains(point) { return self }
+        return nil
     }
 
     override func mouseDown(with event: NSEvent) {
