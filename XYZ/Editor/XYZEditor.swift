@@ -238,4 +238,13 @@ extension Color {
         Color(uiColor: .systemBackground)
         #endif
     }
+
+    /// Sidebar and status bar. A step off the editor's text background, in both appearances.
+    static var sidebarBackground: Color {
+        #if os(macOS)
+        Color(nsColor: .windowBackgroundColor)
+        #else
+        Color(uiColor: .secondarySystemBackground)
+        #endif
+    }
 }

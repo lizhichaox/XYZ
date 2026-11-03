@@ -25,40 +25,55 @@ struct WorkspaceView: View {
     @Environment(\.undoManager) private var undoManager
     @StateObject private var commands = WorkspaceCommandBridge()
     @State private var columnVisibility = NavigationSplitViewVisibility.all
-    @State private var trafficInset: CGFloat = 80
-    @State private var sidebarWidth: CGFloat = 0
+    @State private var titlebarInset: CGFloat = 0
+    @State private var status = EditorStatusSnapshot.empty
+    @StateObject private var outline = OutlineModel()
     @AppStorage(HiddenFilesSetting.key) private var storedHiddenFiles = true
 
     var body: some View {
-        HSplitView {
-            if columnVisibility != .detailOnly {
-                WorkspaceSidebar(session: session, undoManager: undoManager)
+        VStack(spacing: 0) {
+            HSplitView {
+                if columnVisibility != .detailOnly {
+                    VStack(spacing: 0) {
+                        WorkspaceSidebar(session: session, undoManager: undoManager)
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        SidebarOutlineDock(session: session, outline: outline)
+                    }
                     .frame(minWidth: 220, idealWidth: 260, maxWidth: 420)
-                    .background(GeometryReader { proxy in
-                        Color.clear.preference(key: SidebarWidthKey.self, value: proxy.size.width)
-                    })
+                    .background(Color.sidebarBackground)
+                }
+                WorkspaceDetail(
+                    session: session,
+                    outline: outline,
+                    find: commands.findModel
+                )
+                    .frame(minWidth: 480, maxWidth: .infinity, maxHeight: .infinity)
+                    .layoutPriority(1)
+                    .background(Color.editorBackground)
             }
-            WorkspaceDetail(
-                session: session,
-                find: commands.findModel
-            )
-                .frame(minWidth: 480, maxWidth: .infinity, maxHeight: .infinity)
-                .layoutPriority(1)
-                .background(Color.editorBackground)
-        }
-        .onPreferenceChange(SidebarWidthKey.self) { sidebarWidth = $0 }
-        .onChange(of: columnVisibility) { _, value in
-            if value == .detailOnly {
-                sidebarWidth = 0
+            if status.visible {
+                EditorStatusBar(
+                    caret: status.caret,
+                    encodingValue: status.encoding,
+                    lineEndingValue: status.lineEnding,
+                    mixedEndings: status.mixedEndings,
+                    typeName: status.typeName,
+                    words: status.words,
+                    showsReadingTime: status.showsReadingTime,
+                    detail: status.detail,
+                    onEncoding: encodingHandler,
+                    onLineEnding: endingHandler
+                )
             }
         }
+        .padding(.top, titlebarInset)
+        .onPreferenceChange(EditorStatusKey.self) { status = $0 }
         .frame(minWidth: 880, minHeight: 520)
+        .background(Color.editorBackground)
         .background(WorkspaceWindowChrome(
             title: titleText,
             representedFile: session.buffer?.url,
-            session: session,
-            tabLeading: columnVisibility == .detailOnly ? trafficInset : sidebarWidth,
-            trafficInset: $trafficInset
+            titlebarInset: $titlebarInset
         ))
         .background(
             EditorCommandAnchor(target: commands) {
@@ -81,8 +96,21 @@ struct WorkspaceView: View {
         )
     }
 
+    private var encodingHandler: ((TextEncoding) -> Void)? {
+        guard status.canEditEncoding else { return nil }
+        return { session.chooseEncoding($0) }
+    }
+
+    private var endingHandler: ((LineEnding) -> Void)? {
+        guard status.canEditEnding else { return nil }
+        return { session.chooseLineEnding($0) }
+    }
+
     private var titleText: String {
-        openFilePath.map { ($0 as NSString).lastPathComponent } ?? session.displayName
+        let folder = session.displayName
+        guard let path = openFilePath else { return folder }
+        let file = (path as NSString).lastPathComponent
+        return "\(file) — \(folder)"
     }
 
     private var openFilePath: String? {
@@ -93,30 +121,19 @@ struct WorkspaceView: View {
     }
 }
 
-/// The window title is the open file. The subtitle is the folder. The proxy icon is that file, never the folder.
-private struct SidebarWidthKey: PreferenceKey {
-    static var defaultValue: CGFloat = 0
-    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
-        value = nextValue()
-    }
-}
-
+/// The window title is `<file> — <folder>`. The proxy icon is that file.
 private struct WorkspaceWindowChrome: NSViewRepresentable {
     var title: String
     var representedFile: URL?
-    var session: WorkspaceSession
-    var tabLeading: CGFloat
-    @Binding var trafficInset: CGFloat
+    @Binding var titlebarInset: CGFloat
 
     func makeNSView(context: Context) -> WorkspaceChromeView {
         let view = WorkspaceChromeView()
         view.title = title
         view.representedFile = representedFile
-        view.session = session
-        view.tabLeading = tabLeading
-        view.onTrafficInset = { inset in
-            if abs(trafficInset - inset) > 0.5 {
-                trafficInset = inset
+        view.onTitlebarInset = { inset in
+            if abs(titlebarInset - inset) > 0.5 {
+                titlebarInset = inset
             }
         }
         return view
@@ -125,11 +142,9 @@ private struct WorkspaceWindowChrome: NSViewRepresentable {
     func updateNSView(_ view: WorkspaceChromeView, context: Context) {
         view.title = title
         view.representedFile = representedFile
-        view.session = session
-        view.tabLeading = tabLeading
-        view.onTrafficInset = { inset in
-            if abs(trafficInset - inset) > 0.5 {
-                trafficInset = inset
+        view.onTitlebarInset = { inset in
+            if abs(titlebarInset - inset) > 0.5 {
+                titlebarInset = inset
             }
         }
         view.apply()
@@ -139,10 +154,8 @@ private struct WorkspaceWindowChrome: NSViewRepresentable {
 final class WorkspaceChromeView: NSView {
     var title = ""
     var representedFile: URL?
-    weak var session: WorkspaceSession?
-    var tabLeading: CGFloat = 0
-    var onTrafficInset: (CGFloat) -> Void = { _ in }
-    private var tabs: TitlebarTabsController?
+    var onTitlebarInset: (CGFloat) -> Void = { _ in }
+    private let titles = TitlebarTitleInstaller()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -166,82 +179,94 @@ final class WorkspaceChromeView: NSView {
 
     override func layout() {
         super.layout()
-        // SwiftUI can put the title and the sidebar toolbar back during layout.
-        syncTitle()
-        reportTrafficInset()
-        installTabs()
+        // SwiftUI can put the title and a toolbar back during layout.
+        apply()
     }
 
     func apply() {
         guard let window else { return }
-        syncTitle()
-        reportTrafficInset()
-        installTabs()
-    }
-
-    /// The file name stays on the window for the Window menu. The title bar does not draw it.
-    private func syncTitle() {
-        guard let window else { return }
         WorkspaceChrome.apply(to: window, title: title, subtitle: "", representedFile: representedFile)
-    }
-
-    private func reportTrafficInset() {
-        guard let window else { return }
-        let lights = window.standardWindowButton(.zoomButton)?.frame.maxX ?? 70
-        onTrafficInset(lights + 12)
-    }
-
-    /// Tabs live in the title bar, not under the title-bar view.
-    private func installTabs() {
-        guard let window, let session else { return }
-        let current = window.titlebarAccessoryViewControllers.compactMap { $0 as? TitlebarTabsController }.first
-        let controller = current ?? TitlebarTabsController(session: session)
-        if current == nil {
-            window.addTitlebarAccessoryViewController(controller)
-        }
-        controller.update(session: session, leading: tabLeading)
-        tabs = controller
+        titles.install(in: window, title: title)
+        let overlap = titles.overlap(in: window)
+        onTitlebarInset(overlap)
     }
 }
 
-/// Full-width title-bar row. The system sets the width; the height is the tab strip.
-final class TitlebarTabsController: NSTitlebarAccessoryViewController {
-    private let host: NSHostingView<EditorTabBar>
-    private weak var session: WorkspaceSession?
-    private var leading: CGFloat = -1
+/// Centered `<file> — <folder>` in the same row as the traffic lights.
+///
+/// The label does not take clicks, so the title bar still drags and a double click still zooms.
+/// An accessory view would add a second row and, on macOS 27, SwiftUI drawn under the title-bar
+/// material does not paint. This label is a subview of the title bar, so it does.
+final class TitlebarTitleInstaller {
+    private let label = TitlebarTitleLabel(labelWithString: "")
 
-    init(session: WorkspaceSession) {
-        host = NSHostingView(rootView: EditorTabBar(session: session, leading: 0))
-        host.safeAreaRegions = []
-        super.init(nibName: nil, bundle: nil)
-        self.session = session
-        identifier = NSUserInterfaceItemIdentifier("xyz.titlebar.tabs")
-        layoutAttribute = .bottom
-        automaticallyAdjustsSize = false
-        let container = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 30))
-        host.frame = container.bounds
-        host.autoresizingMask = [.width, .height]
-        container.addSubview(host)
-        view = container
+    init() {
+        label.font = .systemFont(ofSize: 12, weight: .regular)
+        label.textColor = .secondaryLabelColor
+        label.alignment = .center
+        label.lineBreakMode = .byTruncatingMiddle
+        label.drawsBackground = false
+        label.isBezeled = false
+        label.isEditable = false
+        label.isSelectable = false
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        label.setAccessibilityIdentifier("xyz.window.title")
     }
 
-    override func viewWillAppear() {
-        super.viewWillAppear()
-        view.frame.size.height = 30
+    func install(in window: NSWindow, title: String) {
+        guard let close = window.standardWindowButton(.closeButton),
+              let bar = close.superview else { return }
+        if label.superview !== bar {
+            NSLayoutConstraint.deactivate(constraints)
+            label.removeFromSuperview()
+            bar.addSubview(label, positioned: .below, relativeTo: close)
+            constraints = [
+                label.centerXAnchor.constraint(equalTo: bar.centerXAnchor),
+                label.centerYAnchor.constraint(equalTo: close.centerYAnchor),
+                label.leadingAnchor.constraint(greaterThanOrEqualTo: bar.leadingAnchor, constant: 78),
+                label.trailingAnchor.constraint(lessThanOrEqualTo: bar.trailingAnchor, constant: -78),
+            ]
+            NSLayoutConstraint.activate(constraints)
+        }
+        if label.stringValue != title {
+            label.stringValue = title
+        }
+        let accessories = window.titlebarAccessoryViewControllers
+        let kept = accessories.filter { $0.identifier?.rawValue != "xyz.titlebar.tabs" }
+        if kept.count != accessories.count {
+            window.titlebarAccessoryViewControllers = kept
+        }
     }
 
-    @available(*, unavailable)
-    required init?(coder: NSCoder) {
-        nil
+    /// How far the content view extends up into the title-bar row.
+    /// Zero when the content already starts below the traffic lights.
+    func overlap(in window: NSWindow) -> CGFloat {
+        guard let content = window.contentView,
+              let close = window.standardWindowButton(.closeButton) else { return 0 }
+        let frame = content.convert(close.bounds, from: close)
+        let top: CGFloat
+        let bottom: CGFloat
+        if content.isFlipped {
+            top = frame.minY
+            bottom = frame.maxY
+        } else {
+            top = content.bounds.height - frame.maxY
+            bottom = content.bounds.height - frame.minY
+        }
+        if top > 40 { return 0 }
+        let inset = bottom + 8
+        if inset <= 0 { return 0 }
+        return min(inset, 52)
     }
 
-    func update(session: WorkspaceSession, leading: CGFloat) {
-        let sameSession = session === self.session
-        guard !sameSession || abs(leading - self.leading) > 0.5 else { return }
-        self.session = session
-        self.leading = leading
-        host.rootView = EditorTabBar(session: session, leading: leading)
-    }
+    private var constraints: [NSLayoutConstraint] = []
+}
+
+/// Clicks pass through to the title bar, which drags the window and zooms on a double click.
+final class TitlebarTitleLabel: NSTextField {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+    override var acceptsFirstResponder: Bool { false }
 }
 
 enum WorkspaceChrome {
@@ -252,11 +277,10 @@ enum WorkspaceChrome {
         window.titlebarSeparatorStyle = .none
         window.toolbarStyle = .unifiedCompact
         window.toolbar?.showsBaselineSeparator = false
-        // NavigationSplitView used to put a sidebar button in a bar that covered the tabs.
+        // A toolbar draws over the title and adds its own buttons. This window has neither.
         if window.toolbar != nil {
             window.toolbar = nil
         }
-        Self.clearTitlebarFill(of: window)
         if !window.styleMask.contains(.fullSizeContentView) {
             window.styleMask.insert(.fullSizeContentView)
         }
@@ -271,36 +295,15 @@ enum WorkspaceChrome {
             window.representedURL = representedFile
         }
     }
-
-    /// The title-bar material is what paints over SwiftUI content in that strip.
-    /// Buttons stay; the fill behind them does not.
-    private static func clearTitlebarFill(of window: NSWindow) {
-        guard let close = window.standardWindowButton(.closeButton) else { return }
-        var cursor: NSView? = close
-        var ancestors = Set<ObjectIdentifier>()
-        while let view = cursor {
-            ancestors.insert(ObjectIdentifier(view))
-            cursor = view.superview
-        }
-        guard let root = window.contentView?.superview else { return }
-        func walk(_ view: NSView) {
-            let coversButtons = ancestors.contains(ObjectIdentifier(view))
-            if let effect = view as? NSVisualEffectView, !coversButtons {
-                effect.alphaValue = 0
-            }
-            view.subviews.forEach(walk)
-        }
-        walk(root)
-    }
 }
 
 private struct WorkspaceDetail: View {
     @ObservedObject var session: WorkspaceSession
+    @ObservedObject var outline: OutlineModel
     var find: EditorFindModel?
     @Environment(\.undoManager) private var undoManager
     @AppStorage(WordCountSetting.key) private var showsWordCount = false
     @StateObject private var wordCount = WordCountModel()
-    @StateObject private var outline = OutlineModel()
     @State private var caret = EditorCaret()
     @State private var surfaceDetail: String?
     @AppStorage(OutlineSetting.key) private var showsOutline = false
@@ -308,49 +311,22 @@ private struct WorkspaceDetail: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack(spacing: 0) {
-                VStack(spacing: 0) {
-                    if let find, find.visible {
-                        EditorFindBar(model: find)
-                    }
-                    if let path = activePath {
-                        EditorBreadcrumb(rootName: session.displayName, relativePath: path) { crumb in
-                            session.revealCrumb(crumb)
-                        }
-                    }
-                    if let status = banner {
-                        bannerView(status)
-                    }
-                    fileBody
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                if showsOutline && editableText {
-                    Rectangle().fill(Color.primary.opacity(0.12)).frame(width: 1)
-                    OutlinePane(entries: outline.entries) { line in
-                        session.scrollLink.revealLine(line)
-                    }
+            EditorTabBar(session: session)
+            if let path = activePath {
+                EditorBreadcrumb(rootName: session.displayName, relativePath: path) { crumb in
+                    session.revealCrumb(crumb)
                 }
             }
+            if let find, find.visible {
+                EditorFindBar(model: find)
+            }
+            if let status = banner {
+                bannerView(status)
+            }
+            fileBody
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if session.buffer != nil {
-                EditorStatusBar(
-                    caret: showsText ? caret : nil,
-                    encodingValue: showsText ? session.buffer?.encoding : nil,
-                    lineEndingValue: showsText ? session.buffer?.lineEnding : nil,
-                    mixedEndings: session.buffer?.mixedLineEndings == true,
-                    typeName: statusMode,
-                    words: format.isProse && !isReadOnly ? wordCount.stats : nil,
-                    showsReadingTime: showsWordCount && format.isProse && !isReadOnly,
-                    detail: isReadOnly && session.buffer?.previewTruncated == true
-                        ? String(localized: "Preview truncated")
-                        : (showsText ? nil : surfaceDetail),
-                    onEncoding: isEditing ? { session.chooseEncoding($0) } : nil,
-                    onLineEnding: isEditing ? { session.chooseLineEnding($0) } : nil
-                )
-            }
-        }
+        .preference(key: EditorStatusKey.self, value: statusSnapshot)
         .background(Color.editorBackground)
         .overlay(alignment: .top) {
             if let picker = session.tabSwitch {
@@ -405,6 +381,35 @@ private struct WorkspaceDetail: View {
                 .id(buffer.editorToken)
                 .background(Color.editorBackground)
         }
+    }
+
+    private var statusSnapshot: EditorStatusSnapshot {
+        guard session.buffer != nil else { return .empty }
+        let caretValue: EditorCaret? = showsText ? caret : nil
+        let encoding: TextEncoding? = showsText ? session.buffer?.encoding : nil
+        let ending: LineEnding? = showsText ? session.buffer?.lineEnding : nil
+        let words: TextStatistics? = (format.isProse && !isReadOnly) ? wordCount.stats : nil
+        let detailText: String?
+        if isReadOnly && session.buffer?.previewTruncated == true {
+            detailText = String(localized: "Preview truncated")
+        } else if showsText {
+            detailText = nil
+        } else {
+            detailText = surfaceDetail
+        }
+        return EditorStatusSnapshot(
+            visible: true,
+            caret: caretValue,
+            encoding: encoding,
+            lineEnding: ending,
+            mixedEndings: session.buffer?.mixedLineEndings == true,
+            typeName: statusMode,
+            words: words,
+            showsReadingTime: showsWordCount && format.isProse && !isReadOnly,
+            detail: detailText,
+            canEditEncoding: isEditing,
+            canEditEnding: isEditing
+        )
     }
 
     private func refreshOutline(immediate: Bool) {

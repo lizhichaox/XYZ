@@ -425,10 +425,31 @@ final class XYZMacTextView: NSTextView {
         }
     }
 
-    /// The caret's number is darker, so a selection change redraws the numbers in view.
+    /// The caret's number is darker, and Editing draws a band behind that line.
     func caretMoved() {
+        if isEditable {
+            setNeedsDisplay(visibleRect)
+        }
         guard showsLineNumbers else { return }
         gutter.setNeedsDisplay(visibleRect)
+    }
+
+    override func drawBackground(in rect: NSRect) {
+        super.drawBackground(in: rect)
+        guard isEditable, let manager = textLayoutManager, let content = manager.textContentManager else { return }
+        let document = content.documentRange
+        let length = (string as NSString).length
+        let clamped = min(max(0, selectedRange().location), length)
+        guard let start = content.location(document.location, offsetBy: clamped),
+              let fragment = manager.textLayoutFragment(for: start) else { return }
+        var line = fragment.layoutFragmentFrame
+        line.origin.x = 0
+        line.origin.y += textContainerOrigin.y
+        line.size.width = bounds.width
+        let paint = line.intersection(rect)
+        guard !paint.isNull, paint.width > 0, paint.height > 0 else { return }
+        NSColor.labelColor.withAlphaComponent(0.045).setFill()
+        paint.fill()
     }
 
     override func viewDidMoveToWindow() {
@@ -662,7 +683,11 @@ struct XYZMacEditor: NSViewRepresentable {
         context.coordinator.onTextChange = onTextChange
         context.coordinator.onSelection = onSelection
         context.coordinator.scrollLink = scrollLink
+        let editingChanged = textView.isEditable != isEditable
         textView.isEditable = isEditable
+        if editingChanged {
+            textView.setNeedsDisplay(textView.visibleRect)
+        }
         let markupChanged = textView.allowsMarkup != markup
         textView.allowsMarkup = markup
         if textView.isContinuousSpellCheckingEnabled != spellCheck {

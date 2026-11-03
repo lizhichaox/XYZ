@@ -14,11 +14,11 @@ struct WorkspaceSidebar: NSViewRepresentable {
         let column = SidebarColumnView()
         let outline = column.outline
         outline.headerView = nil
-        outline.style = .sourceList
-        outline.selectionHighlightStyle = .sourceList
+        outline.style = .plain
+        outline.selectionHighlightStyle = .none
         outline.floatsGroupRows = false
         outline.indentationPerLevel = 16
-        outline.rowHeight = 20
+        outline.rowHeight = 22
         outline.intercellSpacing = NSSize(width: 0, height: 0)
         outline.allowsMultipleSelection = false
         outline.allowsEmptySelection = true
@@ -276,7 +276,7 @@ struct WorkspaceSidebar: NSViewRepresentable {
 
         func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
             if item is SidebarSection || item is SidebarMessage { return 18 }
-            return 20
+            return 22
         }
 
         func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
@@ -299,6 +299,12 @@ struct WorkspaceSidebar: NSViewRepresentable {
             let cell = reusedRow(outlineView)
             cell.apply(node, expanded: outlineView.isItemExpanded(node))
             return cell
+        }
+
+        func outlineView(_ outlineView: NSOutlineView, rowViewForItem item: Any) -> NSTableRowView? {
+            let row = outlineView.makeView(withIdentifier: SidebarRowView.identifier, owner: self) as? SidebarRowView
+                ?? SidebarRowView()
+            return row
         }
 
         func outlineViewSelectionDidChange(_ notification: Notification) {
@@ -727,7 +733,6 @@ fileprivate final class SidebarColumnView: NSView {
     private var collapsedReplace: NSLayoutConstraint?
     private var expandedReplace: NSLayoutConstraint?
     private weak var optionRow: NSView?
-    private var filterTop: NSLayoutConstraint?
 
     override init(frame frameRect: NSRect) {
         let search = SidebarSearchField()
@@ -736,7 +741,7 @@ fileprivate final class SidebarColumnView: NSView {
         search.translatesAutoresizingMaskIntoConstraints = false
         search.placeholderString = String(localized: "Filter")
         search.sendsSearchStringImmediately = true
-        search.controlSize = .regular
+        search.controlSize = .small
         search.focusRingType = .none
         search.setAccessibilityLabel(String(localized: "Filter files"))
         search.setContentHuggingPriority(.required, for: .vertical)
@@ -760,6 +765,18 @@ fileprivate final class SidebarColumnView: NSView {
         configureToggle(wholeWord, title: "W", action: #selector(WorkspaceSidebar.Coordinator.toggleWholeWord(_:)), help: String(localized: "Whole Word"))
         configureToggle(regex, title: ".*", action: #selector(WorkspaceSidebar.Coordinator.toggleRegex(_:)), help: String(localized: "Regex"))
 
+        let explorer = NSTextField(labelWithString: "")
+        explorer.translatesAutoresizingMaskIntoConstraints = false
+        explorer.attributedStringValue = NSAttributedString(
+            string: String(localized: "Explorer").localizedUppercase,
+            attributes: [
+                .font: NSFont.systemFont(ofSize: 11, weight: .medium),
+                .foregroundColor: NSColor.secondaryLabelColor,
+                .kern: 0.6,
+            ]
+        )
+        explorer.setAccessibilityLabel(String(localized: "Explorer"))
+
         header.translatesAutoresizingMaskIntoConstraints = false
         scroll.translatesAutoresizingMaskIntoConstraints = false
         scroll.drawsBackground = false
@@ -776,6 +793,7 @@ fileprivate final class SidebarColumnView: NSView {
         options.translatesAutoresizingMaskIntoConstraints = false
         options.setContentHuggingPriority(.required, for: .vertical)
 
+        addSubview(explorer)
         addSubview(search)
         addSubview(replaceField)
         addSubview(replaceAll)
@@ -785,16 +803,17 @@ fileprivate final class SidebarColumnView: NSView {
         addSubview(header)
         addSubview(scroll)
 
-        let filterTop = search.topAnchor.constraint(equalTo: topAnchor, constant: 34)
-        self.filterTop = filterTop
         NSLayoutConstraint.activate([
+            explorer.topAnchor.constraint(equalTo: topAnchor, constant: 8),
+            explorer.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            explorer.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -12),
+            search.topAnchor.constraint(equalTo: explorer.bottomAnchor, constant: 4),
             search.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
             search.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
-            filterTop,
             header.topAnchor.constraint(equalTo: search.bottomAnchor, constant: 4),
             header.leadingAnchor.constraint(equalTo: leadingAnchor),
             header.trailingAnchor.constraint(equalTo: trailingAnchor),
-            header.heightAnchor.constraint(equalToConstant: 20),
+            header.heightAnchor.constraint(equalToConstant: 22),
             replaceField.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 4),
             replaceField.leadingAnchor.constraint(equalTo: search.leadingAnchor),
             replaceAll.leadingAnchor.constraint(equalTo: replaceField.trailingAnchor, constant: 6),
@@ -819,23 +838,6 @@ fileprivate final class SidebarColumnView: NSView {
         collapsedReplace = collapsed
         expandedReplace = expanded
         setReplaceVisible(false)
-    }
-
-    override func layout() {
-        super.layout()
-        let next = trafficClearance()
-        if let filterTop, abs(filterTop.constant - next) > 0.5 {
-            filterTop.constant = next
-        }
-    }
-
-    /// Just under the traffic-light row. A view that already starts below the lights only needs a few points.
-    private func trafficClearance() -> CGFloat {
-        guard let window, let button = window.standardWindowButton(.closeButton) else { return 34 }
-        let frame = button.convert(button.bounds, to: self)
-        let fromTop = bounds.maxY - frame.minY
-        if fromTop <= 1 { return 6 }
-        return fromTop + 5
     }
 
     /// Replace, include, and exclude stay out of the way until the filter has a query.
@@ -1156,6 +1158,56 @@ fileprivate enum SidebarCell {
     static let columnID = NSUserInterfaceItemIdentifier("name")
 }
 
+/// Full-width row highlight. The system source-list highlight is a rounded pill; this one is a flat grey bar.
+fileprivate final class SidebarRowView: NSTableRowView {
+    static let identifier = NSUserInterfaceItemIdentifier("sidebar.row")
+    private var hovering = false
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        identifier = Self.identifier
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas {
+            removeTrackingArea(area)
+        }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        hovering = true
+        needsDisplay = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        hovering = false
+        needsDisplay = true
+    }
+
+    override func drawBackground(in dirtyRect: NSRect) {
+        if isSelected {
+            NSColor.labelColor.withAlphaComponent(0.12).setFill()
+            bounds.fill()
+        } else if hovering {
+            NSColor.labelColor.withAlphaComponent(0.06).setFill()
+            bounds.fill()
+        }
+    }
+}
+
 fileprivate final class SidebarRowCell: NSTableCellView {
     static let identifier = NSUserInterfaceItemIdentifier("row")
 
@@ -1178,7 +1230,7 @@ fileprivate final class SidebarRowCell: NSTableCellView {
         label.maximumNumberOfLines = 1
         label.cell?.truncatesLastVisibleLine = true
         label.allowsDefaultTighteningForTruncation = true
-        label.font = .systemFont(ofSize: NSFont.systemFontSize)
+        label.font = .systemFont(ofSize: 12)
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         label.isEditable = false
         label.isSelectable = false
@@ -1234,7 +1286,7 @@ fileprivate final class SidebarRowCell: NSTableCellView {
     }
 
     private func refreshColors() {
-        let selected = backgroundStyle == .emphasized
+        // The row draws a grey bar, so the text stays the normal label color.
         if let node = rowNode {
             let symbol = WorkspaceFileSymbolChoice.symbol(
                 name: node.name,
@@ -1242,23 +1294,15 @@ fileprivate final class SidebarRowCell: NSTableCellView {
                 isExpanded: rowExpanded
             )
             icon.image = Self.image(symbol)
-            let base: NSColor
-            let quiet: NSColor
-            if selected {
-                base = .alternateSelectedControlTextColor
-                quiet = .alternateSelectedControlTextColor
-                icon.contentTintColor = .alternateSelectedControlTextColor
-            } else {
-                base = node.isHidden ? .secondaryLabelColor : .labelColor
-                quiet = .tertiaryLabelColor
-                icon.contentTintColor = node.isHidden ? .tertiaryLabelColor : .secondaryLabelColor
-            }
+            let base: NSColor = node.isHidden ? .secondaryLabelColor : .labelColor
+            let quiet: NSColor = .tertiaryLabelColor
+            icon.contentTintColor = node.isHidden ? .tertiaryLabelColor : .secondaryLabelColor
             label.attributedStringValue = Self.nameText(
                 node.name,
                 base: base,
                 quiet: quiet,
                 highlights: node.highlights,
-                dimExtension: !selected
+                dimExtension: true
             )
             return
         }
@@ -1266,12 +1310,12 @@ fileprivate final class SidebarRowCell: NSTableCellView {
         let name = (hit.relativePath as NSString).lastPathComponent
         let symbol = WorkspaceFileSymbolChoice.symbol(name: name, isDirectory: false, isExpanded: false)
         icon.image = Self.image(symbol)
-        let primary: NSColor = selected ? .alternateSelectedControlTextColor : .labelColor
-        let quiet: NSColor = selected ? .alternateSelectedControlTextColor : .tertiaryLabelColor
+        let primary: NSColor = .labelColor
+        let quiet: NSColor = .tertiaryLabelColor
         icon.contentTintColor = quiet
         let combined = hit.hit.excerpt.isEmpty ? name : name + "  " + hit.hit.excerpt
         let text = NSMutableAttributedString(string: combined)
-        let font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        let font = NSFont.systemFont(ofSize: 12)
         let full = NSRange(location: 0, length: (combined as NSString).length)
         text.addAttributes([.font: font, .foregroundColor: primary], range: full)
         if !hit.hit.excerpt.isEmpty {
@@ -1326,7 +1370,7 @@ fileprivate final class SidebarRowCell: NSTableCellView {
         dimExtension: Bool
     ) -> NSAttributedString {
         let text = NSMutableAttributedString(string: name)
-        let font = NSFont.systemFont(ofSize: NSFont.systemFontSize)
+        let font = NSFont.systemFont(ofSize: 12)
         let full = NSRange(location: 0, length: (name as NSString).length)
         text.addAttributes([.font: font, .foregroundColor: base], range: full)
         if dimExtension, let span = WorkspaceFileSymbolChoice.extensionSpan(in: name) {
@@ -1335,7 +1379,7 @@ fileprivate final class SidebarRowCell: NSTableCellView {
                 text.addAttribute(.foregroundColor, value: quiet, range: range)
             }
         }
-        let emphasis = NSFont.systemFont(ofSize: NSFont.systemFontSize, weight: .semibold)
+        let emphasis = NSFont.systemFont(ofSize: 12, weight: .semibold)
         for span in highlights {
             let range = NSRange(location: span.location, length: span.length)
             guard range.location >= 0, NSMaxRange(range) <= full.length, range.length > 0 else { continue }

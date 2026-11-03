@@ -128,7 +128,7 @@ final class CommandPaletteTests: XCTestCase {
         XCTAssertEqual(byID["view.toggleSource"]?.shortcut, "⌘/")
         XCTAssertEqual(byID["workspace.focusFilter"]?.shortcut, "⇧⌘F")
         XCTAssertEqual(byID["folder.open"]?.shortcut, "⇧⌘O")
-        XCTAssertEqual(byID["workspace.toggleSidebar"]?.shortcut, "⌃⌘S")
+        XCTAssertEqual(byID["workspace.toggleSidebar"]?.shortcut, "⌘B")
         XCTAssertEqual(byID["view.goToLine"]?.shortcut, "⌃G")
         XCTAssertEqual(byID["tab.reopen"]?.shortcut, "⇧⌘T")
         XCTAssertEqual(byID["view.source"]?.shortcut, "")

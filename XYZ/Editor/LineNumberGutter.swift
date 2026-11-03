@@ -58,7 +58,7 @@ final class LineNumberGutter: NSView {
         let origin = textView.textContainerOrigin
         let right = textView.textContainerInset.width - Self.gap
         let plain: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.tertiaryLabelColor]
-        let current: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.secondaryLabelColor]
+        let current: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.labelColor]
         // This view shares the text view's coordinates. Layout fragments use the container's.
         let top = CGPoint(x: 0, y: max(0, dirtyRect.minY - origin.y))
         // Start at the viewport. Ensuring layout from the document start lays out every line above the fold on each scroll.

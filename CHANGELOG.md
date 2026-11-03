@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.0
+
+- The title bar is one row: traffic lights, and the window title centered as `<file> — <folder>`. The row drags, and a double click zooms. There is no toolbar.
+- The sidebar starts with Explorer, then the filter, then the folder. Rows are short, with a file icon and a full-width highlight. Outline is a section at the bottom of the sidebar, collapsed until View → Show Outline. ⌘B toggles the sidebar. Bold stays in the Format menu, without a shortcut.
+- Tabs sit under the title bar, across the editor. Each tab has an icon, the name, and a close button on the active tab and on hover. The path is a short breadcrumb row under the tabs. Editing shows line numbers and a highlight on the current line. The status bar runs the full width of the window.
+
 ## 0.4.0
 
 - The tab strip is a title-bar accessory, so the title-bar material does not paint over it. The sidebar no longer installs a toolbar. ⌃⌘S toggles the sidebar once. Reading, Editing, and Toggle Sidebar are in the View menu. Find is in the Edit menu.

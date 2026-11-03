@@ -33,8 +33,8 @@ extension XYZMacTextView {
 
 /// Builds the Format menu and maps its shortcuts.
 ///
-/// Shortcuts follow Typora where macOS leaves them free. Headings are ⌥⌘1 to ⌥⌘6 because
-/// ⌘1 to ⌘9 stay with window tabs; strikethrough is ⇧⌘X.
+/// Shortcuts follow Typora where macOS leaves them free. Bold has no shortcut: ⌘B toggles the
+/// sidebar. Headings are ⌥⌘1 to ⌥⌘6 because ⌘1 to ⌘9 stay with window tabs; strikethrough is ⇧⌘X.
 @MainActor
 enum FormatMenu {
     struct Item {
@@ -59,7 +59,7 @@ enum FormatMenu {
     static var sections: [[Item]] {
         [
             [
-                Item(id: "xyz.format.bold", title: String(localized: "Bold"), key: "b", flags: .command,
+                Item(id: "xyz.format.bold", title: String(localized: "Bold"), key: "", flags: [],
                      action: #selector(XYZMacTextView.xyzBold(_:))),
                 Item(id: "xyz.format.italic", title: String(localized: "Italic"), key: "i", flags: .command,
                      action: #selector(XYZMacTextView.xyzItalic(_:))),

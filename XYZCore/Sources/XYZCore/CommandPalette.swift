@@ -107,7 +107,7 @@ public struct PaletteCommand: Equatable, Sendable, Identifiable {
             keywords: ["outline", "toc", "heading", "jump"]
         ),
         PaletteCommand(id: "view.outline", title: "Show Outline", keywords: ["outline", "symbols", "toc"]),
-        PaletteCommand(id: "workspace.toggleSidebar", title: "Toggle Sidebar", shortcut: "⌃⌘S", keywords: ["sidebar"]),
+        PaletteCommand(id: "workspace.toggleSidebar", title: "Toggle Sidebar", shortcut: "⌘B", keywords: ["sidebar"]),
         PaletteCommand(
             id: "workspace.focusFilter",
             title: "Filter Files",

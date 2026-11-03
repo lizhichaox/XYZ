@@ -116,41 +116,38 @@ struct EditorFindBar: View {
     }
 }
 
-/// Open files for the window. A preview tab is italic. A dirty file has a dot in a fixed slot.
+/// Open files for the window. A preview tab is italic. A dirty file has a dot until the close button shows.
 struct EditorTabBar: View {
     @ObservedObject var session: WorkspaceSession
-    /// Space for the traffic lights, or for the sidebar when it is open.
-    var leading: CGFloat = 0
 
     var body: some View {
         ScrollViewReader { proxy in
             HStack(spacing: 0) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 2) {
-                    ForEach(session.tabStrip.tabs) { tab in
-                        EditorTabItem(
-                            tab: tab,
-                            active: tab.id == session.tabStrip.activeID,
-                            select: {
-                                _ = session.selectTab(id: tab.id)
-                                session.focusOpenEditor()
-                            },
-                            close: {
-                                _ = session.closeTab(tab.id)
-                            },
-                            move: {
-                                session.onMoveTab?(tab.id)
-                            }
-                        )
-                        .id(tab.id)
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 0) {
+                        ForEach(session.tabStrip.tabs) { tab in
+                            EditorTabItem(
+                                tab: tab,
+                                active: tab.id == session.tabStrip.activeID,
+                                select: {
+                                    _ = session.selectTab(id: tab.id)
+                                    session.focusOpenEditor()
+                                },
+                                close: {
+                                    _ = session.closeTab(tab.id)
+                                },
+                                move: {
+                                    session.onMoveTab?(tab.id)
+                                }
+                            )
+                            .id(tab.id)
+                        }
                     }
                 }
-                .padding(.horizontal, 6)
-            }
-            .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
-            .layoutPriority(1)
-            WindowDragRegion()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
+                .layoutPriority(1)
+                WindowDragRegion()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .frame(maxWidth: .infinity)
             .onChange(of: session.tabStrip.activeID) { _, id in
@@ -160,10 +157,8 @@ struct EditorTabBar: View {
                 }
             }
         }
-        .padding(.leading, leading)
-        .frame(height: 30)
-        .background(WindowDragRegion())
-        .background(Color.editorBackground)
+        .frame(height: 35)
+        .background(Color.primary.opacity(0.04))
         .overlay(alignment: .bottom) {
             Rectangle().fill(Color.primary.opacity(0.12)).frame(height: 1)
         }
@@ -177,14 +172,14 @@ private struct EditorTabItem: View {
     var select: () -> Void
     var close: () -> Void
     var move: () -> Void
+    @State private var hovering = false
 
     var body: some View {
         HStack(spacing: 6) {
-            Circle()
-                .fill(tab.isDirty ? Color.primary.opacity(active ? 0.9 : 0.38) : Color.clear)
-                .frame(width: 6, height: 6)
-                .accessibilityLabel(tab.isDirty ? String(localized: "Unsaved") : "")
-                .accessibilityHidden(!tab.isDirty)
+            Image(systemName: iconName)
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .frame(width: 16, height: 16)
             Button(action: select) {
                 Text(name)
                     .font(titleFont)
@@ -195,32 +190,24 @@ private struct EditorTabItem: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(name)
-            Button(action: close) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(active ? HierarchicalShapeStyle.secondary : HierarchicalShapeStyle.tertiary)
-                    .frame(width: 16, height: 16)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(String(localized: "Close Tab"))
+            closeControl
         }
-        .padding(.leading, 8)
-        .padding(.trailing, 4)
+        .padding(.leading, 10)
+        .padding(.trailing, 6)
         .frame(minWidth: 120, maxWidth: 200)
-        .frame(height: 22)
-        .background(
-            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                .fill(active ? Color.primary.opacity(0.08) : Color.clear)
-        )
-        .overlay(alignment: .bottom) {
+        .frame(maxHeight: .infinity)
+        .background(active ? Color.editorBackground : Color.clear)
+        .overlay(alignment: .top) {
             if active {
-                RoundedRectangle(cornerRadius: 1, style: .continuous)
+                Rectangle()
                     .fill(Color.primary.opacity(0.72))
                     .frame(height: 2)
-                    .padding(.horizontal, 10)
             }
         }
+        .overlay(alignment: .trailing) {
+            Rectangle().fill(Color.primary.opacity(0.12)).frame(width: 1)
+        }
+        .onHover { hovering = $0 }
         .help(tab.id)
         .contextMenu {
             Button("Move to New Window") {
@@ -236,8 +223,45 @@ private struct EditorTabItem: View {
         )
     }
 
+    private var showsClose: Bool { active || hovering }
+
+    @ViewBuilder
+    private var closeControl: some View {
+        if showsClose {
+            Button(action: close) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 16, height: 16)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(String(localized: "Close Tab"))
+        } else {
+            Circle()
+                .fill(tab.isDirty ? Color.primary.opacity(0.55) : Color.clear)
+                .frame(width: 7, height: 7)
+                .frame(width: 16, height: 16)
+                .accessibilityLabel(tab.isDirty ? String(localized: "Unsaved") : "")
+                .accessibilityHidden(!tab.isDirty)
+        }
+    }
+
     private var name: String {
         (tab.id as NSString).lastPathComponent
+    }
+
+    private var iconName: String {
+        let ext = (name as NSString).pathExtension.lowercased()
+        switch ext {
+        case "md", "markdown": return "doc.text"
+        case "json", "yaml", "yml", "toml": return "curlybraces"
+        case "png", "jpg", "jpeg", "gif", "webp", "heic", "svg": return "photo"
+        case "pdf": return "doc.richtext"
+        case "swift", "js", "ts", "py", "rb", "go", "rs", "c", "h", "m", "cpp":
+            return "chevron.left.forwardslash.chevron.right"
+        default: return "doc"
+        }
     }
 
     private var titleFont: Font {
@@ -257,6 +281,9 @@ struct EditorBreadcrumb: View {
     var body: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 4) {
+                Image(systemName: "doc")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
                 let crumbs = WorkspacePaths.crumbs(rootName: rootName, relativePath: relativePath)
                 ForEach(Array(crumbs.enumerated()), id: \.element.id) { index, crumb in
                     if index > 0 {
@@ -330,7 +357,7 @@ struct EditorStatusBar: View {
         .padding(.horizontal, 8)
         .frame(height: 22)
         .frame(maxWidth: .infinity)
-        .background(Color.editorBackground)
+        .background(Color.sidebarBackground)
         .overlay(alignment: .top) {
             Rectangle().fill(Color.primary.opacity(0.12)).frame(height: 1)
         }
@@ -440,20 +467,14 @@ struct OutlinePane: View {
     var choose: (Int) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Outline")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 12)
-                .padding(.top, 10)
-                .padding(.bottom, 6)
+        Group {
             if entries.isEmpty {
                 Text("No Outline")
                     .font(.system(size: 12))
                     .foregroundStyle(.tertiary)
                     .padding(.horizontal, 12)
-                    .padding(.top, 8)
-                Spacer(minLength: 0)
+                    .padding(.vertical, 8)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 0) {
@@ -480,8 +501,87 @@ struct OutlinePane: View {
                 .background(ScrollElasticityNone())
             }
         }
-        .frame(width: 220)
-        .background(Color.editorBackground)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.sidebarBackground)
+    }
+}
+
+/// Values the status bar draws. The bar itself spans the window, under the sidebar and the editor.
+struct EditorStatusSnapshot: Equatable {
+    var visible = false
+    var caret: EditorCaret?
+    var encoding: TextEncoding?
+    var lineEnding: LineEnding?
+    var mixedEndings = false
+    var typeName = ""
+    var words: TextStatistics?
+    var showsReadingTime = false
+    var detail: String?
+    var canEditEncoding = false
+    var canEditEnding = false
+
+    static let empty = EditorStatusSnapshot()
+}
+
+struct EditorStatusKey: PreferenceKey {
+    static var defaultValue = EditorStatusSnapshot.empty
+    static func reduce(value: inout EditorStatusSnapshot, nextValue: () -> EditorStatusSnapshot) {
+        value = nextValue()
+    }
+}
+
+/// Collapsible outline at the bottom of the sidebar. Collapsed until View → Show Outline.
+struct SidebarOutlineDock: View {
+    @ObservedObject var session: WorkspaceSession
+    @ObservedObject var outline: OutlineModel
+    @AppStorage(OutlineSetting.key) private var shown = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Rectangle().fill(Color.primary.opacity(0.12)).frame(height: 1)
+            Button {
+                shown.toggle()
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: shown ? "chevron.down" : "chevron.right")
+                        .font(.system(size: 9, weight: .semibold))
+                    Text(String(localized: "Outline").localizedUppercase)
+                        .font(.system(size: 11, weight: .semibold))
+                        .tracking(0.6)
+                    Spacer(minLength: 0)
+                }
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 10)
+                .frame(height: 22)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel(String(localized: "Outline"))
+            if shown {
+                OutlinePane(entries: outline.entries) { line in
+                    session.scrollLink.revealLine(line)
+                }
+                .frame(height: 180)
+            }
+        }
+        .background(Color.sidebarBackground)
+        .onAppear { refresh() }
+        .onChange(of: shown) { _, isShown in
+            if isShown { refresh() }
+        }
+        .onChange(of: session.buffer?.editorToken) { _, _ in
+            refresh()
+        }
+    }
+
+    private func refresh() {
+        guard shown else { return }
+        guard let text = session.buffer?.text else {
+            outline.clear()
+            return
+        }
+        let path = session.buffer?.relativePath ?? ""
+        outline.update(text: text, language: FileFormats.format(for: path).language)
     }
 }
 
@@ -489,6 +589,11 @@ struct OutlinePane: View {
 final class OutlineModel: ObservableObject {
     @Published private(set) var entries: [OutlineEntry] = []
     private var task: Task<Void, Never>?
+
+    func clear() {
+        task?.cancel()
+        entries = []
+    }
 
     func update(text: String, language: SyntaxLanguage) {
         task?.cancel()

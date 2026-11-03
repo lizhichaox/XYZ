@@ -9,7 +9,7 @@ New documents are Markdown (`.md`). The app also opens and saves `.markdown` and
 ## What you see
 
 - A proportional text editor in the system font (SF Pro, with PingFang SC for Chinese), 16pt, with a line box about 1.7 times the font size so wrapped lines and hard returns share one rhythm. The text uses the width of the pane, with side padding that stays between 24 and 64 points. Markdown markers are tinted and headings are slightly larger. Settings chooses the font (Default or Monospaced) and the size, and can limit the line width (see Settings below). On the Mac the view is an `NSTextView`; on iOS it is a `UITextView`. Both use TextKit 2. In a Markdown file, Return continues a list (and leaves the list on an empty item), Tab and Shift-Tab indent it, and the Format menu edits Markdown (see Format below). Other files, such as `.txt`, `.gitignore`, or source code, are plain text: no heading sizes or tinted markers, and none of those edits. Spell checking is on for Markdown and `.txt` only, so config files and code are not underlined.
-- A Markdown note is either Source (the editor) or Reading (the rendered note). The content area shows one of them. The choice is remembered for each folder window, and for a document window while it is open. A newly opened file uses Reading only when that window was last in Reading. The reading and editing surface has no buttons of its own, including the toolbar above it. The sidebar toggle stays on the sidebar side.
+- A file opens in Reading. Markdown Reading is the rendered note. Other text Reading is the colored source, and it cannot be edited. ⌘/ switches to Editing, which shows line numbers and a highlight on the current line. ⌘/ again returns to Reading. The choice is not saved. The reading and editing surface has no buttons of its own, and the window has no toolbar. ⌘B toggles the sidebar. View → Toggle Sidebar is the same command.
 - On iPhone and iPad the same two modes are in the View menu.
 - Reading renders headings, emphasis, lists, task lists, links, pictures, tables, code, and blockquotes. Wide tables scroll sideways inside the page. Fenced code that names its language is colored. Pictures with a relative path load from the note's folder. A `#fragment` link scrolls to the heading with that id, and a relative link opens the file it names. The page uses the same side padding as the editor, a line height of 1.75, and hanging punctuation where the system supports it. It follows light and dark mode. Code uses one monospace face in both.
 
@@ -25,11 +25,11 @@ The sidebar filter is a native search field. On macOS 26 and later the command p
 
 ## Format
 
-The Format menu edits the Markdown source. Its items are enabled while a Markdown editor has focus, and dimmed in Reading and in plain text. Shortcuts follow Typora where macOS leaves them free; headings use ⌥⌘ because ⌘1 to ⌘9 stay with window tabs.
+The Format menu edits the Markdown source. Its items are enabled while a Markdown editor has focus, and dimmed in Reading and in plain text. Shortcuts follow Typora where macOS leaves them free; headings use ⌥⌘ because ⌘1 to ⌘9 stay with window tabs. Bold has no shortcut, because ⌘B toggles the sidebar.
 
 | Item | Shortcut | Item | Shortcut |
 |---|---|---|---|
-| Bold | ⌘B | Quote | ⌥⌘Q |
+| Bold | | Quote | ⌥⌘Q |
 | Italic | ⌘I | Bulleted List | ⌥⌘U |
 | Strikethrough | ⇧⌘X | Numbered List | ⌥⌘O |
 | Inline Code | ⌃` | Task List | ⌥⌘X |
@@ -69,13 +69,13 @@ Typing undo uses the text view, pointed at the document scene's undo manager, so
 
 ## Folders on Mac
 
-File → Open Folder… (⇧⌘O) opens a folder beside the single-document windows. That panel accepts only folders, shows hidden files, and its button says Open Folder. File → Open (⌘O) still opens Markdown and plain text; choosing a folder there opens the same workspace. You can also drop a folder on the Dock icon or on a workspace window. The sidebar is a source list. A filter field sits at its top (Filter Files, ⌘⇧F). Typing matches file and folder names, including hidden ones, and keeps the parent folders of a match. Esc clears the field. A second section lists text matches from Markdown and other text files. That search skips `.git`, `node_modules`, and `.build`, skips large and binary files, and can be cancelled. The window title is the open file. Its subtitle is the way there from the workspace root, such as `LIZHICHAO › DT`; a deep path keeps the root and the nearest folders, with `…` between. ⌘-click the title for the full path.
+File → Open Folder… (⇧⌘O) opens a folder beside the single-document windows. That panel accepts only folders, shows hidden files, and its button says Open Folder. File → Open (⌘O) still opens Markdown and plain text; choosing a folder there opens the same workspace. You can also drop a folder on the Dock icon or on a workspace window. The sidebar is the explorer. Its header says Explorer, the filter is the next row (Filter Files, ⌘⇧F), and the folder name collapses the tree. Outline is a collapsed section at the bottom. The window title, centered in the title bar, is the open file, an em dash, and the folder. Typing matches file and folder names, including hidden ones, and keeps the parent folders of a match. Esc clears the field. A second section lists text matches from Markdown and other text files. That search skips `.git`, `node_modules`, and `.build`, skips large and binary files, and can be cancelled. The breadcrumb under the tabs is the way there from the workspace root.
 
 Names truncate at the tail, with the full name in the tooltip. Extensions stay visible and are dimmed for `.md`, `.markdown`, `.txt`, and `.text`. Folders sort first, then by the system natural order, so `v0.0.10` follows `v0.0.9`. Hidden files are dimmed. ⇧⌘. hides them, the same shortcut Finder uses. `.git` starts collapsed, and expanding it is not remembered. Children load when a folder is expanded, off the main thread, and the list updates when files are added, removed, or renamed without collapsing folders you opened. A single click opens a file. Return or Space opens a file or expands a folder. The context menu can create a file or folder, rename in place, reveal the item, copy its path, or move it to the Trash. Dragging an item onto a folder moves it inside the workspace.
 
 Markdown files (`.md`, `.markdown`) follow the window's view mode. Other text, including source files and dotfiles, opens in the editor. Code and structured text use a fixed-width face and a quiet coloring of comments, strings, numbers, and keywords. JSON can be pretty-printed in Reading, and CSV or TSV can be a table. A file is not treated as binary just because an 8 KiB sample ends in the middle of a UTF-8 character, which is common with Chinese text. Pictures, PDF, and audio or video open in a viewer. Anything else that is not text uses Quick Look. Text over 5 MB stays out of the editor and can be handed to the default app. Edits are written back with a coordinated save, in the encoding and line ending the file already used. If the file changes on disk while you have unsaved edits, XYZ asks before overwriting.
 
-Open files stay in a tab bar above the note. A single click replaces the preview tab. Editing, or a double click, pins it. The path is under the tabs, and the status bar shows the caret, encoding, line ending, and file type.
+Open files stay in a tab bar under the title bar, across the editor. A tab shows an icon, the name, and a close button. A single click replaces the preview tab. Editing, or a double click, pins it. A breadcrumb row under the tabs is the path. The status bar runs the full width of the window and shows the caret, encoding, line ending, file type, and Read-only or Editing.
 
 The Mac sandbox already has user-selected read-write and app-scoped bookmark entitlements. Opening a folder stores a security-scoped bookmark in your user defaults (not in the repo) so recent folders can reopen next launch. iPhone and iPad still use the document browser only; the tree model lives in `XYZCore` so a later iOS folder view can reuse it.
 
@@ -156,9 +156,9 @@ A build made with `CODE_SIGNING_ALLOWED=NO` does not embed these entitlements, s
 
 ## Version
 
-XYZ uses MAJOR.MINOR.PATCH. `MARKETING_VERSION` in `Config/Base.xcconfig` is the version shown in About, and `CURRENT_PROJECT_VERSION` is the build number. Those two assignments are the only version source. The target does not set them again, because a value in the project file would override the xcconfig. A small change bumps the last number, a medium change the middle number, and a large or breaking change the first. This release is 0.4.0 (build 15). See `CHANGELOG.md`.
+XYZ uses MAJOR.MINOR.PATCH. `MARKETING_VERSION` in `Config/Base.xcconfig` is the version shown in About, and `CURRENT_PROJECT_VERSION` is the build number. Those two assignments are the only version source. The target does not set them again, because a value in the project file would override the xcconfig. A small change bumps the last number, a medium change the middle number, and a large or breaking change the first. This release is 0.5.0 (build 16). See `CHANGELOG.md`.
 
-About XYZ is a small window titled About XYZ. It shows the app icon, the version line `0.4.0 (15)`, and the credit line. The credit links the name LIZHICHAO to [lizhichao.com](https://lizhichao.com). Esc or ⌘W closes it.
+About XYZ is a small window titled About XYZ. It shows the app icon, the version line `0.5.0 (16)`, and the credit line. The credit links the name LIZHICHAO to [lizhichao.com](https://lizhichao.com). Esc or ⌘W closes it.
 
 ## App icon
 

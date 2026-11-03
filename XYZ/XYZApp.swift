@@ -93,7 +93,7 @@ private struct MacViewCommands: Commands {
             Button("Toggle Sidebar") {
                 EditorCommands.shared.toggleSidebarVisibility(nil)
             }
-            .keyboardShortcut("s", modifiers: [.command, .control])
+            .keyboardShortcut("b", modifiers: .command)
         }
     }
 }
