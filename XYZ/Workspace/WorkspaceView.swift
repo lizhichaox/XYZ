@@ -373,10 +373,11 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
         placeDividers()
     }
 
-    func testingDoubleClick(_ edge: SidebarDivider.Edge) {
-        switch edge {
-        case .left: leftDivider.fitContent()
-        case .right: rightDivider.fitContent()
+    func testingDoubleClick(left: Bool) {
+        if left {
+            leftDivider.fitContent()
+        } else {
+            rightDivider.fitContent()
         }
     }
 

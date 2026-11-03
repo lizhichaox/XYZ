@@ -801,8 +801,8 @@ enum SidebarColumnFitCheck {
             rightFits += 1
             return 240
         }
-        split.testingDoubleClick(.left)
-        split.testingDoubleClick(.right)
+        split.testingDoubleClick(left: true)
+        split.testingDoubleClick(left: false)
         if leftFits != 1 || rightFits != 1 {
             return "divider double-click did not call both fit hooks \(leftFits) \(rightFits)"
         }
