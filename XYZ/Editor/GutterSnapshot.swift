@@ -542,6 +542,9 @@ enum GutterSnapshotCheck {
             if let paneImage = compositedImage(of: pane) {
                 saveShot(paneImage, name: "pane-\(label).png")
             }
+            if let windowImage = compositedImage(of: host) {
+                saveShot(windowImage, name: "window-\(label).png")
+            }
             let recognized = words.range(of: "Glyphsample", options: .caseInsensitive) != nil
                 && words.range(of: "Secondline", options: .caseInsensitive) != nil
             if requireBody {
