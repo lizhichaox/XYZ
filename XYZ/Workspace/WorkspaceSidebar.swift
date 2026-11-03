@@ -468,6 +468,7 @@ struct WorkspaceSidebar: NSViewRepresentable {
             childItems = [:]
             nodeByPath = [:]
             rootRows = []
+            defer { publishPlaceholder(session) }
             guard session.rootExpanded else { return }
             if let error = session.rootError {
                 rootRows = [SidebarMessage(text: error)]
@@ -491,6 +492,24 @@ struct WorkspaceSidebar: NSViewRepresentable {
             }
             fill(nodes: nil, parent: "", highlights: [:], lazy: session, session: session)
             rootRows = childItems[""] ?? []
+        }
+
+        /// A lone status line, or an empty tree, sits in the middle of the list. Nested rows stay put.
+        private func publishPlaceholder(_ session: WorkspaceSession) {
+            guard session.rootExpanded else {
+                column?.setPlaceholder(nil)
+                return
+            }
+            if rootRows.isEmpty {
+                column?.setPlaceholder(String(localized: "No Files"))
+                return
+            }
+            if rootRows.count == 1, let message = rootRows[0] as? SidebarMessage {
+                column?.setPlaceholder(message.text)
+                rootRows = []
+                return
+            }
+            column?.setPlaceholder(nil)
         }
 
         private func fill(
@@ -702,6 +721,7 @@ fileprivate final class SidebarColumnView: NSView {
     let header = SidebarRootHeader()
     let scroll = NSScrollView()
     let outline = SidebarOutlineView()
+    private let placeholder = NSTextField(wrappingLabelWithString: "")
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -728,6 +748,15 @@ fileprivate final class SidebarColumnView: NSView {
         scroll.documentView = outline
         observeClip()
 
+        placeholder.translatesAutoresizingMaskIntoConstraints = false
+        placeholder.alignment = .center
+        placeholder.textColor = .tertiaryLabelColor
+        placeholder.font = .systemFont(ofSize: 12)
+        placeholder.maximumNumberOfLines = 4
+        placeholder.lineBreakMode = .byWordWrapping
+        placeholder.isHidden = true
+        placeholder.setAccessibilityIdentifier("xyz.sidebar.placeholder")
+
         addSubview(explorer)
         addSubview(header)
         addSubview(scroll)
@@ -745,7 +774,21 @@ fileprivate final class SidebarColumnView: NSView {
             scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
             scroll.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+        addSubview(placeholder)
+        NSLayoutConstraint.activate([
+            placeholder.centerXAnchor.constraint(equalTo: scroll.centerXAnchor),
+            placeholder.centerYAnchor.constraint(equalTo: scroll.centerYAnchor),
+            placeholder.leadingAnchor.constraint(greaterThanOrEqualTo: scroll.leadingAnchor, constant: 16),
+            placeholder.trailingAnchor.constraint(lessThanOrEqualTo: scroll.trailingAnchor, constant: -16),
+        ])
         didFinishInit = true
+    }
+
+    func setPlaceholder(_ text: String?) {
+        let next = text ?? ""
+        placeholder.stringValue = next
+        placeholder.isHidden = next.isEmpty
+        placeholder.preferredMaxLayoutWidth = max(0, scroll.bounds.width - 32)
     }
 
     override func viewDidMoveToWindow() {
@@ -778,6 +821,7 @@ fileprivate final class SidebarColumnView: NSView {
     override func layout() {
         super.layout()
         guard didFinishInit else { return }
+        placeholder.preferredMaxLayoutWidth = max(0, scroll.bounds.width - 32)
         fitRowsToSidebar(reason: "layout")
     }
 

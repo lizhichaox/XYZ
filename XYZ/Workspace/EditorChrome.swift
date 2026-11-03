@@ -574,12 +574,11 @@ struct OutlinePane: View {
     var body: some View {
         Group {
             if entries.isEmpty {
-                Text("No Outline")
+                Text(String(localized: "No Outline"))
                     .font(.system(size: 12))
                     .foregroundStyle(.tertiary)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {

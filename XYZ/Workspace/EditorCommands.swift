@@ -146,6 +146,14 @@ final class EditorCommands: NSObject {
 
     private var flagsMonitor: Any?
 
+    /// Option changes the character, so ⌥⌘B is also matched by the physical B key.
+    private func isOptionCommandB(_ event: NSEvent, flags: NSEvent.ModifierFlags) -> Bool {
+        guard flags == [.command, .option] else { return false }
+        if event.keyCode == 11 { return true }
+        if event.charactersIgnoringModifiers?.lowercased() == "b" { return true }
+        return event.characters(byApplyingModifiers: [])?.lowercased() == "b"
+    }
+
     func handleKeyEquivalent(_ event: NSEvent, requireHost: Bool = false) -> Bool {
         if requireHost, hostWindow !== NSApp.keyWindow { return false }
         let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
@@ -162,7 +170,7 @@ final class EditorCommands: NSObject {
             toggleSource(nil)
             return true
         }
-        if flags == [.command, .option] && key.lowercased() == "b" {
+        if isOptionCommandB(event, flags: flags) {
             guard target?.supportsWorkspaceFiles == true else { return false }
             toggleOutline(nil)
             return true
@@ -739,7 +747,7 @@ enum PaletteTitles {
         case "view.reading": return String(localized: "Reading")
         case "view.toggleSource": return String(localized: "Toggle Reading and Editing")
         case "view.goToHeading": return String(localized: "Go to Heading")
-        case "view.outline": return String(localized: "Show Outline")
+        case "view.outline": return String(localized: "Toggle Outline")
         case "workspace.toggleSidebar": return String(localized: "Toggle Sidebar")
         case "workspace.focusFilter": return String(localized: "Find in Files")
         case "file.new": return String(localized: "New File")
@@ -983,7 +991,7 @@ enum EditorMenuSupport {
             ("xyz.lineNumbers", String(localized: "Show Line Numbers in Reading"), "", [], #selector(EditorCommands.toggleLineNumbers(_:))),
             ("xyz.wordWrap", String(localized: "Wrap Lines"), "z", .option, #selector(EditorCommands.toggleWordWrap(_:))),
             ("xyz.wordCount", String(localized: "Show Word Count"), "", [], #selector(EditorCommands.toggleWordCount(_:))),
-            ("xyz.outline", String(localized: "Show Outline"), "b", [.command, .option], #selector(EditorCommands.toggleOutline(_:))),
+            ("xyz.outline", String(localized: "Show/Hide Outline"), "b", [.command, .option], #selector(EditorCommands.toggleOutline(_:))),
         ]
         var previous: NSMenuItem?
         for spec in specs {

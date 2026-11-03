@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.13
+
+- "No Outline" is centered in the outline pane. An empty folder, and the other lone sidebar messages, are centered the same way.
+- View → Show/Hide Outline shows ⌥⌘B. The command palette lists Toggle Outline with the same shortcut. ⌥⌘B toggles the outline from the physical B key as well as the typed character.
+- The title bar keeps one row and adds two icons at the right: the left sidebar (⌘B) and the outline (⌥⌘B). The mark is filled while that sidebar is open. The outline icon is dimmed when the file is not Markdown. Clicking one does not take focus and does not drag the window.
+- Each sidebar edge is a 1px line, light `#E5E5E5` and dark `#2B2B2B`, for the full height between the title bar and the status bar. A 5pt strip on top of the panes shows the resize cursor. After a short hover, and while dragging, the line thickens and turns blue (`#007FD4`), then fades back.
+
 ## 0.5.12
 
 - Sidebar file names use the width of the sidebar. The outline column follows the clip view after it has laid out, including the first layout and every later resize, instead of a 34 point width measured before layout and then held at 80.

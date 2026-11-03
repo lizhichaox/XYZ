@@ -1702,6 +1702,56 @@
         }
       }
     },
+    "Show/Hide Outline": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示或隐藏大纲"
+          }
+        }
+      }
+    },
+    "Toggle Outline": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换大纲"
+          }
+        }
+      }
+    },
+    "Toggle Left Sidebar (⌘B)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换左侧边栏 (⌘B)"
+          }
+        }
+      }
+    },
+    "Toggle Outline (⌥⌘B)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换大纲 (⌥⌘B)"
+          }
+        }
+      }
+    },
+    "No Files": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有文件"
+          }
+        }
+      }
+    },
     "This text can't be stored in that encoding.": {
       "localizations": {
         "zh-Hans": {

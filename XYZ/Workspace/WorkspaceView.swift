@@ -20,7 +20,7 @@ extension FocusedValues {
     }
 }
 
-/// Explorer, editor, and the Markdown outline. Each divider is 6 points to grab and draws as a 1 point line.
+/// Explorer, editor, and the Markdown outline. Each edge is a hairline with a grab strip on top of the panes.
 private struct WorkspaceSplit<Sidebar: View, Detail: View, Outline: View>: NSViewRepresentable {
     var showsSidebar: Bool
     var showsOutline: Bool
@@ -91,22 +91,44 @@ private struct WorkspaceSplit<Sidebar: View, Detail: View, Outline: View>: NSVie
     }
 }
 
-final class XYZSplitView: NSSplitView {
+/// The panes sit in an `NSSplitView` with no divider of its own. The hairlines are separate
+/// views in front of the editor, so a web view or text view cannot take the resize cursor.
+final class XYZSplitView: NSView, NSSplitViewDelegate {
     fileprivate var sidebar: NSView?
     fileprivate var detail: NSView?
     fileprivate var outline: NSView?
     var onOutlineWidth: ((CGFloat) -> Void)?
+    private let panes = PaneSplitView()
+    private let leftDivider = SidebarDivider(edge: .left)
+    private let rightDivider = SidebarDivider(edge: .right)
     private var savedPosition: CGFloat = 260
     private var savedOutline: CGFloat = 220
     private var sidebarShown = true
     private var outlineShown = false
-    private var loggedDivider = NSRect.null
+    private var adjusting = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        isVertical = true
-        dividerStyle = .thin
-        delegate = self
+        panes.isVertical = true
+        panes.dividerStyle = .thin
+        panes.delegate = self
+        panes.autosaveName = nil
+        panes.autoresizingMask = [.width, .height]
+        addSubview(panes)
+        addSubview(leftDivider)
+        addSubview(rightDivider)
+        leftDivider.boundaryX = { [weak self] in
+            self?.sidebar?.frame.maxX ?? 0
+        }
+        leftDivider.moveTo = { [weak self] position in
+            self?.moveDivider(.left, to: position)
+        }
+        rightDivider.boundaryX = { [weak self] in
+            self?.detail?.frame.maxX ?? 0
+        }
+        rightDivider.moveTo = { [weak self] position in
+            self?.moveDivider(.right, to: position)
+        }
     }
 
     @available(*, unavailable)
@@ -114,40 +136,28 @@ final class XYZSplitView: NSSplitView {
         nil
     }
 
-    /// Wide enough to grab. The drawn line stays 1 point.
-    override var dividerThickness: CGFloat { subviews.count > 1 ? 6 : 0 }
-
-    private var adjusting = false
-
     override func layout() {
         super.layout()
-        guard !adjusting, bounds.width > 1 else { return }
+        if panes.frame != bounds {
+            panes.frame = bounds
+        }
+        guard !adjusting, bounds.width > 1 else {
+            placeDividers()
+            return
+        }
         adjusting = true
         if sidebarShown, let sidebar, sidebar.superview != nil, sidebar.frame.width < 200 {
-            let room = bounds.width - (outlineShown ? savedOutline + dividerThickness : 0) - 480
-            setPosition(min(max(savedPosition, 220), max(220, room)), ofDividerAt: 0)
+            let room = bounds.width - (outlineShown ? savedOutline : 0) - 480
+            panes.setPosition(min(max(savedPosition, 220), max(220, room)), ofDividerAt: 0)
         }
         applyOutlineWidthIfNeeded()
         adjusting = false
+        placeDividers()
     }
 
-    override func drawDivider(in rect: NSRect) {
-        NSColor.separatorColor.setFill()
-        NSRect(x: rect.midX - 0.5, y: rect.minY, width: 1, height: rect.height).fill()
-    }
-
-    override func resetCursorRects() {
-        super.resetCursorRects()
-        guard subviews.count > 1, dividerThickness > 0 else { return }
-        for index in 0..<(subviews.count - 1) {
-            let left = subviews[index].frame
-            let rect = NSRect(x: left.maxX, y: 0, width: dividerThickness, height: bounds.height)
-            addCursorRect(rect, cursor: .resizeLeftRight)
-            if index == 0, abs(rect.origin.x - loggedDivider.origin.x) > 0.5 {
-                loggedDivider = rect
-                XYZDiagnostics.note(String(format: "divider frame=(%.1f,%.1f %.1fx%.1f) cursor=resizeLeftRight", rect.origin.x, rect.origin.y, rect.width, rect.height))
-            }
-        }
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        invalidateDividerCursors()
     }
 
     func install(
@@ -176,19 +186,18 @@ final class XYZSplitView: NSSplitView {
         sidebarShown = shown
         rebuild()
         applyPositions()
-        window?.invalidateCursorRects(for: self)
     }
 
     func setOutline(shown: Bool, width: CGFloat) {
         savedOutline = width
         guard shown != outlineShown else {
             applyOutlineWidthIfNeeded()
+            placeDividers()
             return
         }
         outlineShown = shown
         rebuild()
         applyPositions()
-        window?.invalidateCursorRects(for: self)
     }
 
     private func rebuild() {
@@ -196,50 +205,122 @@ final class XYZSplitView: NSSplitView {
         detail?.removeFromSuperview()
         outline?.removeFromSuperview()
         if sidebarShown, let sidebar {
-            addSubview(sidebar)
+            panes.addSubview(sidebar)
         }
         if let detail {
-            addSubview(detail)
+            panes.addSubview(detail)
         }
         if outlineShown, let outline {
-            addSubview(outline)
+            panes.addSubview(outline)
         }
+        placeDividers()
     }
 
     private func applyPositions() {
-        if sidebarShown, subviews.count > 1, subviews[0] === sidebar {
-            let room = bounds.width - (outlineShown ? savedOutline + dividerThickness : 0) - 480
+        guard bounds.width > 1 else { return }
+        if sidebarShown, panes.subviews.count > 1, panes.subviews[0] === sidebar {
+            let room = bounds.width - (outlineShown ? savedOutline : 0) - 480
             let position = min(max(savedPosition, 220), max(220, room))
-            setPosition(position, ofDividerAt: 0)
+            panes.setPosition(position, ofDividerAt: 0)
         }
         applyOutlineWidthIfNeeded()
+        placeDividers()
     }
 
     private func applyOutlineWidthIfNeeded() {
         guard outlineShown, let outline, outline.superview != nil, bounds.width > 1 else { return }
-        let index = subviews.count - 2
+        let index = panes.subviews.count - 2
         guard index >= 0 else { return }
-        let target = bounds.width - savedOutline - dividerThickness
+        let target = bounds.width - savedOutline
         if abs(outline.frame.width - savedOutline) > 2 {
-            setPosition(target, ofDividerAt: index)
+            panes.setPosition(target, ofDividerAt: index)
         }
     }
 
-    fileprivate func isRightDivider(_ dividerIndex: Int) -> Bool {
-        outlineShown && dividerIndex == subviews.count - 2
+    private func moveDivider(_ edge: SidebarDivider.Edge, to position: CGFloat) {
+        let index: Int
+        switch edge {
+        case .left:
+            guard sidebarShown, panes.subviews.count > 1 else { return }
+            index = 0
+        case .right:
+            guard outlineShown else { return }
+            index = panes.subviews.count - 2
+            guard index >= 0 else { return }
+        }
+        let lower = splitView(panes, constrainMinCoordinate: position, ofSubviewAt: index)
+        let upper = splitView(panes, constrainMaxCoordinate: position, ofSubviewAt: index)
+        let clamped = min(max(position, lower), max(lower, upper))
+        adjusting = true
+        panes.setPosition(clamped, ofDividerAt: index)
+        adjusting = false
+        sidebar?.layoutSubtreeIfNeeded()
+        detail?.layoutSubtreeIfNeeded()
+        outline?.layoutSubtreeIfNeeded()
+        placeDividers()
     }
-}
 
-extension XYZSplitView: NSSplitViewDelegate {
+    private func placeDividers() {
+        let children = panes.subviews
+        if sidebarShown, children.count > 1, children[0] === sidebar {
+            let boundary = panes.convert(NSPoint(x: children[0].frame.maxX, y: 0), to: self).x
+            place(leftDivider, at: boundary)
+            leftDivider.isHidden = false
+        } else if !leftDivider.isHidden {
+            leftDivider.isHidden = true
+            window?.invalidateCursorRects(for: leftDivider)
+        }
+        if outlineShown, children.count > 1 {
+            let index = children.count - 2
+            let boundary = panes.convert(NSPoint(x: children[index].frame.maxX, y: 0), to: self).x
+            place(rightDivider, at: boundary)
+            rightDivider.isHidden = false
+        } else if !rightDivider.isHidden {
+            rightDivider.isHidden = true
+            window?.invalidateCursorRects(for: rightDivider)
+        }
+        bringDividersToFront()
+    }
+
+    private func place(_ divider: SidebarDivider, at boundary: CGFloat) {
+        let width = SidebarDivider.hitWidth
+        let frame = NSRect(x: boundary - width / 2, y: 0, width: width, height: bounds.height)
+        let same = abs(divider.frame.origin.x - frame.origin.x) < 0.5
+            && abs(divider.frame.size.height - frame.size.height) < 0.5
+            && abs(divider.frame.size.width - frame.size.width) < 0.5
+        if !same {
+            divider.frame = frame
+            window?.invalidateCursorRects(for: divider)
+        }
+    }
+
+    private func bringDividersToFront() {
+        let front = subviews.suffix(2)
+        let already = front.contains(where: { $0 === leftDivider }) && front.contains(where: { $0 === rightDivider })
+        if already { return }
+        addSubview(leftDivider)
+        addSubview(rightDivider)
+    }
+
+    private func invalidateDividerCursors() {
+        guard let window else { return }
+        window.invalidateCursorRects(for: leftDivider)
+        window.invalidateCursorRects(for: rightDivider)
+    }
+
+    private func isRightDivider(_ dividerIndex: Int, in splitView: NSSplitView) -> Bool {
+        outlineShown && dividerIndex == splitView.subviews.count - 2
+    }
+
     func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
-        if isRightDivider(dividerIndex) {
+        if isRightDivider(dividerIndex, in: splitView) {
             return sidebarShown ? 220 + 480 : 480
         }
         return 220
     }
 
     func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
-        if isRightDivider(dividerIndex) {
+        if isRightDivider(dividerIndex, in: splitView) {
             return max(480, splitView.bounds.width - 160)
         }
         let reserve: CGFloat = outlineShown ? 160 : 0
@@ -266,6 +347,172 @@ extension XYZSplitView: NSSplitViewDelegate {
         if sidebarShown, let sidebar, sidebar.superview != nil {
             savedPosition = sidebar.frame.width
         }
+    }
+}
+
+/// No system divider. The overlay views draw and drag the edges.
+private final class PaneSplitView: NSSplitView {
+    override var dividerThickness: CGFloat { 0 }
+    override func drawDivider(in rect: NSRect) {}
+    override func resetCursorRects() {}
+}
+
+private enum SidebarDividerColor {
+    static var separator: NSColor {
+        NSColor(name: nil, dynamicProvider: { appearance in
+            if appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua {
+                return NSColor(srgbRed: 43 / 255, green: 43 / 255, blue: 43 / 255, alpha: 1)
+            }
+            return NSColor(srgbRed: 229 / 255, green: 229 / 255, blue: 229 / 255, alpha: 1)
+        })
+    }
+
+    /// VS Code `focusBorder` (#007FD4).
+    static let accent = NSColor(srgbRed: 0, green: 127 / 255, blue: 212 / 255, alpha: 1)
+}
+
+/// A 5pt grab strip. The resting mark is one pixel. Hover and drag thicken it in the sash blue.
+private final class SidebarDivider: NSView {
+    enum Edge: String { case left, right }
+    static let hitWidth: CGFloat = 5
+
+    let edge: Edge
+    var boundaryX: () -> CGFloat = { 0 }
+    var moveTo: (CGFloat) -> Void = { _ in }
+
+    private let hairline = CALayer()
+    private let accent = CALayer()
+    private var tracking: NSTrackingArea?
+    private var inside = false
+    private var dragging = false
+    private var highlighted = false
+    private var hoverToken = 0
+    private var lastCursorLog = Date.distantPast
+
+    init(edge: Edge) {
+        self.edge = edge
+        super.init(frame: .zero)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.clear.cgColor
+        accent.opacity = 0
+        layer?.addSublayer(hairline)
+        layer?.addSublayer(accent)
+        setAccessibilityIdentifier("xyz.divider.\(edge.rawValue)")
+        updateColors()
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override var isOpaque: Bool { false }
+    override var mouseDownCanMoveWindow: Bool { false }
+    override var acceptsFirstResponder: Bool { false }
+
+    override func layout() {
+        super.layout()
+        let scale = window?.backingScaleFactor ?? 2
+        let hair = 1 / scale
+        let mid = (bounds.midX * scale).rounded() / scale
+        hairline.frame = CGRect(x: mid - hair / 2, y: 0, width: hair, height: bounds.height)
+        let thick: CGFloat = 3
+        accent.frame = CGRect(x: bounds.midX - thick / 2, y: 0, width: thick, height: bounds.height)
+        updateColors()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateColors()
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let tracking {
+            removeTrackingArea(tracking)
+        }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .cursorUpdate, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        tracking = area
+        addTrackingArea(area)
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: .resizeLeftRight)
+    }
+
+    override func cursorUpdate(with event: NSEvent) {
+        NSCursor.resizeLeftRight.set()
+        let now = Date()
+        if now.timeIntervalSince(lastCursorLog) > 0.4 {
+            lastCursorLog = now
+            XYZDiagnostics.note("divider cursorUpdate edge=\(edge.rawValue)")
+        }
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        NSCursor.resizeLeftRight.set()
+        inside = true
+        XYZDiagnostics.note("divider enter edge=\(edge.rawValue)")
+        scheduleHover()
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        inside = false
+        hoverToken += 1
+        XYZDiagnostics.note("divider exit edge=\(edge.rawValue)")
+        if !dragging {
+            setHighlight(on: false, reason: "exit")
+        }
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        hoverToken += 1
+        dragging = true
+        setHighlight(on: true, reason: "drag")
+        NSCursor.resizeLeftRight.set()
+        let startX = event.locationInWindow.x
+        let start = boundaryX()
+        while let next = window?.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
+            NSCursor.resizeLeftRight.set()
+            moveTo(start + (next.locationInWindow.x - startX))
+            if next.type == .leftMouseUp { break }
+        }
+        dragging = false
+        setHighlight(on: false, reason: "dragEnd")
+        if inside {
+            scheduleHover()
+        }
+    }
+
+    private func scheduleHover() {
+        hoverToken += 1
+        let token = hoverToken
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
+            guard let self, self.hoverToken == token, self.inside, !self.dragging else { return }
+            self.setHighlight(on: true, reason: "hover")
+        }
+    }
+
+    private func setHighlight(on: Bool, reason: String) {
+        guard on != highlighted else { return }
+        highlighted = on
+        XYZDiagnostics.note("divider highlight edge=\(edge.rawValue) on=\(on) reason=\(reason)")
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(0.18)
+        accent.opacity = on ? 1 : 0
+        CATransaction.commit()
+    }
+
+    private func updateColors() {
+        let appearance = effectiveAppearance
+        hairline.backgroundColor = SidebarDividerColor.separator.resolvedColor(with: appearance).cgColor
+        accent.backgroundColor = SidebarDividerColor.accent.cgColor
     }
 }
 
@@ -325,7 +572,14 @@ struct WorkspaceView: View {
         .background(WorkspaceWindowChrome(
             title: titleText,
             representedFile: session.buffer?.url,
-            titlebarInset: $titlebarInset
+            sidebarShown: columnVisibility != .detailOnly,
+            outlineShown: showsMarkdownOutline,
+            outlineEnabled: outlineToggleEnabled,
+            titlebarInset: $titlebarInset,
+            onToggleSidebar: {
+                columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
+            },
+            onToggleOutline: { session.toggleOutlinePane() }
         ))
         .background(
             EditorCommandAnchor(target: commands) {
@@ -389,6 +643,11 @@ struct WorkspaceView: View {
         return "\(file) — \(folder)"
     }
 
+    private var outlineToggleEnabled: Bool {
+        guard let path = session.buffer?.relativePath else { return false }
+        return FileFormats.format(for: path).language == .markdown
+    }
+
     /// The right outline is only for a Markdown file, and only when this window left it open.
     private var showsMarkdownOutline: Bool {
         guard session.outlineVisible, let path = session.buffer?.relativePath else { return false }
@@ -416,35 +675,48 @@ struct WorkspaceView: View {
 private struct WorkspaceWindowChrome: NSViewRepresentable {
     var title: String
     var representedFile: URL?
+    var sidebarShown: Bool
+    var outlineShown: Bool
+    var outlineEnabled: Bool
     @Binding var titlebarInset: CGFloat
+    var onToggleSidebar: () -> Void
+    var onToggleOutline: () -> Void
 
     func makeNSView(context: Context) -> WorkspaceChromeView {
         let view = WorkspaceChromeView()
-        view.title = title
-        view.representedFile = representedFile
-        view.onTitlebarInset = { inset in
-            if abs(titlebarInset - inset) > 0.5 {
-                titlebarInset = inset
-            }
-        }
+        apply(to: view)
         return view
     }
 
     func updateNSView(_ view: WorkspaceChromeView, context: Context) {
+        apply(to: view)
+        view.apply()
+    }
+
+    private func apply(to view: WorkspaceChromeView) {
         view.title = title
         view.representedFile = representedFile
+        view.sidebarShown = sidebarShown
+        view.outlineShown = outlineShown
+        view.outlineEnabled = outlineEnabled
+        view.onToggleSidebar = onToggleSidebar
+        view.onToggleOutline = onToggleOutline
         view.onTitlebarInset = { inset in
             if abs(titlebarInset - inset) > 0.5 {
                 titlebarInset = inset
             }
         }
-        view.apply()
     }
 }
 
 final class WorkspaceChromeView: NSView {
     var title = ""
     var representedFile: URL?
+    var sidebarShown = true
+    var outlineShown = false
+    var outlineEnabled = false
+    var onToggleSidebar: () -> Void = {}
+    var onToggleOutline: () -> Void = {}
     var onTitlebarInset: (CGFloat) -> Void = { _ in }
     private let titles = TitlebarTitleInstaller()
 
@@ -478,6 +750,13 @@ final class WorkspaceChromeView: NSView {
         guard let window else { return }
         WorkspaceChrome.apply(to: window, title: title, subtitle: "", representedFile: representedFile)
         titles.install(in: window, title: title)
+        titles.updateToggles(
+            sidebarShown: sidebarShown,
+            outlineShown: outlineShown,
+            outlineEnabled: outlineEnabled,
+            onSidebar: onToggleSidebar,
+            onOutline: onToggleOutline
+        )
         let overlap = titles.overlap(in: window)
         onTitlebarInset(overlap)
     }
@@ -490,6 +769,7 @@ final class WorkspaceChromeView: NSView {
 /// material does not paint. This label is a subview of the title bar, so it does.
 final class TitlebarTitleInstaller {
     private let label = TitlebarTitleLabel(labelWithString: "")
+    private let toggles = TitlebarLayoutToggles()
 
     init() {
         label.font = .systemFont(ofSize: 12, weight: .regular)
@@ -508,15 +788,21 @@ final class TitlebarTitleInstaller {
     func install(in window: NSWindow, title: String) {
         guard let close = window.standardWindowButton(.closeButton),
               let bar = close.superview else { return }
-        if label.superview !== bar {
+        if label.superview !== bar || toggles.superview !== bar {
             NSLayoutConstraint.deactivate(constraints)
             label.removeFromSuperview()
+            toggles.removeFromSuperview()
             bar.addSubview(label, positioned: .below, relativeTo: close)
+            bar.addSubview(toggles)
+            let center = label.centerXAnchor.constraint(equalTo: bar.centerXAnchor)
+            center.priority = .defaultHigh
             constraints = [
-                label.centerXAnchor.constraint(equalTo: bar.centerXAnchor),
+                center,
                 label.centerYAnchor.constraint(equalTo: close.centerYAnchor),
                 label.leadingAnchor.constraint(greaterThanOrEqualTo: bar.leadingAnchor, constant: 78),
-                label.trailingAnchor.constraint(lessThanOrEqualTo: bar.trailingAnchor, constant: -78),
+                label.trailingAnchor.constraint(lessThanOrEqualTo: toggles.leadingAnchor, constant: -8),
+                toggles.trailingAnchor.constraint(equalTo: bar.trailingAnchor, constant: -10),
+                toggles.centerYAnchor.constraint(equalTo: close.centerYAnchor),
             ]
             NSLayoutConstraint.activate(constraints)
         }
@@ -528,6 +814,22 @@ final class TitlebarTitleInstaller {
         if kept.count != accessories.count {
             window.titlebarAccessoryViewControllers = kept
         }
+    }
+
+    func updateToggles(
+        sidebarShown: Bool,
+        outlineShown: Bool,
+        outlineEnabled: Bool,
+        onSidebar: @escaping () -> Void,
+        onOutline: @escaping () -> Void
+    ) {
+        toggles.update(
+            sidebarShown: sidebarShown,
+            outlineShown: outlineShown,
+            outlineEnabled: outlineEnabled,
+            onSidebar: onSidebar,
+            onOutline: onOutline
+        )
     }
 
     /// How far the content view extends up into the title-bar row.
@@ -562,6 +864,163 @@ final class TitlebarTitleInstaller {
 final class TitlebarTitleLabel: NSTextField {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override var acceptsFirstResponder: Bool { false }
+}
+
+/// Left sidebar, then outline, at the trailing end of the title-bar row.
+final class TitlebarLayoutToggles: NSView {
+    private let left = TitlebarToggleButton(side: .left)
+    private let right = TitlebarToggleButton(side: .right)
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        translatesAutoresizingMaskIntoConstraints = false
+        left.translatesAutoresizingMaskIntoConstraints = false
+        right.translatesAutoresizingMaskIntoConstraints = false
+        left.toolTip = String(localized: "Toggle Left Sidebar (⌘B)")
+        right.toolTip = String(localized: "Toggle Outline (⌥⌘B)")
+        left.setAccessibilityLabel(left.toolTip)
+        right.setAccessibilityLabel(right.toolTip)
+        addSubview(left)
+        addSubview(right)
+        NSLayoutConstraint.activate([
+            left.leadingAnchor.constraint(equalTo: leadingAnchor),
+            left.topAnchor.constraint(equalTo: topAnchor),
+            left.bottomAnchor.constraint(equalTo: bottomAnchor),
+            left.widthAnchor.constraint(equalToConstant: 22),
+            left.heightAnchor.constraint(equalToConstant: 22),
+            right.leadingAnchor.constraint(equalTo: left.trailingAnchor, constant: 2),
+            right.trailingAnchor.constraint(equalTo: trailingAnchor),
+            right.centerYAnchor.constraint(equalTo: left.centerYAnchor),
+            right.widthAnchor.constraint(equalToConstant: 22),
+            right.heightAnchor.constraint(equalToConstant: 22),
+        ])
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    func update(
+        sidebarShown: Bool,
+        outlineShown: Bool,
+        outlineEnabled: Bool,
+        onSidebar: @escaping () -> Void,
+        onOutline: @escaping () -> Void
+    ) {
+        left.filled = sidebarShown
+        left.onClick = onSidebar
+        right.filled = outlineShown
+        right.isToggleEnabled = outlineEnabled
+        right.onClick = onOutline
+        left.needsDisplay = true
+        right.needsDisplay = true
+    }
+}
+
+/// Borderless title-bar icon. A filled pane means that sidebar is open.
+final class TitlebarToggleButton: NSView {
+    enum Side { case left, right }
+
+    var side: Side = .left
+    var filled = true
+    var isToggleEnabled = true
+    var onClick: () -> Void = {}
+
+    private var hovered = false
+    private var tracking: NSTrackingArea?
+
+    init(side: Side) {
+        self.side = side
+        super.init(frame: .zero)
+        setAccessibilityRole(.button)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override var isOpaque: Bool { false }
+    override var mouseDownCanMoveWindow: Bool { false }
+    override var acceptsFirstResponder: Bool { false }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let tracking { removeTrackingArea(tracking) }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        tracking = area
+        addTrackingArea(area)
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        hovered = true
+        needsDisplay = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        hovered = false
+        needsDisplay = true
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let wasKey = window?.isKeyWindow == true
+        let responder = window?.firstResponder
+        guard let window else { return }
+        var inside = true
+        while let next = window.nextEvent(matching: [.leftMouseDragged, .leftMouseUp]) {
+            inside = bounds.contains(convert(next.locationInWindow, from: nil))
+            if isToggleEnabled {
+                hovered = inside
+                needsDisplay = true
+            }
+            if next.type == .leftMouseUp { break }
+        }
+        hovered = false
+        needsDisplay = true
+        if inside, isToggleEnabled {
+            onClick()
+        }
+        if wasKey, let responder, window.firstResponder !== responder {
+            window.makeFirstResponder(responder)
+        }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let color: NSColor
+        if !isToggleEnabled {
+            color = .secondaryLabelColor.withAlphaComponent(0.35)
+        } else if hovered {
+            color = .secondaryLabelColor.blended(withFraction: 0.55, of: .labelColor) ?? .labelColor
+        } else {
+            color = .secondaryLabelColor
+        }
+        color.set()
+        let icon = NSRect(x: bounds.midX - 7, y: bounds.midY - 5, width: 14, height: 10)
+        let outer = NSBezierPath(roundedRect: icon, xRadius: 2, yRadius: 2)
+        let paneWidth: CGFloat = 4.5
+        let paneX = side == .left ? icon.minX : icon.maxX - paneWidth
+        let pane = NSRect(x: paneX, y: icon.minY, width: paneWidth, height: icon.height)
+        if filled {
+            NSGraphicsContext.current?.saveGraphicsState()
+            outer.addClip()
+            pane.fill()
+            NSGraphicsContext.current?.restoreGraphicsState()
+        }
+        outer.lineWidth = 1
+        outer.stroke()
+        let dividerX = side == .left ? icon.minX + paneWidth : icon.maxX - paneWidth
+        let divider = NSBezierPath()
+        divider.move(to: NSPoint(x: dividerX, y: icon.minY + 1))
+        divider.line(to: NSPoint(x: dividerX, y: icon.maxY - 1))
+        divider.lineWidth = 1
+        divider.stroke()
+    }
 }
 
 enum WorkspaceChrome {
