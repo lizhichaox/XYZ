@@ -74,6 +74,22 @@ jobs:
             CODE_SIGN_IDENTITY=- \
             build
 
+      - name: XCUI click smoke
+        if: steps.macos.conclusion == 'success'
+        run: |
+          set -euo pipefail
+          xcodebuild test \
+            -project XYZ.xcodeproj \
+            -scheme XYZUISmoke \
+            -destination 'platform=macOS' \
+            -configuration Debug \
+            -derivedDataPath build/uismoke \
+            CODE_SIGNING_ALLOWED=YES \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=- \
+            DEVELOPMENT_TEAM= \
+            -only-testing:XYZUISmoke/ClickSmokeTests/testEditMenuClick
+
       - name: Check Editing line numbers
         if: steps.macos.conclusion == 'success'
         run: |
