@@ -359,7 +359,13 @@ struct EditorStatusBar: View {
     var body: some View {
         HStack(spacing: 0) {
             if let caret {
-                statusText(position(caret))
+                Button {
+                    EditorCommands.shared.goToLine(nil)
+                } label: {
+                    statusText(position(caret))
+                }
+                .buttonStyle(.plain)
+                .help(String(localized: "Go to Line"))
                 if let selection = selection(caret) {
                     separator
                     statusText(selection)
@@ -494,7 +500,13 @@ struct ScrollElasticityNone: NSViewRepresentable {
 /// Headings, JSON keys, or declarations for the open file. View → Show Outline.
 struct OutlinePane: View {
     var entries: [OutlineEntry]
+    var currentLine: Int = 0
     var choose: (Int) -> Void
+
+    private var activeID: String? {
+        guard currentLine > 0 else { return nil }
+        return entries.last(where: { $0.line <= currentLine })?.id
+    }
 
     var body: some View {
         Group {
@@ -506,29 +518,38 @@ struct OutlinePane: View {
                     .padding(.vertical, 8)
                     .frame(maxWidth: .infinity, alignment: .leading)
             } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(entries) { entry in
-                            Button {
-                                choose(entry.line)
-                            } label: {
-                                Text(entry.title)
-                                    .font(.system(size: 12))
-                                    .foregroundStyle(.primary)
-                                    .lineLimit(1)
-                                    .truncationMode(.tail)
-                                    .padding(.leading, 12 + CGFloat(min(entry.depth, 6)) * 12)
-                                    .padding(.trailing, 10)
-                                    .frame(maxWidth: .infinity, minHeight: 22, alignment: .leading)
+                ScrollViewReader { proxy in
+                    ScrollView {
+                        LazyVStack(alignment: .leading, spacing: 0) {
+                            ForEach(entries) { entry in
+                                let active = entry.id == activeID
+                                Button {
+                                    choose(entry.line)
+                                } label: {
+                                    Text(entry.title)
+                                        .font(.system(size: 12, weight: active ? .semibold : .regular))
+                                        .foregroundStyle(.primary)
+                                        .lineLimit(1)
+                                        .truncationMode(.tail)
+                                        .padding(.leading, 12 + CGFloat(min(entry.depth, 6)) * 12)
+                                        .padding(.trailing, 10)
+                                        .frame(maxWidth: .infinity, minHeight: 22, alignment: .leading)
+                                        .background(active ? Color.primary.opacity(0.12) : Color.clear)
+                                }
+                                .buttonStyle(.plain)
+                                .id(entry.id)
+                                .help(String(format: String(localized: "Ln %lld, Col %lld"), Int64(entry.line), Int64(1)))
                             }
-                            .buttonStyle(.plain)
-                            .help(String(format: String(localized: "Ln %lld, Col %lld"), Int64(entry.line), Int64(1)))
                         }
+                        .padding(.bottom, 8)
                     }
-                    .padding(.bottom, 8)
+                    .scrollBounceBehavior(.basedOnSize)
+                    .background(ScrollElasticityNone())
+                    .onChange(of: activeID) { _, id in
+                        guard let id else { return }
+                        proxy.scrollTo(id, anchor: .center)
+                    }
                 }
-                .scrollBounceBehavior(.basedOnSize)
-                .background(ScrollElasticityNone())
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -588,7 +609,7 @@ struct SidebarOutlineDock: View {
             .buttonStyle(.plain)
             .accessibilityLabel(String(localized: "Outline"))
             if shown {
-                OutlinePane(entries: outline.entries) { line in
+                OutlinePane(entries: outline.entries, currentLine: session.caret.line) { line in
                     session.scrollLink.revealLine(line)
                 }
                 .frame(height: 180)

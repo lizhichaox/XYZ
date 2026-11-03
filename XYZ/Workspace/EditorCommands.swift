@@ -176,6 +176,10 @@ final class EditorCommands: NSObject {
             zoomOut(nil)
             return true
         }
+        if flags == .option && key.lowercased() == "z" {
+            toggleWordWrap(nil)
+            return true
+        }
         if flags == .command && key == "0" {
             actualSize(nil)
             return true
@@ -969,7 +973,7 @@ enum EditorMenuSupport {
             ("xyz.zoomOut", String(localized: "Zoom Out"), "-", .command, #selector(EditorCommands.zoomOut(_:))),
             ("xyz.actualSize", String(localized: "Actual Size"), "0", .command, #selector(EditorCommands.actualSize(_:))),
             ("xyz.lineNumbers", String(localized: "Show Line Numbers in Reading"), "", [], #selector(EditorCommands.toggleLineNumbers(_:))),
-            ("xyz.wordWrap", String(localized: "Wrap Lines"), "", [], #selector(EditorCommands.toggleWordWrap(_:))),
+            ("xyz.wordWrap", String(localized: "Wrap Lines"), "z", .option, #selector(EditorCommands.toggleWordWrap(_:))),
             ("xyz.wordCount", String(localized: "Show Word Count"), "", [], #selector(EditorCommands.toggleWordCount(_:))),
             ("xyz.outline", String(localized: "Show Outline"), "", [], #selector(EditorCommands.toggleOutline(_:))),
         ]

@@ -127,7 +127,7 @@ public struct PaletteCommand: Equatable, Sendable, Identifiable {
         PaletteCommand(id: "file.revealInSidebar", title: "Reveal Active File", keywords: ["sidebar", "reveal", "active"]),
         PaletteCommand(id: "view.goToLine", title: "Go to Line", shortcut: "⌃G", keywords: ["line", "column", "jump"]),
         PaletteCommand(id: "tab.reopen", title: "Reopen Closed Tab", shortcut: "⇧⌘T", keywords: ["reopen", "undo", "close"]),
-        PaletteCommand(id: "view.wordWrap", title: "Wrap Lines", keywords: ["wrap", "word"]),
+        PaletteCommand(id: "view.wordWrap", title: "Wrap Lines", shortcut: "⌥Z", keywords: ["wrap", "word"]),
         PaletteCommand(id: "file.copyPath", title: "Copy Path", keywords: ["path", "clipboard"]),
         PaletteCommand(id: "file.copyRelativePath", title: "Copy Relative Path", keywords: ["path", "relative", "clipboard"]),
         PaletteCommand(id: "tab.close", title: "Close Tab", shortcut: "⌘W", keywords: ["close", "tab"]),

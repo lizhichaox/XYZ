@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.4
+
+- ⌥Z wraps lines. The outline follows the caret and scrolls the current heading into view. The line and column in the status bar open Go to Line.
+
 ## 0.5.3
 
 - Reading shows a callout for a quote that starts with `[!note]` or `[!warning] Title`, a compact properties block for leading front matter, and turns `[[wiki links]]` into links to the named note. Code stays literal.
