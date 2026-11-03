@@ -292,6 +292,8 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
             if controller(for: window) != nil { continue }
             if window.isVisible { continue }
             if EscapeKey.isRegistered(window) { continue }
+            if systemWindowReason(window) != nil { continue }
+            if window.alphaValue == 0 { continue }
             window.close()
         }
         closePhantomWindows()
@@ -300,8 +302,8 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
     private static var phantomObservers: [NSObjectProtocol] = []
     private static var closingPhantoms = false
 
-    /// SwiftUI used to realize Settings as a hidden 500×500 window after launch. Close that
-    /// size if it still appears, including one restored a moment later.
+    /// SwiftUI used to realize Settings as a visible 500×500 window. Later passes stop once
+    /// nothing of ours qualifies. `TUINSWindow` is the system text-input window and is left alone.
     static func installPhantomGuard() {
         guard phantomObservers.isEmpty else { return }
         let center = NotificationCenter.default
@@ -318,23 +320,36 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
                 }
             })
         }
-        for delay in [0.4, 1.5, 4.0, 8.0, 15.0, 30.0] {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                MainActor.assumeIsolated { () -> Void in
-                    closePhantomWindows(includeVisible: true)
-                    XYZDiagnostics.dump(reason: "phantom+\(delay)s")
-                }
+        phantomGeneration += 1
+        schedulePhantomPass(generation: phantomGeneration, index: 0)
+    }
+
+    private static let phantomDelays: [Double] = [0.4, 1.5, 4, 8, 15, 30]
+    private static var phantomGeneration = 0
+
+    private static func schedulePhantomPass(generation: Int, index: Int) {
+        guard phantomDelays.indices.contains(index) else { return }
+        let wait = index == 0 ? phantomDelays[0] : phantomDelays[index] - phantomDelays[index - 1]
+        DispatchQueue.main.asyncAfter(deadline: .now() + wait) {
+            MainActor.assumeIsolated { () -> Void in
+                guard generation == phantomGeneration else { return }
+                let found = closePhantomWindows(includeVisible: true)
+                XYZDiagnostics.dump(reason: "phantom+\(phantomDelays[index])s")
+                guard found > 0 else { return }
+                schedulePhantomPass(generation: generation, index: index + 1)
             }
         }
     }
 
     /// A window still at SwiftUI's default 500×500 frame. A document the user is using has already
     /// been resized to the screen, so a later pass can also drop a visible one left at that size.
-    private static func closePhantomWindows(includeVisible: Bool = false) {
-        if closingPhantoms || NSApp.isHidden { return }
+    @discardableResult
+    private static func closePhantomWindows(includeVisible: Bool = false) -> Int {
+        if closingPhantoms || NSApp.isHidden { return 0 }
         closingPhantoms = true
         defer { closingPhantoms = false }
-        for window in NSApp.windows where isPhantom(window, includeVisible: includeVisible) {
+        let targets = NSApp.windows.filter { isPhantom($0, includeVisible: includeVisible) }
+        for window in targets {
             window.isRestorable = false
             window.alphaValue = 0
             window.orderOut(nil)
@@ -347,6 +362,7 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
             let still = NSApp.windows.contains { $0 === window }
             XYZDiagnostics.note("closed phantom class=\(String(describing: type(of: window))) title=\(window.title) stillListed=\(still)")
         }
+        return targets.count
     }
 
     static func phantomReason(_ window: NSWindow) -> String {
@@ -361,6 +377,8 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
         if window.isMiniaturized { return (false, "miniaturized") }
         if controller(for: window) != nil { return (false, "workspace") }
         if isAuxiliary(window) { return (false, "auxiliary") }
+        if let reason = systemWindowReason(window) { return (false, reason) }
+        if !window.isVisible || window.alphaValue == 0 { return (false, "not shown") }
         let size = window.frame.size
         let content = window.contentRect(forFrameRect: window.frame).size
         let defaultSquare = near(size.width, 500) && near(size.height, 500)
@@ -372,18 +390,16 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
         if window is NSPanel { return (false, "panel") }
         let document = NSDocumentController.shared.document(for: window)
         let untitledDocument = document != nil && document?.fileURL == nil
-        let blankTitle = window.title.isEmpty || window.title == "Untitled"
-        if !window.isVisible {
-            if FolderOpening.keepsNewDocument { return (false, "hidden during File → New") }
-            if untitledDocument { return (true, "hidden untitled document") }
-            if blankTitle, let screen = window.screen ?? NSScreen.main, window.frame.equalTo(screen.visibleFrame) {
-                return (true, "hidden full-screen untitled")
-            }
-            return (false, "hidden other")
-        }
         if window.isKeyWindow || window.isMainWindow { return (false, "key or main") }
         if includeVisible && untitledDocument { return (false, "visible untitled kept") }
         return (false, "visible other")
+    }
+
+    /// `TUINSWindow` is macOS text input. Closing it does nothing and it is not one of our windows.
+    private static func systemWindowReason(_ window: NSWindow) -> String? {
+        let name = String(describing: type(of: window))
+        if name == "NSWindow" || name == "NSPanel" { return nil }
+        return "system \(name)"
     }
 
     /// Find in Files and the command palette are reused panels. They are not documents.
