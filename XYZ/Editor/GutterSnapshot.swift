@@ -29,13 +29,8 @@ enum GutterSnapshotCheck {
             print("GUTTER_PROD_NOTE \(production)")
             fflush(stdout)
         }
-        // Line-number and sidebar-fit checks stay in the log. They are not the content gate.
         let sidebar = SidebarColumnFitCheck.run()
-        if let sidebar {
-            print("GUTTER_SIDEBAR_NOTE \(sidebar)")
-            fflush(stdout)
-        }
-        let failure = rendered ?? wrapped ?? reading ?? aligned ?? windowed ?? SearchTypingCheck.run() ?? EscapeCrashCheck.run()
+        let failure = rendered ?? wrapped ?? reading ?? aligned ?? production ?? windowed ?? SearchTypingCheck.run() ?? EscapeCrashCheck.run() ?? sidebar
         stage("done")
         if let failure {
             print("GUTTER_MISSING \(failure)")
@@ -552,6 +547,7 @@ enum GutterSnapshotCheck {
                 }
             }
         }
+        if let failure = renderLongScroll() { failures.append(failure) }
         if let failure = renderSwitchedFile() { failures.append(failure) }
         if let failure = renderDocumentWindow(
             fixture: "",
@@ -732,6 +728,15 @@ enum GutterSnapshotCheck {
                     print("GUTTER_CHECK label=\(label) scroll=fail \(scroll)")
                     issues.append("window \(label): \(scroll)")
                 }
+                if let screen, let gutterImage = cropWindowImage(screen, view: pane.gutter, window: window) {
+                    let gutterInk = inkCount(gutterImage)
+                    print("GUTTER_CHECK label=\(label) gutterInk=\(gutterInk)")
+                    if gutterInk < 4 {
+                        issues.append("window \(label): line numbers are not in the window picture evidence=missing")
+                    }
+                } else if requireBody {
+                    issues.append("window \(label): line-number area was not in the window picture evidence=missing")
+                }
                 fflush(stdout)
                 let disk = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
                 if disk != fixture {
@@ -810,6 +815,56 @@ enum GutterSnapshotCheck {
 
     private static func pump(_ seconds: TimeInterval) {
         RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(seconds))
+    }
+
+    /// A note taller than the clip. The short fixture fits, so it never moves the scroller.
+    private static func renderLongScroll() -> String? {
+        let lines = (1...80).map { "Longline \($0) stays one source line" }
+        let fixture = lines.joined(separator: "\n")
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("xyz-window-long", isDirectory: true)
+        let file = root.appendingPathComponent("long.md")
+        do {
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            try fixture.write(to: file, atomically: true, encoding: .utf8)
+        } catch {
+            return "window long: could not write the synthetic file"
+        }
+        defer { try? FileManager.default.removeItem(at: root) }
+        return MainActor.assumeIsolated { () -> String? in
+            let session = WorkspaceSession(rootURL: root, bookmark: nil)
+            let controller = WorkspaceWindowController(session: session)
+            guard let window = controller.window, let host = window.contentView else {
+                return "window long: the document window was not created"
+            }
+            window.orderFrontRegardless()
+            session.openRelative("long.md")
+            if !waitForBuffer(session, containing: fixture, seconds: 4) {
+                return "window long: the file did not load"
+            }
+            session.selectViewMode(.source, source: "check")
+            pump(0.5)
+            host.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            guard let pane = findPane(in: host), let textView = pane.scrollView.documentView as? XYZMacTextView else {
+                return "window long: Editing did not mount the text view"
+            }
+            if let failure = exerciseScroll(textView) {
+                return "window long: \(failure)"
+            }
+            guard let image = shownImage(of: window, content: host) else {
+                return "window long: the window picture is missing"
+            }
+            saveShot(image, name: "window-long-scroll.png")
+            let words = recognizedText(in: image)
+            if !contains(words, "Longline") {
+                return "window long: the scrolled note was not in the window picture words=\(String(words.prefix(60)))"
+            }
+            if textView.string != fixture {
+                return "window long: scrolling changed the note"
+            }
+            session.shutdown()
+            return nil
+        }
     }
 
     /// One titled window, two files. The second file's words have to be the ones on screen.

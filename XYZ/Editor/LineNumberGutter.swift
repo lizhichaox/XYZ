@@ -158,6 +158,12 @@ final class LineNumberGutter: NSView {
             return (fragments.filter { $0.y < bounds.maxY && $0.y + $0.height > 0 }, "textLineFragments")
         }
         if textView.style.wraps {
+            if textView.textLayoutManager == nil, let laid = layoutManagerRows(textView: textView) {
+                let numbered = laid.filter { $0.showsNumber && $0.y < bounds.maxY && $0.y + $0.height > 0 }
+                if !numbered.isEmpty {
+                    return (laid.filter { $0.y < bounds.maxY && $0.y + $0.height > 0 }, "layoutManager")
+                }
+            }
             textView.textLayoutManager?.textViewportLayoutController.layoutViewport()
             let laidOut = fragmentRows(textView: textView)
             let laidNumbered = laidOut.filter { $0.showsNumber && $0.y < bounds.maxY && $0.y + $0.height > 0 }
@@ -253,6 +259,29 @@ final class LineNumberGutter: NSView {
             return fragmentBase + range.location
         }
         return range.location
+    }
+
+    /// Source lines from the layout manager that already draws the body. The first fragment
+    /// of a newline line is numbered. A soft-wrapped continuation is not.
+    private func layoutManagerRows(textView: XYZMacTextView) -> [Row]? {
+        guard let layout = textView.layoutManager, let container = textView.textContainer else { return nil }
+        layout.ensureLayout(for: container)
+        let lines = lineIndex()
+        let visible = textView.visibleRect
+        let origin = textView.textContainerOrigin
+        let glyphs = layout.glyphRange(for: container)
+        var rows: [Row] = []
+        var previous: Int?
+        layout.enumerateLineFragments(forGlyphRange: glyphs) { rect, _, _, glyphRange, _ in
+            let chars = layout.characterRange(forGlyphRange: glyphRange, actualGlyphRange: nil)
+            let line = lines.line(at: max(0, chars.location))
+            let shows = previous != line
+            previous = line
+            let y = origin.y + rect.minY - visible.minY
+            guard y + rect.height > -rect.height, y < visible.height + rect.height else { return }
+            rows.append(Row(line: line, showsNumber: shows, y: y, height: max(rect.height, 1)))
+        }
+        return rows
     }
 
     /// Same line box the editor uses for source. Does not ask TextKit for fragment frames.

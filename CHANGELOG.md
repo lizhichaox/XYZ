@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.28
+
+- Editing shows source line numbers beside the note. A wrapped continuation has no number. Reading has no line numbers. The note stays in the real text view.
+- The empty outline column keeps a usable width. Double-click fit still uses the measured names.
+- 0.5.27 remains the installed build that restored the note.
+
 ## 0.5.27
 
 - The editor file is back to the revision whose folder window showed the note. The debug assertion that stopped the run before the window was pictured is not included. Editing is checked on the window picture, including the Chinese line in the editor area when the full window recognition misses it. Typing, the caret, undo, scrolling, a blank document, and a switch to a plain file are each checked. Line-number and outline-fit checks stay in the log and do not decide this build. The Reading page stays the web view. The window capture does not show web-view pixels. A WebKit snapshot of that same page is checked separately and is not a picture of the window. The file column keeps the width left after the sidebar, and the columns are laid out in subview order so they do not overlap.

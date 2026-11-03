@@ -614,7 +614,8 @@ enum SidebarContentMeasure {
     static func outline(_ entries: [OutlineEntry]) -> CGFloat {
         var widest = outlineHeader()
         if entries.isEmpty {
-            return max(widest, labeled("No Outline", font: rowFont, leading: 16, trailing: 16))
+            let label = labeled("No Outline", font: rowFont, leading: 16, trailing: 16)
+            return max(SidebarFit.outlineMinimum, widest, label)
         }
         for entry in entries {
             widest = max(widest, outlineRow(entry.title, depth: entry.depth))
