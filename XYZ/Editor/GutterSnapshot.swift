@@ -30,7 +30,8 @@ enum GutterSnapshotCheck {
             fflush(stdout)
         }
         let sidebar = SidebarColumnFitCheck.run()
-        let failure = rendered ?? wrapped ?? reading ?? aligned ?? production ?? windowed ?? SearchTypingCheck.run() ?? EscapeCrashCheck.run() ?? sidebar
+        let gestures = runAcceptanceGestures()
+        let failure = rendered ?? wrapped ?? reading ?? aligned ?? production ?? windowed ?? SearchTypingCheck.run() ?? EscapeCrashCheck.run() ?? sidebar ?? gestures
         stage("done")
         if let failure {
             print("GUTTER_MISSING \(failure)")
@@ -139,7 +140,7 @@ enum GutterSnapshotCheck {
             productionEditor(text: text, wraps: wraps, lineNumbers: true, sink: sink)
         }
         host.rootView = shown
-        return checkProduction(host: host, window: window, wraps: wraps, label: "toggle", fixture: text, sink: sink)
+        return checkProduction(host: host, window: window, wraps: wraps, label: "restored", fixture: text, sink: sink)
     }
 
     private static func settle(_ host: NSHostingView<XYZMacEditor>, _ window: NSWindow) {
@@ -1550,6 +1551,697 @@ enum GutterSnapshotCheck {
             }
         }
         return count
+    }
+
+    /// Real clicks in one titled folder window. Metrics and direct state writes are not this check.
+    private static func runAcceptanceGestures() -> String? {
+        let defaults = UserDefaults.standard
+        let lineKey = XYZEditorStyle.lineNumbersKey
+        let readingKey = XYZEditorStyle.readingLineNumbersKey
+        let previousLine = defaults.object(forKey: lineKey)
+        let previousReading = defaults.object(forKey: readingKey)
+        defaults.set(false, forKey: lineKey)
+        defaults.set(true, forKey: readingKey)
+        defer {
+            if let previousLine {
+                defaults.set(previousLine, forKey: lineKey)
+            } else {
+                defaults.removeObject(forKey: lineKey)
+            }
+            if let previousReading {
+                defaults.set(previousReading, forKey: readingKey)
+            } else {
+                defaults.removeObject(forKey: readingKey)
+            }
+        }
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("xyz-gesture-fixture", isDirectory: true)
+        let notes = root.appendingPathComponent("Notes", isDirectory: true)
+        let inner = notes.appendingPathComponent("Inner", isDirectory: true)
+        do {
+            try FileManager.default.createDirectory(at: inner, withIntermediateDirectories: true)
+            try "Keepme\n".write(to: root.appendingPathComponent("Untitled.md"), atomically: true, encoding: .utf8)
+            try "Nestedline\n".write(to: notes.appendingPathComponent("nested.md"), atomically: true, encoding: .utf8)
+            try "Deepline\n".write(to: inner.appendingPathComponent("deep.md"), atomically: true, encoding: .utf8)
+        } catch {
+            return "gesture: could not write the synthetic folder"
+        }
+        defer { try? FileManager.default.removeItem(at: root) }
+        return MainActor.assumeIsolated {
+            gestureWindow(root: root, lineKey: lineKey, readingKey: readingKey)
+        }
+    }
+
+    @MainActor
+    private static func gestureWindow(root: URL, lineKey: String, readingKey: String) -> String? {
+        let session = WorkspaceSession(rootURL: root, bookmark: nil)
+        let controller = WorkspaceWindowController(session: session)
+        defer { session.shutdown() }
+        guard let window = controller.window, let host = window.contentView else {
+            return "gesture: the folder window was not created"
+        }
+        window.makeKeyAndOrderFront(nil)
+        host.layoutSubtreeIfNeeded()
+        pump(0.4)
+        guard let outline = explorerOutline(in: host) else {
+            return "gesture: explorer outline missing labels=\(accessibilityLabels(in: host).prefix(24).joined(separator: "|"))"
+        }
+        let listed = waitUntil(4) { row(outline, titled: "Untitled.md") != nil && row(outline, titled: "Notes") != nil }
+        guard listed else { return "gesture: the tree did not list Untitled.md and Notes" }
+        guard let newFile = labeledControl(in: host, "New File"),
+              let newFolder = labeledControl(in: host, "New Folder"),
+              let refresh = labeledControl(in: host, "Refresh Explorer"),
+              let collapse = labeledControl(in: host, "Collapse All"),
+              let header = explorerHeader(in: host) else {
+            return "gesture: header actions missing labels=\(accessibilityLabels(in: host).prefix(30).joined(separator: "|"))"
+        }
+        if headerShowsCount(header) { return "gesture: the header still shows a file count" }
+        guard headerState(header) == "Expanded" else { return "gesture: the root header did not start expanded" }
+        let beforeCreate = directoryNames(root)
+        guard trackingClick(newFile) else { return "gesture: New File click was not delivered" }
+        pump(0.2)
+        guard headerState(header) == "Expanded" else { return "gesture: New File toggled the root header" }
+        guard waitUntil(4, { createdMarkdown(in: root, besides: beforeCreate) != nil }) else {
+            return "gesture: New File did not create a file"
+        }
+        guard let created = createdMarkdown(in: root, besides: beforeCreate) else {
+            return "gesture: New File did not create a file"
+        }
+        if created == "Untitled.md" { return "gesture: New File overwrote Untitled.md" }
+        if readText(root.appendingPathComponent("Untitled.md")) != "Keepme\n" {
+            return "gesture: New File changed Untitled.md"
+        }
+        guard waitUntil(3, { renamingText(in: window)?.contains(created.replacingOccurrences(of: ".md", with: "")) == true }) else {
+            return "gesture: the new file did not offer a name to cancel"
+        }
+        guard sendEscape(to: window) else { return "gesture: Escape was not delivered" }
+        pump(0.3)
+        if renamingText(in: window) != nil { return "gesture: cancel did not leave the name field" }
+        if !FileManager.default.fileExists(atPath: root.appendingPathComponent(created).path) {
+            return "gesture: cancel removed the new file"
+        }
+        if readText(root.appendingPathComponent("Untitled.md")) != "Keepme\n" {
+            return "gesture: cancel changed Untitled.md"
+        }
+        let beforeFolder = directoryNames(root)
+        guard trackingClick(newFolder) else { return "gesture: New Folder click was not delivered" }
+        pump(0.2)
+        guard headerState(header) == "Expanded" else { return "gesture: New Folder toggled the root header" }
+        guard waitUntil(4, {
+            directoryNames(root).contains { $0.contains("Untitled Folder") && !beforeFolder.contains($0) }
+        }) else { return "gesture: New Folder did not create a folder" }
+        if !FileManager.default.fileExists(atPath: notes.path) { return "gesture: New Folder replaced Notes" }
+        guard waitUntil(3, { renamingText(in: window)?.contains("Untitled Folder") == true }) else {
+            return "gesture: the new folder did not offer a name to cancel"
+        }
+        guard sendEscape(to: window) else { return "gesture: folder cancel was not delivered" }
+        pump(0.2)
+        if renamingText(in: window) != nil { return "gesture: cancel did not leave the folder name" }
+        if !FileManager.default.fileExists(atPath: notes.path) { return "gesture: cancel replaced Notes" }
+        guard let notesRow = row(outline, titled: "Notes") else { return "gesture: Notes disappeared" }
+        guard trackingClick(outline, row: notesRow, disclosure: true) else { return "gesture: Notes disclosure click failed" }
+        guard waitUntil(3, { row(outline, titled: "Inner") != nil }) else { return "gesture: Notes did not expand" }
+        guard let innerRow = row(outline, titled: "Inner") else { return "gesture: Inner row missing" }
+        guard trackingClick(outline, row: innerRow, disclosure: true) else { return "gesture: Inner disclosure click failed" }
+        guard waitUntil(3, { row(outline, titled: "deep.md") != nil }) else { return "gesture: Inner did not expand" }
+        guard let deepRow = row(outline, titled: "deep.md") else { return "gesture: deep.md row missing" }
+        guard trackingClick(outline, row: deepRow, disclosure: false) else { return "gesture: deep.md click failed" }
+        guard waitUntil(4, { session.buffer?.text.contains("Deepline") == true }) else {
+            return "gesture: clicking deep.md did not open it"
+        }
+        let expandedBeforeRefresh = session.expanded
+        try? "Extra\n".write(to: notes.appendingPathComponent("extra.md"), atomically: true, encoding: .utf8)
+        guard trackingClick(refresh) else { return "gesture: Refresh click was not delivered" }
+        guard waitUntil(4, { row(outline, titled: "extra.md") != nil }) else { return "gesture: Refresh did not show extra.md" }
+        if session.expanded != expandedBeforeRefresh {
+            return "gesture: Refresh changed which folders are open"
+        }
+        guard headerState(header) == "Expanded" else { return "gesture: Refresh toggled the root header" }
+        guard trackingClick(collapse) else { return "gesture: Collapse All click was not delivered" }
+        guard waitUntil(3, { row(outline, titled: "deep.md") == nil && row(outline, titled: "extra.md") == nil }) else {
+            return "gesture: Collapse All left descendants open"
+        }
+        if session.buffer?.text.contains("Deepline") != true { return "gesture: Collapse All closed the open file" }
+        if !session.expanded.isEmpty { return "gesture: Collapse All left a folder expanded" }
+        guard headerState(header) == "Expanded" else { return "gesture: Collapse All collapsed the root header" }
+        guard plainClick(header, x: 24) else { return "gesture: root header click was not delivered" }
+        guard waitUntil(2, { headerState(header) == "Collapsed" }) else { return "gesture: the root header did not collapse" }
+        if session.buffer?.text.contains("Deepline") != true { return "gesture: collapsing the header closed the file" }
+        let namesBefore = directoryNames(root)
+        guard trackingClick(newFile) else { return "gesture: New File click while collapsed was not delivered" }
+        pump(0.3)
+        guard headerState(header) == "Collapsed" else { return "gesture: New File expanded the collapsed header" }
+        _ = waitUntil(3, { directoryNames(root).count > namesBefore.count })
+        guard plainClick(header, x: 24) else { return "gesture: expanding the header failed" }
+        guard waitUntil(2, { headerState(header) == "Expanded" }) else { return "gesture: the root header stayed collapsed" }
+        if row(outline, titled: "deep.md") != nil || row(outline, titled: "extra.md") != nil {
+            return "gesture: expanding the header reopened collapsed descendants"
+        }
+        guard let split = findSplit(in: host),
+              let left = identified(in: host, "xyz.divider.left"),
+              let right = identified(in: host, "xyz.divider.right") else {
+            return "gesture: a production divider is missing"
+        }
+        let textBeforeDrag = session.buffer?.text ?? ""
+        let expandedBeforeDrag = session.expanded
+        let rootBeforeDrag = session.rootExpanded
+        let selectedBeforeDrag = session.selectedPath
+        guard doubleClick(left) else { return "gesture: left divider double-click was not delivered" }
+        pump(0.2)
+        let fittedSidebar = split.testingSidebarFrame().width
+        let expectedSidebar = SidebarFit.sidebar(
+            content: split.measureSidebar(),
+            window: split.bounds.width,
+            outline: split.testingOutlineFrame().width,
+            outlineShown: true
+        )
+        if abs(fittedSidebar - expectedSidebar) > 1.5 {
+            return "gesture: left double-click width \(fittedSidebar) expected \(expectedSidebar)"
+        }
+        guard doubleClick(left) else { return "gesture: second left double-click was not delivered" }
+        pump(0.1)
+        if abs(split.testingSidebarFrame().width - fittedSidebar) > 1 {
+            return "gesture: left double-click was not idempotent"
+        }
+        let draggedSidebar = split.testingSidebarFrame().width
+        guard drag(left, by: 48) else { return "gesture: left divider drag was not delivered" }
+        pump(0.1)
+        let afterSidebarDrag = split.testingSidebarFrame().width
+        if abs(afterSidebarDrag - draggedSidebar) < 8 {
+            return "gesture: dragging the left divider left the sidebar at \(afterSidebarDrag)"
+        }
+        if afterSidebarDrag < SidebarFit.sidebarMinimum - 1 {
+            return "gesture: the sidebar drag went below the minimum \(afterSidebarDrag)"
+        }
+        host.layoutSubtreeIfNeeded()
+        if abs(split.testingSidebarFrame().width - afterSidebarDrag) > 1 {
+            return "gesture: the sidebar width did not stay after layout"
+        }
+        guard doubleClick(right) else { return "gesture: right divider double-click was not delivered" }
+        pump(0.2)
+        let fittedOutline = split.testingOutlineFrame().width
+        let expectedOutline = SidebarFit.outline(
+            content: split.measureOutline(),
+            window: split.bounds.width,
+            sidebar: split.testingSidebarFrame().width,
+            sidebarShown: true
+        )
+        if abs(fittedOutline - expectedOutline) > 1.5 {
+            return "gesture: right double-click width \(fittedOutline) expected \(expectedOutline)"
+        }
+        guard doubleClick(right) else { return "gesture: second right double-click was not delivered" }
+        pump(0.1)
+        if abs(split.testingOutlineFrame().width - fittedOutline) > 1 {
+            return "gesture: right double-click was not idempotent"
+        }
+        guard drag(right, by: -40) else { return "gesture: right divider drag was not delivered" }
+        pump(0.2)
+        let afterOutlineDrag = split.testingOutlineFrame().width
+        if abs(afterOutlineDrag - fittedOutline) < 8 {
+            return "gesture: dragging the right divider left the outline at \(afterOutlineDrag)"
+        }
+        if afterOutlineDrag < SidebarFit.outlineMinimum - 1 {
+            return "gesture: the outline drag went below the minimum \(afterOutlineDrag)"
+        }
+        if split.testingDetailFrame().width < SidebarFit.editorMinimum - 1 {
+            return "gesture: the editor was left under \(SidebarFit.editorMinimum)"
+        }
+        host.layoutSubtreeIfNeeded()
+        if abs(split.testingOutlineFrame().width - afterOutlineDrag) > 1 {
+            return "gesture: the outline width did not stay after layout"
+        }
+        let restored = WorkspaceSession(rootURL: root, bookmark: nil)
+        let restoredWidth = restored.outlineWidth
+        restored.shutdown()
+        if abs(restoredWidth - afterOutlineDrag) > 1.5 {
+            return "gesture: the next window did not restore the outline width \(restoredWidth) vs \(afterOutlineDrag)"
+        }
+        if session.buffer?.text != textBeforeDrag || session.expanded != expandedBeforeDrag
+            || session.rootExpanded != rootBeforeDrag || session.selectedPath != selectedBeforeDrag {
+            return "gesture: a divider gesture changed the file, the selection, or a collapsed folder"
+        }
+        guard EditorCommands.shared.target != nil else {
+            return "gesture: the View menu target was not attached to this window"
+        }
+        EditorCommands.shared.selectReading(nil)
+        pump(0.4)
+        if let failure = assertModeWeight(window, word: "Read-only", appearance: .aqua) { return failure }
+        if let failure = assertModeWeight(window, word: "Read-only", appearance: .darkAqua) { return failure }
+        if let pane = findPane(in: host), !pane.gutter.isHidden, pane.gutter.frame.width > 8 {
+            return "gesture: Reading kept a gutter \(pane.gutter.frame.width)"
+        }
+        if let web = findWebView(in: host) {
+            let page = waitForReadingText(in: host, needle: "Deepline", seconds: 4)
+            let gutter = webGutterCount(web)
+            if gutter > 0 { return "gesture: Reading page built a gutter count=\(gutter)" }
+            if !page.contains("Deepline") {
+                return "gesture: Reading did not show the open note"
+            }
+        }
+        if menuHasLineNumberSetting() { return "gesture: a line-number menu item is still present" }
+        if let shot = shownImage(of: window, content: host) {
+            saveShot(shot, name: "window-gesture-reading.png")
+        }
+        EditorCommands.shared.selectSource(nil)
+        pump(0.5)
+        host.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+        if let failure = assertModeWeight(window, word: "Editing", appearance: .aqua) { return failure }
+        if let failure = assertModeWeight(window, word: "Editing", appearance: .darkAqua) { return failure }
+        window.appearance = NSAppearance(named: .aqua)
+        NSApp.appearance = window.appearance
+        guard let pane = findPane(in: host) else { return "gesture: Editing did not mount the text view" }
+        if pane.gutter.isHidden || pane.gutter.frame.width < 20 {
+            return "gesture: a saved off preference hid Editing numbers"
+        }
+        let numbered = pane.gutter.testingSnapshot().rows.filter(\.shows).map(\.line)
+        guard let first = numbered.first, numbered == Array(first..<(first + numbered.count)), first == 1 else {
+            return "gesture: Editing numbers \(numbered) are not the source prefix"
+        }
+        if UserDefaults.standard.bool(forKey: lineKey) {
+            return "gesture: showing numbers turned the old preference on"
+        }
+        if UserDefaults.standard.bool(forKey: readingKey) == false {
+            return "gesture: the old Reading preference was cleared"
+        }
+        if let shot = shownImage(of: window, content: host) {
+            saveShot(shot, name: "window-gesture-editing.png")
+        }
+        guard let emptyRow = row(outline, titled: created) else { return "gesture: the new file is not listed" }
+        guard trackingClick(outline, row: emptyRow, disclosure: false) else { return "gesture: the empty file click failed" }
+        guard waitUntil(4, { session.buffer?.relativePath == created }) else {
+            return "gesture: the empty file did not become the open file"
+        }
+        EditorCommands.shared.selectSource(nil)
+        pump(0.4)
+        host.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+        guard let emptyPane = findPane(in: host) else { return "gesture: the empty note has no text view" }
+        let emptyNumbers = emptyPane.gutter.testingSnapshot().rows.filter(\.shows).map(\.line)
+        if emptyNumbers != [1] {
+            return "gesture: an empty note showed \(emptyNumbers) instead of line 1"
+        }
+        if let shot = shownImage(of: window, content: host) {
+            saveShot(shot, name: "window-gesture-empty.png")
+        }
+        print("GUTTER_GESTURE create=\(created) refresh=pass collapse=pass header=pass dividers=pass mode=pass empty=1 prefs=ignored")
+        fflush(stdout)
+        return nil
+    }
+
+    private static func directoryNames(_ url: URL) -> [String] {
+        (try? FileManager.default.contentsOfDirectory(at: url, includingPropertiesForKeys: nil))?.map(\.lastPathComponent) ?? []
+    }
+
+    private static func createdMarkdown(in root: URL, besides existing: [String]) -> String? {
+        directoryNames(root).first { $0.hasSuffix(".md") && !existing.contains($0) }
+    }
+
+    private static func readText(_ url: URL) -> String {
+        (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+    }
+
+    private static func waitUntil(_ seconds: TimeInterval, _ check: () -> Bool) -> Bool {
+        let start = Date()
+        while Date().timeIntervalSince(start) < seconds {
+            if check() { return true }
+            pump(0.05)
+        }
+        return check()
+    }
+
+    private static func explorerOutline(in root: NSView) -> NSOutlineView? {
+        let label = String(localized: "Folder contents")
+        var found: NSOutlineView?
+        func walk(_ view: NSView) {
+            if found == nil, let outline = view as? NSOutlineView, outline.accessibilityLabel() == label {
+                found = outline
+            }
+            for child in view.subviews where found == nil { walk(child) }
+        }
+        walk(root)
+        return found
+    }
+
+    private static func labeledControl(in root: NSView, _ title: String) -> NSView? {
+        let label = String(localized: String.LocalizationValue(title))
+        var found: NSView?
+        func walk(_ view: NSView) {
+            if found == nil, view.accessibilityLabel() == label, view.accessibilityRole() == .button {
+                found = view
+            }
+            for child in view.subviews where found == nil { walk(child) }
+        }
+        walk(root)
+        return found
+    }
+
+    private static func explorerHeader(in root: NSView) -> NSView? {
+        let expanded = String(localized: "Expanded")
+        let collapsed = String(localized: "Collapsed")
+        var found: NSView?
+        func walk(_ view: NSView) {
+            let label = view.accessibilityLabel() ?? ""
+            if found == nil, view.accessibilityRole() != .button, label.contains(expanded) || label.contains(collapsed) {
+                found = view
+            }
+            for child in view.subviews where found == nil { walk(child) }
+        }
+        walk(root)
+        return found
+    }
+
+    private static func headerState(_ header: NSView) -> String {
+        let label = header.accessibilityLabel() ?? ""
+        if label.contains(String(localized: "Collapsed")) { return "Collapsed" }
+        if label.contains(String(localized: "Expanded")) { return "Expanded" }
+        return ""
+    }
+
+    private static func headerShowsCount(_ header: NSView) -> Bool {
+        var count = false
+        func walk(_ view: NSView) {
+            if let field = view as? NSTextField {
+                let text = field.stringValue.trimmingCharacters(in: .whitespaces)
+                if !text.isEmpty, text.allSatisfy(\.isNumber) { count = true }
+            }
+            for child in view.subviews { walk(child) }
+        }
+        walk(header)
+        return count
+    }
+
+    private static func identified(in root: NSView, _ identifier: String) -> NSView? {
+        var found: NSView?
+        func walk(_ view: NSView) {
+            if found == nil, view.accessibilityIdentifier() == identifier { found = view }
+            for child in view.subviews where found == nil { walk(child) }
+        }
+        walk(root)
+        return found
+    }
+
+    private static func findSplit(in view: NSView) -> XYZSplitView? {
+        if let split = view as? XYZSplitView { return split }
+        for child in view.subviews {
+            if let found = findSplit(in: child) { return found }
+        }
+        return nil
+    }
+
+    private static func row(_ outline: NSOutlineView, titled name: String) -> Int? {
+        for index in 0..<outline.numberOfRows {
+            if rowTitle(outline, index) == name { return index }
+        }
+        return nil
+    }
+
+    private static func rowTitle(_ outline: NSOutlineView, _ index: Int) -> String {
+        guard let cell = outline.view(atColumn: 0, row: index, makeIfNecessary: true) else { return "" }
+        return firstFieldText(in: cell)
+    }
+
+    private static func firstFieldText(in view: NSView) -> String {
+        if let field = view as? NSTextField {
+            let text = field.stringValue
+            if !text.isEmpty { return text }
+        }
+        for child in view.subviews {
+            let text = firstFieldText(in: child)
+            if !text.isEmpty { return text }
+        }
+        return ""
+    }
+
+    private static func accessibilityLabels(in root: NSView?) -> [String] {
+        guard let root else { return [] }
+        var labels: [String] = []
+        func walk(_ view: NSView) {
+            if let label = view.accessibilityLabel(), !label.isEmpty { labels.append(label) }
+            for child in view.subviews { walk(child) }
+        }
+        walk(root)
+        return labels
+    }
+
+    private static func renamingText(in window: NSWindow) -> String? {
+        guard let editor = window.firstResponder as? NSTextView else { return nil }
+        let text = editor.string.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard text.contains("Untitled") else { return nil }
+        return text
+    }
+
+    private static func sendEscape(to window: NSWindow) -> Bool {
+        guard let event = NSEvent.keyEvent(
+            with: .keyDown,
+            location: .zero,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            characters: "\u{1b}",
+            charactersIgnoringModifiers: "\u{1b}",
+            isARepeat: false,
+            keyCode: 53
+        ) else { return false }
+        window.sendEvent(event)
+        return true
+    }
+
+    private static func trackingClick(_ view: NSView) -> Bool {
+        guard let window = view.window else { return false }
+        let point = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+        return postUpThenDown(window: window, point: point, clickCount: 1)
+    }
+
+    private static func trackingClick(_ outline: NSOutlineView, row: Int, disclosure: Bool) -> Bool {
+        guard let window = outline.window, row >= 0, row < outline.numberOfRows else { return false }
+        let rect = disclosure ? outline.frameOfOutlineCell(atRow: row) : outline.frameOfCell(atColumn: 0, row: row)
+        guard rect.width > 1, rect.height > 1 else { return false }
+        let point = outline.convert(NSPoint(x: rect.midX, y: rect.midY), to: nil)
+        return postUpThenDown(window: window, point: point, clickCount: 1)
+    }
+
+    private static func plainClick(_ view: NSView, x: CGFloat) -> Bool {
+        guard let window = view.window else { return false }
+        let point = view.convert(NSPoint(x: x, y: view.bounds.midY), to: nil)
+        guard let down = mouseEvent(.leftMouseDown, at: point, window: window, clickCount: 1, eventNumber: 41),
+              let up = mouseEvent(.leftMouseUp, at: point, window: window, clickCount: 1, eventNumber: 42) else { return false }
+        window.sendEvent(down)
+        window.sendEvent(up)
+        return true
+    }
+
+    private static func doubleClick(_ view: NSView) -> Bool {
+        guard let window = view.window else { return false }
+        let point = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+        guard let down = mouseEvent(.leftMouseDown, at: point, window: window, clickCount: 2, eventNumber: 51),
+              let up = mouseEvent(.leftMouseUp, at: point, window: window, clickCount: 2, eventNumber: 52) else { return false }
+        window.sendEvent(down)
+        window.sendEvent(up)
+        return true
+    }
+
+    private static func drag(_ view: NSView, by dx: CGFloat) -> Bool {
+        guard let window = view.window else { return false }
+        let start = view.convert(NSPoint(x: view.bounds.midX, y: view.bounds.midY), to: nil)
+        let end = NSPoint(x: start.x + dx, y: start.y)
+        guard let down = mouseEvent(.leftMouseDown, at: start, window: window, clickCount: 1, eventNumber: 61),
+              let moved = mouseEvent(.leftMouseDragged, at: end, window: window, clickCount: 1, eventNumber: 62),
+              let up = mouseEvent(.leftMouseUp, at: end, window: window, clickCount: 1, eventNumber: 63) else { return false }
+        NSApp.postEvent(moved, atStart: false)
+        NSApp.postEvent(up, atStart: false)
+        window.sendEvent(down)
+        return true
+    }
+
+    private static func postUpThenDown(window: NSWindow, point: NSPoint, clickCount: Int) -> Bool {
+        guard let down = mouseEvent(.leftMouseDown, at: point, window: window, clickCount: clickCount, eventNumber: 21),
+              let up = mouseEvent(.leftMouseUp, at: point, window: window, clickCount: clickCount, eventNumber: 22) else { return false }
+        NSApp.postEvent(up, atStart: false)
+        window.sendEvent(down)
+        return true
+    }
+
+    private static var gestureEventNumber = 100
+
+    private static func mouseEvent(
+        _ type: NSEvent.EventType,
+        at point: NSPoint,
+        window: NSWindow,
+        clickCount: Int,
+        eventNumber: Int
+    ) -> NSEvent? {
+        gestureEventNumber += 1
+        _ = eventNumber
+        return NSEvent.mouseEvent(
+            with: type,
+            location: point,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: gestureEventNumber,
+            clickCount: clickCount,
+            pressure: type == .leftMouseUp ? 0 : 1
+        )
+    }
+
+    private static func assertModeWeight(_ window: NSWindow, word: String, appearance: NSAppearance.Name) -> String? {
+        window.appearance = NSAppearance(named: appearance)
+        NSApp.appearance = window.appearance
+        pump(0.25)
+        window.displayIfNeeded()
+        let wanted = String(localized: String.LocalizationValue(word))
+        let matches = modeFonts(in: window.contentView, word: wanted)
+        if let weight = matches.first {
+            if weight < 7 {
+                return "gesture: \(wanted) \(appearance.rawValue) weight \(weight) is not bold"
+            }
+            return nil
+        }
+        guard let label = labeledExact(window.contentView, wanted),
+              let image = shownImage(of: window, content: window.contentView ?? label),
+              let crop = cropWindowImage(image, view: label, window: window) else {
+            let classes = viewClasses(in: window.contentView).prefix(24).joined(separator: ",")
+            return "gesture: \(wanted) \(appearance.rawValue) text was not measurable views=\(classes)"
+        }
+        let dark = appearance == .darkAqua
+        let bold = textInkRatio(wanted, weight: .bold, dark: dark)
+        let regular = textInkRatio(wanted, weight: .regular, dark: dark)
+        let seen = imageInkRatio(crop, dark: dark)
+        if seen < min(bold, regular) * 0.45 {
+            return "gesture: \(wanted) \(appearance.rawValue) weight was not measurable ink=\(seen) bold=\(bold) regular=\(regular)"
+        }
+        if abs(seen - bold) > abs(seen - regular) {
+            return "gesture: \(wanted) \(appearance.rawValue) ink \(seen) is closer to regular \(regular) than bold \(bold)"
+        }
+        return nil
+    }
+
+    private static func labeledExact(_ root: NSView?, _ word: String) -> NSView? {
+        guard let root else { return nil }
+        if root.accessibilityLabel() == word { return root }
+        for child in root.subviews {
+            if let found = labeledExact(child, word) { return found }
+        }
+        return nil
+    }
+
+    private static func textInkRatio(_ word: String, weight: NSFont.Weight, dark: Bool) -> CGFloat {
+        _ = dark
+        let font = NSFont.systemFont(ofSize: 11, weight: weight)
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: dark ? NSColor.white : NSColor.black,
+        ]
+        let size = (word as NSString).size(withAttributes: attributes)
+        let width = max(1, Int(ceil(size.width)))
+        let height = max(1, Int(ceil(size.height)))
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: width,
+            pixelsHigh: height,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ) else { return 0 }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        NSColor.clear.setFill()
+        NSRect(x: 0, y: 0, width: width, height: height).fill()
+        (word as NSString).draw(at: .zero, withAttributes: attributes)
+        NSGraphicsContext.restoreGraphicsState()
+        var ink = 0
+        var seen = 0
+        for y in 0..<height {
+            for x in 0..<width {
+                seen += 1
+                if let color = rep.colorAt(x: x, y: y), color.alphaComponent > 0.35 { ink += 1 }
+            }
+        }
+        guard seen > 0 else { return 0 }
+        return CGFloat(ink) / CGFloat(seen)
+    }
+
+    private static func imageInkRatio(_ image: CGImage, dark: Bool) -> CGFloat {
+        let rep = NSBitmapImageRep(cgImage: image)
+        let startX = rep.pixelsWide / 3
+        var ink = 0
+        var seen = 0
+        var y = 0
+        while y < rep.pixelsHigh {
+            var x = startX
+            while x < rep.pixelsWide {
+                seen += 1
+                if let color = rep.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB) {
+                    let bright = (color.redComponent + color.greenComponent + color.blueComponent) / 3
+                    if dark ? bright > 0.55 : bright < 0.45 { ink += 1 }
+                }
+                x += 1
+            }
+            y += 1
+        }
+        guard seen > 0 else { return 0 }
+        return CGFloat(ink) / CGFloat(seen)
+    }
+
+    private static func modeFonts(in root: NSView?, word: String) -> [Int] {
+        guard let root else { return [] }
+        var weights: [Int] = []
+        func walk(_ view: NSView) {
+            if view.responds(to: Selector(("font"))), view.responds(to: Selector(("stringValue"))),
+               let text = view.value(forKey: "stringValue") as? String, text == word,
+               let font = view.value(forKey: "font") as? NSFont {
+                weights.append(NSFontManager.shared.weight(of: font))
+            }
+            for child in view.subviews { walk(child) }
+        }
+        walk(root)
+        return weights
+    }
+
+    private static func viewClasses(in root: NSView?) -> [String] {
+        guard let root else { return [] }
+        var names: [String] = []
+        func walk(_ view: NSView) {
+            if names.count < 40 { names.append(NSStringFromClass(type(of: view))) }
+            for child in view.subviews { walk(child) }
+        }
+        walk(root)
+        return names
+    }
+
+    private static func webGutterCount(_ web: WKWebView) -> Int {
+        let script = "document.querySelectorAll('#xyz-gutter, #xyz-gutter .xyz-ln').length"
+        var count = -1
+        var done = false
+        web.evaluateJavaScript(script) { value, _ in
+            count = value as? Int ?? -1
+            done = true
+        }
+        let start = Date()
+        while !done, Date().timeIntervalSince(start) < 2 {
+            pump(0.05)
+        }
+        return count
+    }
+
+    private static func menuHasLineNumberSetting() -> Bool {
+        func walk(_ menu: NSMenu?) -> Bool {
+            guard let menu else { return false }
+            for item in menu.items {
+                if item.identifier?.rawValue == "xyz.lineNumbers" { return true }
+                let title = item.title.lowercased()
+                if title.contains("line number") || title.contains("行号") { return true }
+                if walk(item.submenu) { return true }
+            }
+            return false
+        }
+        return walk(NSApp.mainMenu)
     }
 }
 

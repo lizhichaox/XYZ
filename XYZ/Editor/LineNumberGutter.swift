@@ -170,6 +170,9 @@ final class LineNumberGutter: NSView {
             if !laidNumbered.isEmpty {
                 return (laidOut.filter { $0.y < bounds.maxY && $0.y + $0.height > 0 }, "textLineFragments")
             }
+            if (textView.string as NSString).length == 0 {
+                return ([emptyRow(textView: textView)], "empty-line")
+            }
             return ([], "wrapped-unlaid")
         }
         return (lineBoxRows(textView: textView, lineCount: lineCount), "lineBox")
@@ -269,6 +272,9 @@ final class LineNumberGutter: NSView {
     /// text storage is left alone.
     private func layoutManagerRows(textView: XYZMacTextView) -> [Row]? {
         guard let layout = textView.layoutManager, let container = textView.textContainer else { return nil }
+        if (textView.string as NSString).length == 0 {
+            return [emptyRow(textView: textView)]
+        }
         let first = lineFragmentRows(textView: textView, layout: layout, container: container)
         let numbered = first.filter(\.showsNumber).count
         if Self.isSourceRun(first), first.count > numbered { return first }
@@ -281,6 +287,20 @@ final class LineNumberGutter: NSView {
         let second = lineFragmentRows(textView: textView, layout: layout, container: container)
         layout.allowsNonContiguousLayout = true
         return second
+    }
+
+    /// An empty note is one source line. Wrapping does not remove that number.
+    private func emptyRow(textView: XYZMacTextView) -> Row {
+        let font = Self.font(textView.style.fontSize)
+        let natural = font.ascender - font.descender + font.leading
+        let box = max(1, textView.style.paragraphStyle(naturalLineHeight: natural).minimumLineHeight)
+        let visible = textView.visibleRect
+        return Row(
+            line: 1,
+            showsNumber: true,
+            y: textView.textContainerOrigin.y - visible.minY,
+            height: box
+        )
     }
 
     /// Visible numbers are a contiguous source run, and a wrapped note has a continuation row.
