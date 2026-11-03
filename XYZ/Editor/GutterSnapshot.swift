@@ -510,7 +510,7 @@ enum GutterSnapshotCheck {
             host.frame = frame
             let window = NSWindow(
                 contentRect: frame,
-                styleMask: [.titled, .fullSizeContentView],
+                styleMask: [.borderless],
                 backing: .buffered,
                 defer: false
             )
