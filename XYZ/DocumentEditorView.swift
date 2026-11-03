@@ -117,6 +117,9 @@ struct DocumentEditorView: View {
             isEditable: isEditable,
             undoManager: undoManager,
             scrollLink: scrollLink,
+            #if os(macOS)
+            find: commands.findModel,
+            #endif
             markup: TextMarkup.allows(fileExtension: fileURL?.pathExtension),
             spellCheck: TextMarkup.isProse(fileExtension: fileURL?.pathExtension),
             syntax: documentFormat.language,
@@ -160,7 +163,12 @@ struct DocumentEditorView: View {
 
     #if os(macOS)
     private var macBody: some View {
-        singleSurface
+        VStack(spacing: 0) {
+            if let model = commands.findModel, model.visible {
+                EditorFindBar(model: model)
+            }
+            singleSurface
+        }
     }
 
     private var scrollLink: EditorScrollLink { commands.scrollLink }
@@ -265,6 +273,9 @@ final class DocumentCommandBridge: ObservableObject, EditorCommandTarget {
     func revealHeading(line: Int) {
         scrollLink.revealLine(line)
     }
+
+    var findModel: EditorFindModel? { findStore }
+    private let findStore = EditorFindModel()
 
     func revealPosition(line: Int, column: Int) {
         if mode != .source {

@@ -3,6 +3,119 @@ import AppKit
 import SwiftUI
 import XYZCore
 
+enum FindBarAction {
+    case refresh
+    case next
+    case previous
+    case replaceOne
+    case replaceAll
+    case useSelection
+    case selectNextOccurrence
+    case focus
+}
+
+@MainActor
+final class EditorFindModel: ObservableObject {
+    @Published var pattern = ""
+    @Published var replacement = ""
+    @Published var visible = false
+    @Published var showsReplace = false
+    @Published var matchCase = false
+    @Published var wholeWord = false
+    @Published var regex = false
+    @Published var regexInvalid = false
+    @Published var index = 0
+    @Published var count = 0
+    @Published var focusToken = 0
+    var language: SyntaxLanguage = .plain
+    var perform: ((FindBarAction) -> Void)?
+    var edit: (((String, SourceRange) -> SourceReplacement?) -> Void)?
+
+    var query: FindQuery {
+        FindQuery(pattern: pattern, matchCase: matchCase, wholeWord: wholeWord, regex: regex)
+    }
+
+    func show(replace: Bool) {
+        visible = true
+        if replace { showsReplace = true }
+        perform?(.focus)
+        perform?(.refresh)
+    }
+
+    func replacementText(for text: String, match: FindMatch) -> String {
+        TextFind.replacement(in: text, match: match, query: query, with: replacement)
+    }
+}
+
+struct EditorFindBar: View {
+    @ObservedObject var model: EditorFindModel
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 6) {
+                TextField("Find", text: $model.pattern)
+                    .textFieldStyle(.roundedBorder)
+                    .focused($focused)
+                    .onSubmit { model.perform?(.next) }
+                toggle("Aa", help: "Match Case", on: $model.matchCase)
+                toggle("W", help: "Whole Word", on: $model.wholeWord)
+                toggle(".*", help: "Regex", on: $model.regex)
+                Text(countLabel)
+                    .font(.system(size: 11))
+                    .foregroundStyle(model.regexInvalid ? Color.red.opacity(0.8) : Color.secondary)
+                    .monospacedDigit()
+                    .frame(minWidth: 72, alignment: .trailing)
+                Button("↑") { model.perform?(.previous) }
+                    .buttonStyle(.borderless)
+                    .help("Find Previous")
+                    .accessibilityLabel("Find Previous")
+                Button("↓") { model.perform?(.next) }
+                    .buttonStyle(.borderless)
+                    .help("Find Next")
+                    .accessibilityLabel("Find Next")
+                Button("Close") { model.visible = false }.buttonStyle(.borderless)
+            }
+            if model.showsReplace {
+                HStack(spacing: 6) {
+                    TextField("Replace", text: $model.replacement)
+                        .textFieldStyle(.roundedBorder)
+                    Button("Replace") { model.perform?(.replaceOne) }
+                        .buttonStyle(.borderless)
+                        .disabled(model.count == 0)
+                    Button("Replace All") { model.perform?(.replaceAll) }
+                        .buttonStyle(.borderless)
+                        .disabled(model.count == 0)
+                }
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 6)
+        .background(Color.editorBackground)
+        .overlay(alignment: .bottom) { Rectangle().fill(Color.primary.opacity(0.12)).frame(height: 1) }
+        .onAppear { focused = true }
+        .onChange(of: model.pattern) { _, _ in model.perform?(.refresh) }
+        .onChange(of: model.matchCase) { _, _ in model.perform?(.refresh) }
+        .onChange(of: model.wholeWord) { _, _ in model.perform?(.refresh) }
+        .onChange(of: model.regex) { _, _ in model.perform?(.refresh) }
+        .onChange(of: model.focusToken) { _, _ in focused = true }
+    }
+
+    private var countLabel: String {
+        if model.pattern.isEmpty { return "" }
+        if model.regexInvalid { return String(localized: "Invalid") }
+        if model.count == 0 { return String(localized: "No results") }
+        return String(format: String(localized: "%lld of %lld"), Int64(model.index), Int64(model.count))
+    }
+
+    private func toggle(_ title: String, help: String, on: Binding<Bool>) -> some View {
+        Button(title) { on.wrappedValue.toggle() }
+            .buttonStyle(.borderless)
+            .foregroundStyle(on.wrappedValue ? Color.primary : Color.secondary)
+            .help(String(localized: String.LocalizationValue(help)))
+    }
+}
+
 /// Open files for the window. A preview tab is italic. A dirty file has a dot in a fixed slot.
 struct EditorTabBar: View {
     @ObservedObject var session: WorkspaceSession

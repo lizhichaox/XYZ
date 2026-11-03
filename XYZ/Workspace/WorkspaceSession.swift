@@ -31,11 +31,55 @@ final class WorkspaceSession: ObservableObject {
     @Published private(set) var tabStrip = EditorTabStrip()
     @Published var rootError: String?
     @Published var actionMessage: String?
+    /// The sidebar folder header. Collapsed hides the tree and leaves the header in place.
+    @Published var rootExpanded = true
     @Published var nameQuery = "" {
         didSet {
             guard nameQuery != oldValue else { return }
             scheduleContentSearch()
         }
+    }
+    @Published var includeGlob = "" {
+        didSet {
+            guard includeGlob != oldValue else { return }
+            scheduleContentSearch()
+        }
+    }
+    @Published var excludeGlob = "" {
+        didSet {
+            guard excludeGlob != oldValue else { return }
+            scheduleContentSearch()
+        }
+    }
+    /// Replacement used by Replace All in the folder. It does not rerun the search.
+    @Published var folderReplacement = ""
+    @Published var contentMatchCase = false {
+        didSet {
+            guard contentMatchCase != oldValue else { return }
+            scheduleContentSearch()
+        }
+    }
+    @Published var contentWholeWord = false {
+        didSet {
+            guard contentWholeWord != oldValue else { return }
+            scheduleContentSearch()
+        }
+    }
+    @Published var contentRegex = false {
+        didSet {
+            guard contentRegex != oldValue else { return }
+            scheduleContentSearch()
+        }
+    }
+    @Published private(set) var contentPatternInvalid = false
+
+    var contentQuery: FindQuery {
+        FindQuery(
+            pattern: nameQuery.trimmingCharacters(in: .whitespacesAndNewlines),
+            matchCase: contentMatchCase,
+            wholeWord: contentWholeWord,
+            regex: contentRegex
+        )
     }
     @Published private(set) var indexedEntries: [WorkspacePathEntry] = []
     @Published private(set) var contentHits: [WorkspaceContentHit] = []
@@ -850,12 +894,22 @@ final class WorkspaceSession: ObservableObject {
 
     private func scheduleContentSearch() {
         contentTask?.cancel()
-        let query = nameQuery.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else {
+        let query = contentQuery
+        let include = includeGlob
+        let exclude = excludeGlob
+        guard !query.pattern.isEmpty else {
             contentHits = []
             contentSearching = false
+            contentPatternInvalid = false
             return
         }
+        guard TextFind.isValid(query) else {
+            contentHits = []
+            contentSearching = false
+            contentPatternInvalid = true
+            return
+        }
+        contentPatternInvalid = false
         contentSearching = true
         let files = indexedEntries.filter {
             !$0.isDirectory && !WorkspaceContentSearch.shouldSkipRelativePath($0.relativePath)
@@ -864,23 +918,182 @@ final class WorkspaceSession: ObservableObject {
         contentTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(220))
             guard !Task.isCancelled else { return }
-            let hits = await Self.searchContents(files: files, root: root, query: query)
+            let hits = await Self.searchContents(
+                files: files,
+                root: root,
+                query: query,
+                include: include,
+                exclude: exclude
+            )
             guard !Task.isCancelled, let self else { return }
-            guard self.nameQuery.trimmingCharacters(in: .whitespacesAndNewlines) == query else { return }
+            guard self.contentQuery == query, self.includeGlob == include, self.excludeGlob == exclude else { return }
             self.contentHits = hits
             self.contentSearching = false
         }
     }
 
+    /// Replace every match in the folder. The alert confirms the count. Each file is its own undo.
+    func replaceAllInFolder(undoManager: UndoManager?) {
+        let query = contentQuery
+        let replacement = folderReplacement
+        let include = includeGlob
+        let exclude = excludeGlob
+        guard !query.pattern.isEmpty else {
+            actionFailed(String(localized: "No results"))
+            return
+        }
+        guard TextFind.isValid(query) else {
+            actionFailed(String(localized: "Invalid"))
+            return
+        }
+        let files = indexedEntries.filter {
+            !$0.isDirectory && !WorkspaceContentSearch.shouldSkipRelativePath($0.relativePath)
+        }
+        var open: [FolderOpenText] = []
+        var blocked: Set<String> = []
+        for (path, buffer) in buffers {
+            if buffer.kind == .markdown || buffer.kind == .plainText, buffer.conflictText == nil {
+                open.append(FolderOpenText(
+                    path: path,
+                    text: buffer.text,
+                    encoding: buffer.encoding,
+                    lineEnding: buffer.lineEnding
+                ))
+            } else {
+                blocked.insert(path)
+            }
+        }
+        let root = rootURL
+        Task { [weak self] in
+            let changes = await Self.planFolderReplace(
+                files: files,
+                root: root,
+                open: open,
+                blocked: blocked,
+                query: query,
+                replacement: replacement,
+                include: include,
+                exclude: exclude
+            )
+            await MainActor.run {
+                self?.confirmFolderReplace(changes, undoManager: undoManager)
+            }
+        }
+    }
+
+    private func confirmFolderReplace(_ changes: [FolderReplaceChange], undoManager: UndoManager?) {
+        let matches = changes.reduce(0) { $0 + $1.count }
+        guard matches > 0, !changes.isEmpty else {
+            actionFailed(String(localized: "No results"))
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = String(localized: "Replace in Files")
+        alert.informativeText = String(
+            format: String(localized: "Replace %lld matches in %lld files? Each file can be undone."),
+            Int64(matches),
+            Int64(changes.count)
+        )
+        alert.addButton(withTitle: String(localized: "Replace All"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        var skipped = 0
+        for change in changes {
+            if !applyFolderChange(change, undoManager: undoManager, restoring: false) {
+                skipped += 1
+            }
+        }
+        scheduleContentSearch()
+        if skipped > 0 {
+            actionFailed(String(format: String(localized: "Skipped %lld files."), Int64(skipped)))
+        }
+    }
+
+    /// One file, one undo. Returns false when the file was left unchanged.
+    @discardableResult
+    private func applyFolderChange(
+        _ change: FolderReplaceChange,
+        undoManager: UndoManager?,
+        restoring: Bool
+    ) -> Bool {
+        let text = restoring ? change.originalText : change.replacedText
+        if let buffer = buffers[change.relativePath] {
+            guard buffer.kind == .markdown || buffer.kind == .plainText, buffer.conflictText == nil else { return false }
+            let expected = restoring ? change.replacedText : change.originalText
+            guard buffer.text == expected || restoring else { return false }
+            if change.fromBuffer {
+                buffer.replaceWholeDocument(text)
+            } else if restoring, let data = change.originalData {
+                do {
+                    try WorkspaceFileCoordination.writeData(data, to: buffer.url)
+                } catch {
+                    return false
+                }
+                buffer.adoptDiskText(text)
+            } else {
+                guard TextBytes.canStore(text, as: change.encoding) else { return false }
+                do {
+                    try WorkspaceFileCoordination.writeEncodedText(
+                        text,
+                        encoding: change.encoding,
+                        lineEnding: change.lineEnding,
+                        to: buffer.url
+                    )
+                } catch {
+                    return false
+                }
+                buffer.adoptDiskText(text)
+            }
+        } else if restoring, let data = change.originalData {
+            do {
+                try WorkspaceFileCoordination.writeData(data, to: url(for: change.relativePath))
+            } catch {
+                return false
+            }
+        } else if change.fromBuffer {
+            guard TextBytes.canStore(text, as: change.encoding) else { return false }
+            do {
+                try WorkspaceFileCoordination.writeEncodedText(
+                    text,
+                    encoding: change.encoding,
+                    lineEnding: change.lineEnding,
+                    to: url(for: change.relativePath)
+                )
+            } catch {
+                return false
+            }
+        } else {
+            guard TextBytes.canStore(text, as: change.encoding) else { return false }
+            do {
+                try WorkspaceFileCoordination.writeEncodedText(
+                    text,
+                    encoding: change.encoding,
+                    lineEnding: change.lineEnding,
+                    to: url(for: change.relativePath)
+                )
+            } catch {
+                return false
+            }
+        }
+        undoManager?.registerUndo(withTarget: self) { session in
+            session.applyFolderChange(change, undoManager: undoManager, restoring: !restoring)
+        }
+        undoManager?.setActionName(String(localized: "Replace in Files"))
+        return true
+    }
+
     private static func searchContents(
         files: [WorkspacePathEntry],
         root: URL,
-        query: String
+        query: FindQuery,
+        include: String,
+        exclude: String
     ) async -> [WorkspaceContentHit] {
         await Task.detached(priority: .utility) {
             var found: [WorkspaceContentHit] = []
             for entry in files {
                 if Task.isCancelled || found.count >= WorkspaceContentSearch.hitLimit { break }
+                guard PathGlob.allows(entry.relativePath, include: include, exclude: exclude) else { continue }
                 let url = entry.relativePath.split(separator: "/").reduce(root) {
                     $0.appendingPathComponent(String($1))
                 }
@@ -903,6 +1116,70 @@ final class WorkspaceSession: ObservableObject {
                 ))
             }
             return found
+        }.value
+    }
+
+    private static func planFolderReplace(
+        files: [WorkspacePathEntry],
+        root: URL,
+        open: [FolderOpenText],
+        blocked: Set<String>,
+        query: FindQuery,
+        replacement: String,
+        include: String,
+        exclude: String
+    ) async -> [FolderReplaceChange] {
+        await Task.detached(priority: .utility) {
+            let openByPath = Dictionary(uniqueKeysWithValues: open.map { ($0.path, $0) })
+            var changes: [FolderReplaceChange] = []
+            for entry in files {
+                if Task.isCancelled { break }
+                guard PathGlob.allows(entry.relativePath, include: include, exclude: exclude) else { continue }
+                if blocked.contains(entry.relativePath) { continue }
+                if let buffer = openByPath[entry.relativePath] {
+                    let replaced = TextFind.replaceAll(in: buffer.text, query: query, with: replacement)
+                    guard replaced.count > 0 else { continue }
+                    guard TextBytes.canStore(replaced.text, as: buffer.encoding) else { continue }
+                    changes.append(FolderReplaceChange(
+                        relativePath: entry.relativePath,
+                        originalText: buffer.text,
+                        replacedText: replaced.text,
+                        count: replaced.count,
+                        encoding: buffer.encoding,
+                        lineEnding: buffer.lineEnding,
+                        originalData: nil,
+                        fromBuffer: true
+                    ))
+                    continue
+                }
+                let url = entry.relativePath.split(separator: "/").reduce(root) {
+                    $0.appendingPathComponent(String($1))
+                }
+                let size = WorkspaceFileCoordination.fileSize(at: url)
+                let sample = (try? WorkspaceFileCoordination.readSample(
+                    at: url,
+                    limit: WorkspaceFileClassifier.sampleLimit
+                )) ?? Data()
+                if WorkspaceContentSearch.shouldSkipContents(name: entry.name, byteCount: size, sample: sample) {
+                    continue
+                }
+                guard let data = try? WorkspaceFileCoordination.readData(at: url),
+                      let decoded = TextBytes.decode(data, allowLegacy: FileFormats.isTextualName(entry.name)) else { continue }
+                let replaced = TextFind.replaceAll(in: decoded.text, query: query, with: replacement)
+                guard replaced.count > 0 else { continue }
+                guard TextBytes.canStore(replaced.text, as: decoded.encoding) else { continue }
+                changes.append(FolderReplaceChange(
+                    relativePath: entry.relativePath,
+                    originalText: decoded.text,
+                    replacedText: replaced.text,
+                    count: replaced.count,
+                    encoding: decoded.encoding,
+                    lineEnding: decoded.lineEnding,
+                    originalData: data,
+                    fromBuffer: false
+                ))
+            }
+            return changes
         }.value
     }
 
@@ -1043,6 +1320,24 @@ final class WorkspaceSession: ObservableObject {
     }
 }
 
+private struct FolderOpenText: Sendable {
+    var path: String
+    var text: String
+    var encoding: TextEncoding
+    var lineEnding: LineEnding
+}
+
+private struct FolderReplaceChange: Sendable {
+    var relativePath: String
+    var originalText: String
+    var replacedText: String
+    var count: Int
+    var encoding: TextEncoding
+    var lineEnding: LineEnding
+    var originalData: Data?
+    var fromBuffer: Bool
+}
+
 /// Text for one workspace file. Keystrokes stay here and are written with a coordinated save.
 @MainActor
 final class WorkspaceFileBuffer: ObservableObject {
@@ -1131,6 +1426,34 @@ final class WorkspaceFileBuffer: ObservableObject {
 
     private static var nextGeneration = 0
     private let generation: Int
+
+    /// A folder replace edited this buffer. One assignment, then the normal save.
+    func replaceWholeDocument(_ newText: String) {
+        guard kind == .markdown || kind == .plainText, conflictText == nil else { return }
+        text = newText
+        reloadToken += 1
+        onEditorState?(self)
+        if newText == lastSaved, encoding == savedEncoding, lineEnding == savedLineEnding {
+            saveTask?.cancel()
+            return
+        }
+        scheduleSave()
+    }
+
+    /// The bytes were written directly. Match them without scheduling another save.
+    func adoptDiskText(_ newText: String) {
+        saveTask?.cancel()
+        text = newText
+        lastSaved = newText
+        savedEncoding = encoding
+        savedLineEnding = lineEnding
+        conflictText = nil
+        offeredConflict = nil
+        isMissing = false
+        status = nil
+        reloadToken += 1
+        onEditorState?(self)
+    }
 
     func userEdited(_ newText: String) {
         if kind == .readOnly { return }

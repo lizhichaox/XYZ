@@ -8,6 +8,8 @@ final class XYZMacTextView: NSTextView {
     weak var documentUndoManager: UndoManager?
     var onAppearanceChange: (() -> Void)?
     var allowsMarkup = true
+    /// The open file's language, for comment toggling.
+    var sourceLanguage: SyntaxLanguage = .plain
     /// Size and measure from Settings. Layout derives the side padding from it.
     var style = XYZEditorStyle() {
         didSet {
@@ -72,6 +74,18 @@ final class XYZMacTextView: NSTextView {
         if let action = menuItem.action, FormatMenu.actions.contains(action) {
             return isEditable && allowsMarkup
         }
+        if let action = menuItem.action, LineEditMenu.actions.contains(action) {
+            guard isEditable else { return false }
+            if action == #selector(xyzToggleComment(_:)) {
+                return TextTransforms.lineComment(for: sourceLanguage) != nil
+            }
+            if action == #selector(xyzMakeUppercase(_:))
+                || action == #selector(xyzMakeLowercase(_:))
+                || action == #selector(xyzMakeTitleCase(_:)) {
+                return selectedRange().length > 0
+            }
+            return true
+        }
         return super.validateMenuItem(menuItem)
     }
 
@@ -113,6 +127,251 @@ final class XYZMacTextView: NSTextView {
         let selectionLength = min(max(0, edit.selection.length), length - location)
         setSelectedRange(NSRange(location: location, length: selectionLength))
         return true
+    }
+
+    /// One replacement, one undo group. Used for find-and-replace and line edits on every text file.
+    @discardableResult
+    func applySourceEdit(_ edit: SourceReplacement?) -> Bool {
+        guard isEditable, !hasMarkedText(), let edit, let storage = textStorage else { return false }
+        let range = NSRange(location: edit.range.location, length: edit.range.length)
+        undoManager?.beginUndoGrouping()
+        defer { undoManager?.endUndoGrouping() }
+        guard shouldChangeText(in: range, replacementString: edit.text) else { return false }
+        storage.replaceCharacters(in: range, with: edit.text)
+        didChangeText()
+        let length = (string as NSString).length
+        let location = min(max(0, edit.selection.location), length)
+        let selectionLength = min(max(0, edit.selection.length), max(length - location, 0))
+        setSelectedRange(NSRange(location: location, length: selectionLength))
+        return true
+    }
+
+    @objc func xyzDuplicateLineDown(_ sender: Any?) {
+        _ = applySourceEdit(TextTransforms.duplicateLine(in: string, selection: sourceSelection(), above: false))
+    }
+
+    @objc func xyzDuplicateLineUp(_ sender: Any?) {
+        _ = applySourceEdit(TextTransforms.duplicateLine(in: string, selection: sourceSelection(), above: true))
+    }
+
+    @objc func xyzMoveLineDown(_ sender: Any?) {
+        _ = applySourceEdit(TextTransforms.moveLine(in: string, selection: sourceSelection(), up: false))
+    }
+
+    @objc func xyzMoveLineUp(_ sender: Any?) {
+        _ = applySourceEdit(TextTransforms.moveLine(in: string, selection: sourceSelection(), up: true))
+    }
+
+    @objc func xyzDeleteLine(_ sender: Any?) {
+        _ = applySourceEdit(TextTransforms.deleteLine(in: string, selection: sourceSelection()))
+    }
+
+    @objc func xyzIndentLines(_ sender: Any?) {
+        _ = applySourceEdit(TextTransforms.indentLines(in: string, selection: sourceSelection(), outdent: false))
+    }
+
+    @objc func xyzOutdentLines(_ sender: Any?) {
+        _ = applySourceEdit(TextTransforms.indentLines(in: string, selection: sourceSelection(), outdent: true))
+    }
+
+    @objc func xyzToggleComment(_ sender: Any?) {
+        guard let prefix = TextTransforms.lineComment(for: sourceLanguage) else { return }
+        let suffix = TextTransforms.lineCommentSuffix(for: sourceLanguage)
+        _ = applySourceEdit(TextTransforms.toggleComment(in: string, selection: sourceSelection(), prefix: prefix, suffix: suffix))
+    }
+
+    @objc func xyzJoinLines(_ sender: Any?) {
+        _ = applySourceEdit(TextTransforms.joinLines(in: string, selection: sourceSelection()))
+    }
+
+    @objc func xyzSortLines(_ sender: Any?) {
+        _ = applySourceEdit(TextTransforms.sortLines(in: string, selection: sourceSelection()))
+    }
+
+    @objc func xyzTrimTrailingWhitespace(_ sender: Any?) {
+        _ = applySourceEdit(TextTransforms.trimTrailingWhitespace(in: string, selection: sourceSelection()))
+    }
+
+    @objc func xyzMakeUppercase(_ sender: Any?) {
+        _ = applySourceEdit(TextTransforms.transformCase(in: string, selection: sourceSelection(), style: .upper))
+    }
+
+    @objc func xyzMakeLowercase(_ sender: Any?) {
+        _ = applySourceEdit(TextTransforms.transformCase(in: string, selection: sourceSelection(), style: .lower))
+    }
+
+    @objc func xyzMakeTitleCase(_ sender: Any?) {
+        _ = applySourceEdit(TextTransforms.transformCase(in: string, selection: sourceSelection(), style: .title))
+    }
+
+    override func performFindPanelAction(_ sender: Any?) -> Bool {
+        let tag = (sender as? NSMenuItem)?.tag ?? 0
+        let useSelection = tag == NSTextFinder.Action.setSearchString.rawValue
+            || tag == Int(NSFindPanelAction.setFindString.rawValue)
+        if useSelection {
+            findAction?(.useSelection)
+            return true
+        }
+        return super.performFindPanelAction(sender)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if event.modifierFlags.contains(.option), event.clickCount == 1, isEditable {
+            let point = convert(event.locationInWindow, from: nil)
+            let index = characterIndexForInsertion(at: point)
+            guard index != NSNotFound else {
+                super.mouseDown(with: event)
+                return
+            }
+            var ranges = selectedRanges.compactMap { ($0 as? NSValue)?.rangeValue }
+            ranges.append(NSRange(location: index, length: 0))
+            selectedRanges = ranges.map { NSValue(range: $0) }
+            window?.makeFirstResponder(self)
+            return
+        }
+        super.mouseDown(with: event)
+    }
+
+    override func insertText(_ insertString: Any, replacementRange: NSRange) {
+        let ranges = selectedRanges.compactMap { ($0 as? NSValue)?.rangeValue }
+        guard ranges.count > 1, let text = insertString as? String, replacementRange.location == NSNotFound else {
+            super.insertText(insertString, replacementRange: replacementRange)
+            return
+        }
+        undoManager?.beginUndoGrouping()
+        for range in ranges.sorted(by: { $0.location > $1.location }) {
+            super.insertText(text, replacementRange: range)
+        }
+        undoManager?.endUndoGrouping()
+    }
+
+    weak var findModel: EditorFindModel?
+    var findAction: ((FindBarAction) -> Void)?
+
+    func runFind(_ action: FindBarAction) {
+        guard let model = findModel else { return }
+        switch action {
+        case .refresh:
+            revealMatch(model, forward: true, stayIfAlreadyThere: true)
+        case .next:
+            revealMatch(model, forward: true, stayIfAlreadyThere: false)
+        case .previous:
+            revealMatch(model, forward: false, stayIfAlreadyThere: false)
+        case .replaceOne:
+            replaceCurrent(model)
+        case .replaceAll:
+            replaceEvery(model)
+        case .useSelection:
+            let selected = sourceSelection()
+            guard selected.length > 0 else { return }
+            let ns = string as NSString
+            model.pattern = ns.substring(with: NSRange(location: selected.location, length: selected.length))
+            model.visible = true
+            revealMatch(model, forward: true, stayIfAlreadyThere: true)
+        case .selectNextOccurrence:
+            selectNextOccurrence()
+        case .focus:
+            model.focusToken &+= 1
+        }
+    }
+
+    private func revealMatch(_ model: EditorFindModel, forward: Bool, stayIfAlreadyThere: Bool) {
+        let matches = TextFind.matches(in: string, query: model.query)
+        model.count = matches.count
+        model.regexInvalid = !model.pattern.isEmpty && !TextFind.isValid(model.query)
+        guard !matches.isEmpty else {
+            model.index = 0
+            return
+        }
+        let selection = sourceSelection()
+        let index: Int
+        if stayIfAlreadyThere, let current = matches.firstIndex(where: {
+            $0.range.location == selection.location && $0.range.length == selection.length
+        }) {
+            index = current
+        } else if let stepped = TextFind.step(from: selection, matches: matches, forward: forward) {
+            index = stepped
+        } else {
+            index = 0
+        }
+        model.index = index + 1
+        let match = matches[index]
+        let range = NSRange(location: match.range.location, length: match.range.length)
+        setSelectedRange(range)
+        scrollRangeToVisible(range)
+        window?.makeFirstResponder(self)
+    }
+
+    private func replaceCurrent(_ model: EditorFindModel) {
+        guard isEditable else { return }
+        var matches = TextFind.matches(in: string, query: model.query)
+        var selection = sourceSelection()
+        var index = matches.firstIndex(where: {
+            $0.range.location == selection.location && $0.range.length == selection.length
+        })
+        if index == nil {
+            revealMatch(model, forward: true, stayIfAlreadyThere: false)
+            matches = TextFind.matches(in: string, query: model.query)
+            selection = sourceSelection()
+            index = matches.firstIndex(where: {
+                $0.range.location == selection.location && $0.range.length == selection.length
+            })
+        }
+        guard let index else { return }
+        let match = matches[index]
+        let piece = model.replacementText(for: string, match: match)
+        guard applySourceEdit(SourceReplacement(
+            range: match.range,
+            text: piece,
+            selection: SourceRange(location: match.range.location, length: (piece as NSString).length)
+        )) else { return }
+        revealMatch(model, forward: true, stayIfAlreadyThere: false)
+    }
+
+    private func replaceEvery(_ model: EditorFindModel) {
+        guard isEditable else { return }
+        let replaced = TextFind.replaceAll(in: string, query: model.query, with: model.replacement)
+        guard replaced.count > 0 else { return }
+        let full = SourceRange(location: 0, length: (string as NSString).length)
+        _ = applySourceEdit(SourceReplacement(
+            range: full,
+            text: replaced.text,
+            selection: SourceRange(location: 0, length: 0)
+        ))
+        revealMatch(model, forward: true, stayIfAlreadyThere: true)
+    }
+
+    func selectNextOccurrence() {
+        let ns = string as NSString
+        let current = selectedRanges.compactMap { ($0 as? NSValue)?.rangeValue }.sorted { $0.location < $1.location }
+        let seedRange = current.last(where: { $0.length > 0 }) ?? current.last
+        let seed: String
+        if let seedRange, seedRange.length > 0 {
+            seed = ns.substring(with: seedRange)
+        } else {
+            let origin = seedRange?.location ?? selectedRange().location
+            let word = ns.rangeOfCharacter(from: .alphanumerics.inverted, options: .backwards, range: NSRange(location: 0, length: origin))
+            let start = word.location == NSNotFound ? 0 : NSMaxRange(word)
+            let forward = ns.rangeOfCharacter(from: .alphanumerics.inverted, options: [], range: NSRange(location: origin, length: ns.length - origin))
+            let end = forward.location == NSNotFound ? ns.length : forward.location
+            guard end > start else { return }
+            seed = ns.substring(with: NSRange(location: start, length: end - start))
+            setSelectedRange(NSRange(location: start, length: end - start))
+        }
+        guard !seed.isEmpty else { return }
+        let matches = TextFind.matches(in: string, query: FindQuery(pattern: seed, matchCase: true))
+        let after = current.last?.location ?? 0
+        guard let next = matches.first(where: { $0.range.location > after }) ?? matches.first(where: { $0.range.location != after }) else { return }
+        var ranges = current.filter { $0.length > 0 }
+        if ranges.isEmpty, let seedRange {
+            ranges = [seedRange]
+        }
+        let added = NSRange(location: next.range.location, length: next.range.length)
+        if !ranges.contains(where: { NSEqualRanges($0, added) }) {
+            ranges.append(added)
+        }
+        selectedRanges = ranges.map { NSValue(range: $0) }
+        scrollRangeToVisible(added)
     }
 
     override func layout() {
@@ -321,6 +580,7 @@ struct XYZMacEditor: NSViewRepresentable {
     var spellCheck: Bool
     var syntax: SyntaxLanguage
     var lineNumbers: Bool
+    var find: EditorFindModel?
     var onSelection: ((EditorCaret) -> Void)?
     var onTextChange: (String) -> Void
 
@@ -342,7 +602,7 @@ struct XYZMacEditor: NSViewRepresentable {
         textView.isAutomaticSpellingCorrectionEnabled = false
         textView.isContinuousSpellCheckingEnabled = spellCheck
         textView.isGrammarCheckingEnabled = false
-        textView.usesFindBar = true
+        textView.usesFindBar = false
         textView.isIncrementalSearchingEnabled = true
         textView.drawsBackground = true
         textView.isVerticallyResizable = true
@@ -416,6 +676,19 @@ struct XYZMacEditor: NSViewRepresentable {
         scrollLink.focusEditor = { [weak textView] in
             guard let textView, let window = textView.window else { return }
             window.makeFirstResponder(textView)
+        }
+        textView.findModel = find
+        textView.sourceLanguage = syntax
+        find?.language = syntax
+        find?.perform = { [weak textView] action in
+            textView?.runFind(action)
+        }
+        find?.edit = { [weak textView] make in
+            guard let textView else { return }
+            textView.applySourceEdit(make(textView.string, textView.sourceSelection()))
+        }
+        textView.findAction = { [weak textView] action in
+            textView?.runFind(action)
         }
         let previous = context.coordinator.style
         let syntaxChanged = context.coordinator.syntax != syntax
@@ -528,7 +801,9 @@ struct XYZMacEditor: NSViewRepresentable {
             switch command {
             case .replaceContents(let replacement):
                 isApplyingExternalText = true
+                textView.undoManager?.disableUndoRegistration()
                 textView.string = replacement
+                textView.undoManager?.enableUndoRegistration()
                 laterRestyle?.cancel()
                 restyle(edited: nil)
                 isApplyingExternalText = false

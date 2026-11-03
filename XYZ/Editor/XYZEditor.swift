@@ -176,6 +176,9 @@ struct XYZEditor: View {
     var forcesMonospace: Bool = false
     var onSelection: ((EditorCaret) -> Void)? = nil
     var onTextChange: (String) -> Void
+    #if os(macOS)
+    var find: EditorFindModel? = nil
+    #endif
 
     @AppStorage(XYZEditorStyle.monospacedKey) private var monospaced = false
     @AppStorage(XYZEditorStyle.fontSizeKey) private var fontSize = XYZEditorStyle.defaultFontSize
@@ -203,6 +206,7 @@ struct XYZEditor: View {
             spellCheck: spellCheck,
             syntax: syntax,
             lineNumbers: lineNumbers,
+            find: find,
             onSelection: onSelection,
             onTextChange: onTextChange
         )

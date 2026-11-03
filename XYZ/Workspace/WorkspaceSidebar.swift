@@ -6,6 +6,7 @@ import XYZCore
 /// Source list for one folder. The filter field sits under the toolbar, in the sidebar's top safe area.
 struct WorkspaceSidebar: NSViewRepresentable {
     @ObservedObject var session: WorkspaceSession
+    var undoManager: UndoManager?
 
     func makeNSView(context: Context) -> NSView {
         let reduceTransparency = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
@@ -44,7 +45,15 @@ struct WorkspaceSidebar: NSViewRepresentable {
         outline.dataSource = context.coordinator
         outline.delegate = context.coordinator
         column.search.delegate = context.coordinator
-        context.coordinator.attach(outline: outline, search: column.search, session: session)
+        column.replaceField.delegate = context.coordinator
+        column.includeField.delegate = context.coordinator
+        column.excludeField.delegate = context.coordinator
+        column.replaceAll.target = context.coordinator
+        column.matchCase.target = context.coordinator
+        column.wholeWord.target = context.coordinator
+        column.regex.target = context.coordinator
+        context.coordinator.undoManager = undoManager
+        context.coordinator.attach(outline: outline, column: column, session: session)
         context.coordinator.reloadIfNeeded(force: true)
 
         outline.onExpand = { [weak coordinator = context.coordinator] item in
@@ -80,6 +89,7 @@ struct WorkspaceSidebar: NSViewRepresentable {
 
     func updateNSView(_ view: NSView, context: Context) {
         context.coordinator.session = session
+        context.coordinator.undoManager = undoManager
         context.coordinator.reloadIfNeeded(force: false)
     }
 
@@ -103,6 +113,8 @@ struct WorkspaceSidebar: NSViewRepresentable {
     final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDelegate, NSSearchFieldDelegate {
         private weak var outline: SidebarOutlineView?
         private weak var search: SidebarSearchField?
+        private weak var column: SidebarColumnView?
+        weak var undoManager: UndoManager?
         var session: WorkspaceSession?
         private var childItems: [String: [NSObject]] = [:]
         private var rootRows: [NSObject] = []
@@ -112,12 +124,19 @@ struct WorkspaceSidebar: NSViewRepresentable {
         private var suppressExpansionWrite = false
         private var renamingPath: String?
 
-        fileprivate func attach(outline: SidebarOutlineView, search: SidebarSearchField, session: WorkspaceSession) {
+        fileprivate func attach(outline: SidebarOutlineView, column: SidebarColumnView, session: WorkspaceSession) {
             self.outline = outline
-            self.search = search
+            self.column = column
+            self.search = column.search
             self.session = session
-            search.onEscape = { [weak self] in
+            column.search.onEscape = { [weak self] in
                 self?.escapeSearch()
+            }
+            column.header.onToggle = { [weak self] in
+                self?.toggleRoot()
+            }
+            column.header.onMenu = { [weak self] event in
+                self?.popRootMenu(event)
             }
             session.focusSearchHandler = { [weak self] in
                 self?.focusSearch()
@@ -131,6 +150,13 @@ struct WorkspaceSidebar: NSViewRepresentable {
             session.focusSearchHandler = { [weak self] in
                 self?.focusSearch()
             }
+            column?.header.onToggle = { [weak self] in
+                self?.toggleRoot()
+            }
+            column?.header.onMenu = { [weak self] event in
+                self?.popRootMenu(event)
+            }
+            syncChrome(session)
             if let message = session.actionMessage {
                 session.actionMessage = nil
                 present(message)
@@ -138,9 +164,6 @@ struct WorkspaceSidebar: NSViewRepresentable {
             let next = Snapshot(session)
             let treeChanged = force || next != snapshot
             snapshot = next
-            if let search, search.stringValue != session.nameQuery, search.currentEditor() == nil {
-                search.stringValue = session.nameQuery
-            }
             if treeChanged {
                 rebuild(session)
                 applyTree(session)
@@ -151,6 +174,46 @@ struct WorkspaceSidebar: NSViewRepresentable {
         func focusSearch() {
             guard let search else { return }
             search.window?.makeFirstResponder(search)
+        }
+
+        private func toggleRoot() {
+            session?.rootExpanded.toggle()
+        }
+
+        private func popRootMenu(_ event: NSEvent) {
+            guard let header = column?.header else { return }
+            let menu = NSMenu()
+            menu.addItem(menuItem(String(localized: "Reveal in Finder"), #selector(revealRoot(_:)), ""))
+            menu.addItem(menuItem(String(localized: "Copy Path"), #selector(copyRootPath(_:)), ""))
+            menu.addItem(.separator())
+            menu.addItem(menuItem(String(localized: "Open Folder…"), #selector(switchRootFolder(_:)), ""))
+            NSMenu.popUpContextMenu(menu, with: event, for: header)
+        }
+
+        private func syncChrome(_ session: WorkspaceSession) {
+            if let search, search.stringValue != session.nameQuery, search.currentEditor() == nil {
+                search.stringValue = session.nameQuery
+            }
+            guard let column else { return }
+            assign(column.replaceField, session.folderReplacement)
+            assign(column.includeField, session.includeGlob)
+            assign(column.excludeField, session.excludeGlob)
+            column.matchCase.state = session.contentMatchCase ? .on : .off
+            column.wholeWord.state = session.contentWholeWord ? .on : .off
+            column.regex.state = session.contentRegex ? .on : .off
+            let home = FileManager.default.homeDirectoryForCurrentUser.path
+            column.header.show(
+                name: session.displayName,
+                expanded: session.rootExpanded,
+                path: WorkspacePaths.abbreviatedHomePath(session.rootURL.path, home: home)
+            )
+            let filtering = !session.nameQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            column.setReplaceVisible(filtering)
+        }
+
+        private func assign(_ field: NSTextField, _ value: String) {
+            guard field.stringValue != value, field.currentEditor() == nil else { return }
+            field.stringValue = value
         }
 
         nonisolated func expanded(_ item: Any, _ isExpanded: Bool) {
@@ -313,12 +376,57 @@ struct WorkspaceSidebar: NSViewRepresentable {
         }
 
         func controlTextDidChange(_ notification: Notification) {
-            guard let field = notification.object as? NSTextField, field === search else { return }
-            session?.nameQuery = field.stringValue
+            guard let field = notification.object as? NSTextField, let session else { return }
+            if field === search {
+                session.nameQuery = field.stringValue
+            } else if field === column?.replaceField {
+                session.folderReplacement = field.stringValue
+            } else if field === column?.includeField {
+                session.includeGlob = field.stringValue
+            } else if field === column?.excludeField {
+                session.excludeGlob = field.stringValue
+            }
+        }
+
+        @objc private func toggleMatchCase(_ sender: NSButton) {
+            session?.contentMatchCase = sender.state == .on
+        }
+
+        @objc private func toggleWholeWord(_ sender: NSButton) {
+            session?.contentWholeWord = sender.state == .on
+        }
+
+        @objc private func toggleRegex(_ sender: NSButton) {
+            session?.contentRegex = sender.state == .on
+        }
+
+        @objc private func replaceAllInFolder(_ sender: Any?) {
+            let manager = undoManager ?? outline?.window?.undoManager
+            session?.replaceAllInFolder(undoManager: manager)
+        }
+
+        @objc private func revealRoot(_ sender: Any?) {
+            guard let session else { return }
+            NSWorkspace.shared.activateFileViewerSelecting([session.rootURL])
+        }
+
+        @objc private func copyRootPath(_ sender: Any?) {
+            guard let session else { return }
+            let pasteboard = NSPasteboard.general
+            pasteboard.clearContents()
+            pasteboard.setString(session.rootURL.path, forType: .string)
+        }
+
+        @objc private func switchRootFolder(_ sender: Any?) {
+            guard let window = outline?.window ?? column?.window else { return }
+            WorkspaceWindowController.controller(for: window)?.promptSwitchFolder()
         }
 
         func controlTextDidEndEditing(_ notification: Notification) {
             guard let field = notification.object as? NSTextField, let search, field !== search else { return }
+            if field === column?.replaceField || field === column?.includeField || field === column?.excludeField {
+                return
+            }
             guard let session, let path = renamingPath else { return }
             renamingPath = nil
             field.isEditable = false
@@ -440,6 +548,7 @@ struct WorkspaceSidebar: NSViewRepresentable {
             childItems = [:]
             nodeByPath = [:]
             rootRows = []
+            guard session.rootExpanded else { return }
             if let error = session.rootError {
                 rootRows = [SidebarMessage(text: error)]
                 return
@@ -496,6 +605,11 @@ struct WorkspaceSidebar: NSViewRepresentable {
         private func appendContentHits(_ session: WorkspaceSession, emptyNames: Bool) {
             let query = session.nameQuery.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !query.isEmpty else { return }
+            if session.contentPatternInvalid {
+                rootRows.append(SidebarSection(title: String(localized: "Contents")))
+                rootRows.append(SidebarMessage(text: String(localized: "Invalid")))
+                return
+            }
             guard session.contentSearching || !session.contentHits.isEmpty else { return }
             if !emptyNames {
                 rootRows.append(SidebarSection(title: String(localized: "Contents")))
@@ -600,8 +714,19 @@ struct WorkspaceSidebar: NSViewRepresentable {
 
 fileprivate final class SidebarColumnView: NSView {
     let search: SidebarSearchField
+    let replaceField = NSTextField()
+    let includeField = NSTextField()
+    let excludeField = NSTextField()
+    let replaceAll = NSButton()
+    let matchCase = NSButton()
+    let wholeWord = NSButton()
+    let regex = NSButton()
+    let header = SidebarRootHeader()
     let scroll = NSScrollView()
     let outline = SidebarOutlineView()
+    private var collapsedReplace: NSLayoutConstraint?
+    private var expandedReplace: NSLayoutConstraint?
+    private weak var optionRow: NSView?
 
     override init(frame frameRect: NSRect) {
         let search = SidebarSearchField()
@@ -615,6 +740,26 @@ fileprivate final class SidebarColumnView: NSView {
         search.setAccessibilityLabel(String(localized: "Filter files"))
         search.setContentHuggingPriority(.required, for: .vertical)
         search.setContentCompressionResistancePriority(.required, for: .vertical)
+
+        configure(replaceField, placeholder: String(localized: "Replace"))
+        configure(includeField, placeholder: String(localized: "Include"))
+        configure(excludeField, placeholder: String(localized: "Exclude"))
+        includeField.toolTip = String(localized: "Include files")
+        excludeField.toolTip = String(localized: "Exclude files")
+
+        replaceAll.translatesAutoresizingMaskIntoConstraints = false
+        replaceAll.title = String(localized: "Replace All")
+        replaceAll.bezelStyle = .rounded
+        replaceAll.controlSize = .small
+        replaceAll.font = .systemFont(ofSize: 11)
+        replaceAll.action = #selector(WorkspaceSidebar.Coordinator.replaceAllInFolder(_:))
+        replaceAll.setContentHuggingPriority(.required, for: .horizontal)
+
+        configureToggle(matchCase, title: "Aa", action: #selector(WorkspaceSidebar.Coordinator.toggleMatchCase(_:)), help: String(localized: "Match Case"))
+        configureToggle(wholeWord, title: "W", action: #selector(WorkspaceSidebar.Coordinator.toggleWholeWord(_:)), help: String(localized: "Whole Word"))
+        configureToggle(regex, title: ".*", action: #selector(WorkspaceSidebar.Coordinator.toggleRegex(_:)), help: String(localized: "Regex"))
+
+        header.translatesAutoresizingMaskIntoConstraints = false
         scroll.translatesAutoresizingMaskIntoConstraints = false
         scroll.drawsBackground = false
         scroll.hasVerticalScroller = true
@@ -623,8 +768,22 @@ fileprivate final class SidebarColumnView: NSView {
         scroll.borderType = .noBorder
         scroll.automaticallyAdjustsContentInsets = true
         scroll.documentView = outline
+
+        let options = NSStackView(views: [matchCase, wholeWord, regex])
+        options.orientation = .horizontal
+        options.spacing = 8
+        options.translatesAutoresizingMaskIntoConstraints = false
+        options.setContentHuggingPriority(.required, for: .vertical)
+
         addSubview(search)
+        addSubview(replaceField)
+        addSubview(replaceAll)
+        addSubview(includeField)
+        addSubview(excludeField)
+        addSubview(options)
+        addSubview(header)
         addSubview(scroll)
+
         let belowLights = search.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 36)
         let belowSafeArea = search.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: 8)
         belowSafeArea.priority = .defaultHigh
@@ -633,16 +792,146 @@ fileprivate final class SidebarColumnView: NSView {
             search.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
             belowLights,
             belowSafeArea,
-            scroll.topAnchor.constraint(equalTo: search.bottomAnchor, constant: 6),
+            header.topAnchor.constraint(equalTo: search.bottomAnchor, constant: 6),
+            header.leadingAnchor.constraint(equalTo: leadingAnchor),
+            header.trailingAnchor.constraint(equalTo: trailingAnchor),
+            header.heightAnchor.constraint(equalToConstant: 22),
+            replaceField.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 4),
+            replaceField.leadingAnchor.constraint(equalTo: search.leadingAnchor),
+            replaceAll.leadingAnchor.constraint(equalTo: replaceField.trailingAnchor, constant: 6),
+            replaceAll.trailingAnchor.constraint(equalTo: search.trailingAnchor),
+            replaceAll.centerYAnchor.constraint(equalTo: replaceField.centerYAnchor),
+            includeField.topAnchor.constraint(equalTo: replaceField.bottomAnchor, constant: 4),
+            includeField.leadingAnchor.constraint(equalTo: search.leadingAnchor),
+            excludeField.leadingAnchor.constraint(equalTo: includeField.trailingAnchor, constant: 6),
+            excludeField.trailingAnchor.constraint(equalTo: search.trailingAnchor),
+            excludeField.centerYAnchor.constraint(equalTo: includeField.centerYAnchor),
+            excludeField.widthAnchor.constraint(equalTo: includeField.widthAnchor),
+            options.topAnchor.constraint(equalTo: includeField.bottomAnchor, constant: 4),
+            options.leadingAnchor.constraint(equalTo: search.leadingAnchor),
             scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
             scroll.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+        optionRow = options
+        let collapsed = scroll.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 2)
+        let expanded = scroll.topAnchor.constraint(equalTo: options.bottomAnchor, constant: 4)
+        collapsed.isActive = true
+        collapsedReplace = collapsed
+        expandedReplace = expanded
+        setReplaceVisible(false)
+    }
+
+    /// Replace, include, and exclude stay out of the way until the filter has a query.
+    func setReplaceVisible(_ visible: Bool) {
+        replaceField.isHidden = !visible
+        replaceAll.isHidden = !visible
+        includeField.isHidden = !visible
+        excludeField.isHidden = !visible
+        optionRow?.isHidden = !visible
+        if visible {
+            collapsedReplace?.isActive = false
+            expandedReplace?.isActive = true
+        } else {
+            expandedReplace?.isActive = false
+            collapsedReplace?.isActive = true
+        }
+    }
+
+    private func configure(_ field: NSTextField, placeholder: String) {
+        field.translatesAutoresizingMaskIntoConstraints = false
+        field.placeholderString = placeholder
+        field.isBezeled = true
+        field.bezelStyle = .roundedBezel
+        field.controlSize = .small
+        field.font = .systemFont(ofSize: NSFont.systemFontSize(for: .small))
+        field.focusRingType = .none
+        field.lineBreakMode = .byTruncatingTail
+        field.setAccessibilityLabel(placeholder)
+        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        field.setContentCompressionResistancePriority(.required, for: .vertical)
+    }
+
+    private func configureToggle(_ button: NSButton, title: String, action: Selector, help: String) {
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.setButtonType(.switch)
+        button.title = title
+        button.controlSize = .small
+        button.font = .systemFont(ofSize: 11)
+        button.action = action
+        button.toolTip = help
+        button.setAccessibilityLabel(help)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+}
+
+/// The open folder's name. A chevron collapses the tree. The tooltip is the path with ~ for home.
+fileprivate final class SidebarRootHeader: NSView {
+    var onToggle: (() -> Void)?
+    var onMenu: ((NSEvent) -> Void)?
+    private let chevron = NSImageView()
+    private let label = NSTextField(labelWithString: "")
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        chevron.translatesAutoresizingMaskIntoConstraints = false
+        chevron.imageScaling = .scaleProportionallyDown
+        chevron.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.isEditable = false
+        label.isSelectable = false
+        label.isBezeled = false
+        label.drawsBackground = false
+        label.lineBreakMode = .byTruncatingTail
+        label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        addSubview(chevron)
+        addSubview(label)
+        NSLayoutConstraint.activate([
+            chevron.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
+            chevron.centerYAnchor.constraint(equalTo: centerYAnchor),
+            chevron.widthAnchor.constraint(equalToConstant: 12),
+            chevron.heightAnchor.constraint(equalToConstant: 12),
+            label.leadingAnchor.constraint(equalTo: chevron.trailingAnchor, constant: 4),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -8),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         nil
+    }
+
+    func show(name: String, expanded: Bool, path: String) {
+        let font = NSFont.systemFont(ofSize: 11, weight: .semibold)
+        label.attributedStringValue = NSAttributedString(string: name.localizedUppercase, attributes: [
+            .font: font,
+            .foregroundColor: NSColor.secondaryLabelColor,
+            .kern: 0.6,
+        ])
+        let symbol = expanded ? "chevron.down" : "chevron.right"
+        let description = expanded ? String(localized: "Collapse") : String(localized: "Expand")
+        chevron.image = NSImage(systemSymbolName: symbol, accessibilityDescription: description)
+        chevron.contentTintColor = .secondaryLabelColor
+        toolTip = path
+        setAccessibilityLabel(name)
+        setAccessibilityHelp(path)
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        frame.contains(point) ? self : nil
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        onToggle?()
+    }
+
+    override func rightMouseDown(with event: NSEvent) {
+        onMenu?(event)
     }
 }
 
@@ -665,6 +954,8 @@ fileprivate struct Snapshot: Equatable {
     var expanded: [String] = []
     var hitIDs: [String] = []
     var contentSearching = false
+    var contentPatternInvalid = false
+    var rootExpanded = true
     var indexCount = 0
 
     init() {}
@@ -678,6 +969,8 @@ fileprivate struct Snapshot: Equatable {
         expanded = session.expanded.sorted()
         hitIDs = session.contentHits.map(\.id)
         contentSearching = session.contentSearching
+        contentPatternInvalid = session.contentPatternInvalid
+        rootExpanded = session.rootExpanded
         indexCount = session.indexedEntries.count
         if let tree = session.searchTree {
             var collected: [NodeSnap] = []

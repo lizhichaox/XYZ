@@ -299,6 +299,39 @@ public enum WorkspaceContentSearch {
         return found
     }
 
+    /// The same preview list, using the find bar's case, word, and regex rules. One row per line.
+    public static func hits(in text: String, relativePath: String, query: FindQuery, limit: Int) -> [WorkspaceContentHit] {
+        guard limit > 0, TextFind.isValid(query) else { return [] }
+        let ns = text as NSString
+        var found: [WorkspaceContentHit] = []
+        var seen: Set<Int> = []
+        for match in TextFind.matches(in: text, query: query) {
+            if found.count >= limit { break }
+            let location = min(max(match.range.location, 0), ns.length)
+            let probe = ns.length == 0 ? 0 : min(location, ns.length - 1)
+            let lineRange = ns.lineRange(for: NSRange(location: probe, length: 0))
+            let lineNumber = 1 + newlineCount(in: ns, upTo: lineRange.location)
+            if !seen.insert(lineNumber).inserted { continue }
+            let line = ns.substring(with: lineRange).trimmingCharacters(in: .newlines)
+            found.append(WorkspaceContentHit(
+                relativePath: relativePath,
+                lineNumber: lineNumber,
+                excerpt: excerpt(line)
+            ))
+        }
+        return found
+    }
+
+    private static func newlineCount(in ns: NSString, upTo location: Int) -> Int {
+        guard location > 0 else { return 0 }
+        let prefix = ns.substring(with: NSRange(location: 0, length: min(location, ns.length)))
+        var count = 0
+        for scalar in prefix.unicodeScalars where scalar == "\n" {
+            count += 1
+        }
+        return count
+    }
+
     public static func excerpt(_ line: String) -> String {
         let collapsed = line.split(whereSeparator: \.isWhitespace).joined(separator: " ")
         if collapsed.count <= 96 { return collapsed }

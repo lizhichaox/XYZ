@@ -17,7 +17,7 @@ Reading is an HTML page in one `WKWebView` per window. The view stays with the w
 
 ## View modes
 
-The View menu lists Source and Reading. ⌘/ is Source Code Mode, as in [Typora's shortcut list](https://support.typora.io/Shortcut-Keys/). It switches Source and Reading. ⌘E is Edit → Use Selection for Find. In a folder window, ⌘1 through ⌘8 select those tabs and ⌘9 selects the last. ⌘W closes the current tab. Find in the open note stays ⌘F. XYZ has no print command; Print is ⌘⇧⌥P, and ⌘P opens the command palette.
+The View menu lists Source and Reading. ⌘/ is Source Code Mode, as in [Typora's shortcut list](https://support.typora.io/Shortcut-Keys/). It switches Source and Reading. ⌘E is Edit → Use Selection for Find. In a folder window, ⌘1 through ⌘8 select those tabs and ⌘9 selects the last. ⌘W closes the current tab. Find in the open file is ⌘F, in a bar above the editor. ⌥⌘F adds replace. ⇧⌘F filters the folder and can replace across files. XYZ has no print command; Print is ⌘⇧⌥P, and ⌘P opens the command palette.
 
 ⌘P is Quick Open. An empty field lists files opened in that folder, most recent first. Typing matches any file, and the matched characters are semibold. A leading `>` lists commands (view modes, Go to Heading, sidebar, new file, new folder, Open Folder, Reveal in Finder, Copy Path, Copy Relative Path, Close Tab, Reload, About XYZ) and shows each shortcut on the right. A leading `@` lists the note's headings, deeper ones indented; View → Go to Heading… (⌘R) opens the palette that way. Choosing a heading puts the caret on it in Source, or scrolls Reading to it. ↑ and ↓, or ⌃P and ⌃N, move the selection. Return runs it. ⌘Return opens a file in a new window. Esc or a click outside dismisses the palette. It is not a button on the note.
 
@@ -156,9 +156,9 @@ A build made with `CODE_SIGNING_ALLOWED=NO` does not embed these entitlements, s
 
 ## Version
 
-XYZ uses MAJOR.MINOR.PATCH. `MARKETING_VERSION` in `Config/Base.xcconfig` is the version shown in About, and `CURRENT_PROJECT_VERSION` is the build number. Those two assignments are the only version source. The target does not set them again, because a value in the project file would override the xcconfig. A small change bumps the last number, a medium change the middle number, and a large or breaking change the first. This release is 0.2.0 (build 11). See `CHANGELOG.md`.
+XYZ uses MAJOR.MINOR.PATCH. `MARKETING_VERSION` in `Config/Base.xcconfig` is the version shown in About, and `CURRENT_PROJECT_VERSION` is the build number. Those two assignments are the only version source. The target does not set them again, because a value in the project file would override the xcconfig. A small change bumps the last number, a medium change the middle number, and a large or breaking change the first. This release is 0.3.0 (build 12). See `CHANGELOG.md`.
 
-About XYZ is a small window titled About XYZ. It shows the app icon, the version line `0.2.0 (11)`, and the credit line. The credit links the name LIZHICHAO to [lizhichao.com](https://lizhichao.com). Esc or ⌘W closes it.
+About XYZ is a small window titled About XYZ. It shows the app icon, the version line `0.3.0 (12)`, and the credit line. The credit links the name LIZHICHAO to [lizhichao.com](https://lizhichao.com). Esc or ⌘W closes it.
 
 ## App icon
 

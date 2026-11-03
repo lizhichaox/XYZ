@@ -8,7 +8,7 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
     static var controllers: [WorkspaceWindowController] = []
     private static var isTerminating = false
 
-    let session: WorkspaceSession
+    private(set) var session: WorkspaceSession
 
     init(session: WorkspaceSession) {
         self.session = session
@@ -27,6 +27,70 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
         window.isReleasedWhenClosed = false
         window.isExcludedFromWindowsMenu = false
         super.init(window: window)
+        adopt(session)
+        window.delegate = self
+        session.activate()
+    }
+
+    /// The workspace window that owns `window`, when there is one.
+    static func controller(for window: NSWindow) -> WorkspaceWindowController? {
+        controllers.first { $0.window === window }
+    }
+
+    /// Replaces this window's folder. Other windows are left as they are.
+    func promptSwitchFolder() {
+        guard let window else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = true
+        panel.prompt = String(localized: "Open Folder")
+        panel.message = String(localized: "Open a folder as a workspace.")
+        panel.showsHiddenFiles = true
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let url = panel.url else { return }
+            let bookmark: Data?
+            do {
+                bookmark = try WorkspaceBookmarks.make(for: url)
+            } catch {
+                bookmark = nil
+                WorkspaceLog.bookmarkFailed(action: "save", path: url.path, error: error)
+            }
+            MainActor.assumeIsolated {
+                self?.switchFolder(url: url, bookmark: bookmark)
+            }
+        }
+    }
+
+    func switchFolder(url: URL, bookmark: Data?) {
+        guard WorkspaceFolders.isDirectory(url) else { return }
+        let data = bookmark ?? WorkspaceBookmarks.capture(url)
+        var resolved = url
+        if let data {
+            var stale = false
+            do {
+                resolved = try WorkspaceBookmarks.resolve(data, isStale: &stale)
+            } catch {
+                resolved = url
+            }
+        }
+        if resolved.standardizedFileURL.path == session.rootURL.standardizedFileURL.path {
+            return
+        }
+        session.shutdown()
+        let next = WorkspaceSession(rootURL: resolved, bookmark: data)
+        adopt(next)
+        next.activate()
+        if let data {
+            WorkspaceLibrary.shared.remember(name: resolved.lastPathComponent, data: data, url: resolved)
+        }
+        Self.persistOpenWindows()
+        WorkspaceLog.folderPicked(source: "switch-folder", path: resolved.path)
+    }
+
+    private func adopt(_ session: WorkspaceSession) {
+        self.session = session
         session.claimExistingFile = { [weak self] path in
             guard let self else { return false }
             return Self.focusElsewhere(root: self.session.rootURL, path: path, except: self)
@@ -38,9 +102,9 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
         session.onMoveTab = { [weak self] id in
             self?.moveTabToNewWindow(id)
         }
-        window.delegate = self
+        guard let window else { return }
         window.contentViewController = NSHostingController(rootView: WorkspaceView(session: session))
-        session.activate()
+        WorkspaceChrome.apply(to: window, title: session.displayName, subtitle: "", representedFile: nil)
     }
 
     override func showWindow(_ sender: Any?) {

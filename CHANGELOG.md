@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.0
+
+- ⌘F finds in the current file from a bar above the editor. ⌥⌘F adds Replace and Replace All. The bar can match case, whole words, or a regular expression, and shows “n of m”. ⌘G and ⇧⌘G move through the matches. ⌘E still uses the selection as the query.
+- ⇧⌘F still filters the sidebar. It can replace across the folder: a preview of matches, include and exclude patterns, and Replace All after a confirmation. Each file is its own undo, and the file keeps its encoding and line endings.
+- Edit can duplicate, move, or delete a line, indent and outdent, join, sort, trim trailing space, and change case. ⌘; toggles a comment in code. ⌘/ still switches Source and Reading.
+- ⌘D adds the next occurrence of the selection. Option-click adds another caret. Typing goes to each caret as one undo. Arrow keys and the input method still use one caret.
+- The sidebar names the open folder under the filter. The chevron collapses the tree. The tooltip is the path, with ~ for the home folder. The menu can reveal the folder, copy its path, or open a different folder in this window.
+
 ## 0.2.0
 
 - File → New Window (⇧⌘N) opens another folder window, with its own tabs. A file already open in another window of that folder is brought forward instead of copied. A tab can move to a new window from its menu, or by dragging it out of the tab bar. The next launch restores each window, its folder, and its tabs. ⌘` still cycles windows, and ⌘1–⌘9 stay inside the key window.

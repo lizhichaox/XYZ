@@ -22,6 +22,7 @@ extension FocusedValues {
 
 struct WorkspaceView: View {
     @ObservedObject var session: WorkspaceSession
+    @Environment(\.undoManager) private var undoManager
     @StateObject private var commands = WorkspaceCommandBridge()
     @State private var columnVisibility = NavigationSplitViewVisibility.all
     @State private var trafficInset: CGFloat = 108
@@ -29,12 +30,13 @@ struct WorkspaceView: View {
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
-            WorkspaceSidebar(session: session)
+            WorkspaceSidebar(session: session, undoManager: undoManager)
                 .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 420)
         } detail: {
             WorkspaceDetail(
                 session: session,
-                tabLeading: columnVisibility == .detailOnly ? trafficInset : 0
+                tabLeading: columnVisibility == .detailOnly ? trafficInset : 0,
+                find: commands.findModel
             )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color.editorBackground.ignoresSafeArea())
@@ -190,6 +192,7 @@ enum WorkspaceChrome {
 private struct WorkspaceDetail: View {
     @ObservedObject var session: WorkspaceSession
     var tabLeading: CGFloat = 0
+    var find: EditorFindModel?
     @Environment(\.undoManager) private var undoManager
     @AppStorage(WordCountSetting.key) private var showsWordCount = false
     @StateObject private var wordCount = WordCountModel()
@@ -205,10 +208,13 @@ private struct WorkspaceDetail: View {
                     if !session.tabStrip.tabs.isEmpty {
                         EditorTabBar(session: session)
                             .padding(.leading, tabLeading)
-                        if let path = activePath {
-                            EditorBreadcrumb(rootName: session.displayName, relativePath: path) { crumb in
-                                session.revealCrumb(crumb)
-                            }
+                    }
+                    if let find, find.visible {
+                        EditorFindBar(model: find)
+                    }
+                    if let path = activePath {
+                        EditorBreadcrumb(rootName: session.displayName, relativePath: path) { crumb in
+                            session.revealCrumb(crumb)
                         }
                     }
                     if let status = banner {
@@ -407,6 +413,7 @@ private struct WorkspaceDetail: View {
             undoManager: undoManager,
             reloadToken: session.buffer?.editorToken ?? 0,
             scrollLink: session.scrollLink,
+            find: find,
             markup: format.language == .markdown,
             spellCheck: format.isProse,
             syntax: format.language,
@@ -430,6 +437,8 @@ private struct WorkspaceDetail: View {
 /// Forwards View-menu and palette actions to the open folder.
 @MainActor
 final class WorkspaceCommandBridge: ObservableObject, EditorCommandTarget {
+    private let storedFind = EditorFindModel()
+    var findModel: EditorFindModel? { storedFind }
     private weak var session: WorkspaceSession?
     private var columnVisibility: Binding<NavigationSplitViewVisibility> = .constant(.all)
 

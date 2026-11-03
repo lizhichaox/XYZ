@@ -91,6 +91,17 @@ public enum WorkspacePaths {
     public static func isHidden(name: String, resourceHidden: Bool) -> Bool {
         name.hasPrefix(".") || resourceHidden
     }
+
+    /// `~/Documents` when `path` lives inside `home`. The home directory is an argument, never a fixed path.
+    public static func abbreviatedHomePath(_ path: String, home: String) -> String {
+        let path = (path as NSString).standardizingPath
+        let home = (home as NSString).standardizingPath
+        if home.isEmpty { return path }
+        if path == home { return "~" }
+        let prefix = home.hasSuffix("/") ? home : home + "/"
+        guard path.hasPrefix(prefix) else { return path }
+        return "~/" + path.dropFirst(prefix.count)
+    }
 }
 
 public enum WorkspaceTreeSort {

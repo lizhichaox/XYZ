@@ -213,6 +213,26 @@ final class WorkspaceSearchTests: XCTestCase {
         XCTAssertEqual(hits.map(\.lineNumber), [2, 3])
         XCTAssertEqual(hits.first?.excerpt, "alpha beta")
         XCTAssertEqual(hits.first?.relativePath, "Notes/Daily.md")
+        let exact = WorkspaceContentSearch.hits(
+            in: "Cat catalog\ncat\n",
+            relativePath: "A.txt",
+            query: FindQuery(pattern: "cat", matchCase: true, wholeWord: true),
+            limit: 5
+        )
+        XCTAssertEqual(exact.map(\.lineNumber), [2])
+        XCTAssertTrue(WorkspaceContentSearch.hits(
+            in: "abc",
+            relativePath: "A.txt",
+            query: FindQuery(pattern: "(", regex: true),
+            limit: 5
+        ).isEmpty)
+    }
+
+    func testHomePathAbbreviation() {
+        XCTAssertEqual(WorkspacePaths.abbreviatedHomePath("/Users/me/Projects", home: "/Users/me"), "~/Projects")
+        XCTAssertEqual(WorkspacePaths.abbreviatedHomePath("/Users/me", home: "/Users/me"), "~")
+        XCTAssertEqual(WorkspacePaths.abbreviatedHomePath("/tmp/xyz", home: "/Users/me"), "/tmp/xyz")
+        XCTAssertEqual(WorkspacePaths.abbreviatedHomePath("/tmp/xyz", home: ""), "/tmp/xyz")
     }
 }
 

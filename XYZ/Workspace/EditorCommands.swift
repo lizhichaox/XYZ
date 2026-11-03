@@ -62,6 +62,7 @@ protocol EditorCommandTarget: AnyObject {
     func commitTabSwitch()
     func cancelTabSwitch()
     var isSwitchingTabs: Bool { get }
+    var findModel: EditorFindModel? { get }
     func performCustomCommand(_ id: String) -> Bool
 }
 
@@ -90,6 +91,7 @@ extension EditorCommandTarget {
     func commitTabSwitch() {}
     func cancelTabSwitch() {}
     var isSwitchingTabs: Bool { false }
+    var findModel: EditorFindModel? { nil }
     func performCustomCommand(_ id: String) -> Bool { false }
 }
 
@@ -182,11 +184,82 @@ final class EditorCommands: NSObject {
             toggleSidebarVisibility(nil)
             return true
         }
+        if flags == .command && key.lowercased() == "f" {
+            if target?.editorViewMode == .reading { return false }
+            target?.findModel?.show(replace: false)
+            return target?.findModel != nil
+        }
+        if flags == [.command, .option] && key.lowercased() == "f" {
+            if target?.editorViewMode == .reading, target?.findModel?.visible != true { return false }
+            target?.findModel?.show(replace: true)
+            return target?.findModel != nil
+        }
+        if flags == .command && key.lowercased() == "g" {
+            if target?.editorViewMode == .reading, target?.findModel?.visible != true { return false }
+            target?.findModel?.perform?(.next)
+            return target?.findModel != nil
+        }
+        if flags == [.command, .shift] && key.lowercased() == "g" {
+            if target?.editorViewMode == .reading, target?.findModel?.visible != true { return false }
+            target?.findModel?.perform?(.previous)
+            return target?.findModel != nil
+        }
+        if flags == .command && key.lowercased() == "d", editorIsFirstResponder {
+            target?.findModel?.perform?(.selectNextOccurrence)
+            return true
+        }
+        if editorIsFirstResponder, handleLineEdit(flags: flags, key: key, event: event) {
+            return true
+        }
         if flags == [.command, .shift] && key.lowercased() == "n" {
             newWorkspaceWindow(nil)
             return true
         }
         if handleTabSwitch(event, flags: flags) {
+            return true
+        }
+        return false
+    }
+
+    private var editorIsFirstResponder: Bool {
+        NSApp.keyWindow?.firstResponder is XYZMacTextView
+    }
+
+    private func handleLineEdit(flags: NSEvent.ModifierFlags, key: String, event: NSEvent) -> Bool {
+        let find = target?.findModel
+        guard let edit = find?.edit else { return false }
+        let language = find?.language ?? .plain
+        if flags == [.shift, .option], event.keyCode == 125 {
+            edit { TextTransforms.duplicateLine(in: $0, selection: $1, above: false) }
+            return true
+        }
+        if flags == [.shift, .option], event.keyCode == 126 {
+            edit { TextTransforms.duplicateLine(in: $0, selection: $1, above: true) }
+            return true
+        }
+        if flags == [.option], event.keyCode == 125 {
+            edit { TextTransforms.moveLine(in: $0, selection: $1, up: false) }
+            return true
+        }
+        if flags == [.option], event.keyCode == 126 {
+            edit { TextTransforms.moveLine(in: $0, selection: $1, up: true) }
+            return true
+        }
+        if flags == [.command, .shift], key.lowercased() == "k" {
+            edit { TextTransforms.deleteLine(in: $0, selection: $1) }
+            return true
+        }
+        if flags == .command, key == "]" {
+            edit { TextTransforms.indentLines(in: $0, selection: $1, outdent: false) }
+            return true
+        }
+        if flags == .command, key == "[" {
+            edit { TextTransforms.indentLines(in: $0, selection: $1, outdent: true) }
+            return true
+        }
+        if flags == .command, key == ";", let prefix = TextTransforms.lineComment(for: language) {
+            let suffix = TextTransforms.lineCommentSuffix(for: language)
+            edit { TextTransforms.toggleComment(in: $0, selection: $1, prefix: prefix, suffix: suffix) }
             return true
         }
         return false
@@ -457,6 +530,26 @@ enum PaletteTitles {
     }
 }
 
+/// Edit menu selectors for line edits. The items have no target, so the text view validates them.
+enum LineEditMenu {
+    static let actions: Set<Selector> = [
+        #selector(XYZMacTextView.xyzDuplicateLineDown(_:)),
+        #selector(XYZMacTextView.xyzDuplicateLineUp(_:)),
+        #selector(XYZMacTextView.xyzMoveLineDown(_:)),
+        #selector(XYZMacTextView.xyzMoveLineUp(_:)),
+        #selector(XYZMacTextView.xyzDeleteLine(_:)),
+        #selector(XYZMacTextView.xyzIndentLines(_:)),
+        #selector(XYZMacTextView.xyzOutdentLines(_:)),
+        #selector(XYZMacTextView.xyzToggleComment(_:)),
+        #selector(XYZMacTextView.xyzJoinLines(_:)),
+        #selector(XYZMacTextView.xyzSortLines(_:)),
+        #selector(XYZMacTextView.xyzTrimTrailingWhitespace(_:)),
+        #selector(XYZMacTextView.xyzMakeUppercase(_:)),
+        #selector(XYZMacTextView.xyzMakeLowercase(_:)),
+        #selector(XYZMacTextView.xyzMakeTitleCase(_:)),
+    ]
+}
+
 @MainActor
 enum EditorMenuSupport {
     private static var observing = false
@@ -491,6 +584,57 @@ enum EditorMenuSupport {
             ensureFileItems(in: file)
         }
         FormatMenu.ensure(in: main)
+        if let edit = editMenu(in: main) {
+            ensureEditItems(in: edit)
+        }
+    }
+
+    /// The menu that contains Undo.
+    private static func editMenu(in main: NSMenu) -> NSMenu? {
+        let undo = NSSelectorFromString("undo:")
+        return main.items.compactMap(\.submenu).first { menu in
+            menu.items.contains { $0.action == undo }
+        }
+    }
+
+    private static func ensureEditItems(in menu: NSMenu) {
+        let down = String(Character(UnicodeScalar(UInt32(NSDownArrowFunctionKey))!))
+        let up = String(Character(UnicodeScalar(UInt32(NSUpArrowFunctionKey))!))
+        let specs: [(String, String, String, NSEvent.ModifierFlags, Selector)] = [
+            ("xyz.edit.duplicateDown", String(localized: "Duplicate Line"), down, [.shift, .option], #selector(XYZMacTextView.xyzDuplicateLineDown(_:))),
+            ("xyz.edit.duplicateUp", String(localized: "Duplicate Line Above"), up, [.shift, .option], #selector(XYZMacTextView.xyzDuplicateLineUp(_:))),
+            ("xyz.edit.moveUp", String(localized: "Move Line Up"), up, [.option], #selector(XYZMacTextView.xyzMoveLineUp(_:))),
+            ("xyz.edit.moveDown", String(localized: "Move Line Down"), down, [.option], #selector(XYZMacTextView.xyzMoveLineDown(_:))),
+            ("xyz.edit.deleteLine", String(localized: "Delete Line"), "k", [.command, .shift], #selector(XYZMacTextView.xyzDeleteLine(_:))),
+            ("xyz.edit.indent", String(localized: "Indent"), "]", .command, #selector(XYZMacTextView.xyzIndentLines(_:))),
+            ("xyz.edit.outdent", String(localized: "Outdent"), "[", .command, #selector(XYZMacTextView.xyzOutdentLines(_:))),
+            ("xyz.edit.comment", String(localized: "Toggle Comment"), ";", .command, #selector(XYZMacTextView.xyzToggleComment(_:))),
+            ("xyz.edit.join", String(localized: "Join Lines"), "", [], #selector(XYZMacTextView.xyzJoinLines(_:))),
+            ("xyz.edit.sort", String(localized: "Sort Lines"), "", [], #selector(XYZMacTextView.xyzSortLines(_:))),
+            ("xyz.edit.trim", String(localized: "Trim Trailing Whitespace"), "", [], #selector(XYZMacTextView.xyzTrimTrailingWhitespace(_:))),
+            ("xyz.edit.upper", String(localized: "Make Uppercase"), "", [], #selector(XYZMacTextView.xyzMakeUppercase(_:))),
+            ("xyz.edit.lower", String(localized: "Make Lowercase"), "", [], #selector(XYZMacTextView.xyzMakeLowercase(_:))),
+            ("xyz.edit.title", String(localized: "Make Title Case"), "", [], #selector(XYZMacTextView.xyzMakeTitleCase(_:))),
+        ]
+        if menu.items.contains(where: { $0.identifier?.rawValue == "xyz.edit.divider" }) == false {
+            let divider = NSMenuItem.separator()
+            divider.identifier = NSUserInterfaceItemIdentifier("xyz.edit.divider")
+            menu.addItem(divider)
+        }
+        var previous = menu.items.first { $0.identifier?.rawValue == "xyz.edit.divider" }
+        for spec in specs {
+            let entry = item(
+                identifier: spec.0,
+                title: spec.1,
+                key: spec.2,
+                flags: spec.3,
+                action: spec.4,
+                in: menu
+            )
+            entry.target = nil
+            place(entry, after: previous, in: menu)
+            previous = entry
+        }
     }
 
     private static func remapConflictingShortcuts(in menu: NSMenu) {

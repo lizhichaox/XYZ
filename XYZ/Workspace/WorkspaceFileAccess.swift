@@ -153,6 +153,38 @@ enum WorkspaceFileCoordination {
         return (decision, diskText)
     }
 
+    /// Writes editor text back in the file's encoding and line ending.
+    static func writeEncodedText(
+        _ text: String,
+        encoding: TextEncoding,
+        lineEnding: LineEnding,
+        to url: URL
+    ) throws {
+        guard let bytes = TextBytes.encode(text, encoding: encoding, lineEnding: lineEnding) else {
+            throw TextBytes.EncodingError.unrepresentable
+        }
+        try writeData(bytes, to: url)
+    }
+
+    /// Puts the previous bytes back. Used so undo restores the file exactly.
+    static func writeData(_ data: Data, to url: URL) throws {
+        var inner: Error?
+        var coordinationError: NSError?
+        NSFileCoordinator().coordinate(
+            writingItemAt: url,
+            options: .forReplacing,
+            error: &coordinationError
+        ) { url in
+            do {
+                try data.write(to: url, options: .atomic)
+            } catch {
+                inner = error
+            }
+        }
+        if let coordinationError { throw coordinationError }
+        if let inner { throw inner }
+    }
+
     private static func coordinatedRead<T>(at url: URL, _ body: (URL) throws -> T) throws -> T {
         var value: T?
         var inner: Error?
