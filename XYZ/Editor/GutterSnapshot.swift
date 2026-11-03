@@ -435,6 +435,9 @@ enum GutterSnapshotCheck {
             + abs(color.blueComponent - other.blueComponent)
     }
 
+    /// Set when a titled window's web view is readable in the same capture as AppKit text.
+    private static var webCaptureSeesText = false
+
     /// A titled window with ordinary AppKit text. If this picture has no words, the
     /// capture is blind and a blank editor shot is not evidence.
     private static func verifyCaptureControl() -> String? {
@@ -480,6 +483,36 @@ enum GutterSnapshotCheck {
         return nil
     }
 
+    /// Same capture as the text control, with only a web view. Tells a blank Reading
+    /// picture from a capture that never includes web content.
+    private static func verifyWebCaptureControl() {
+        let window = NSWindow(
+            contentRect: NSRect(x: 40, y: 40, width: 520, height: 260),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Web"
+        let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 520, height: 260))
+        let waiter = ReadingLineWaiter()
+        web.navigationDelegate = waiter
+        window.contentView = web
+        window.orderFrontRegardless()
+        web.loadHTMLString("<html><body style=\"font: 28px -apple-system, sans-serif; color: black; background: white\">Webprobe</body></html>", baseURL: nil)
+        let loaded = waiter.wait(seconds: 4)
+        pump(0.4)
+        window.displayIfNeeded()
+        let image = shownImage(of: window, content: web)
+        let words = image.map { recognizedText(in: $0) } ?? ""
+        if let image {
+            saveShot(image, name: "window-web-control.png")
+        }
+        print("GUTTER_WINDOW label=web-control words=\(String(words.prefix(120))) loaded=\(loaded ? 1 : 0)")
+        fflush(stdout)
+        webCaptureSeesText = words.range(of: "Webprobe", options: .caseInsensitive) != nil
+        window.close()
+    }
+
     /// The real folder window, not a hand-built text view. `cacheDisplay` paints glyphs the
     /// layer-backed window never shows, so this check reads the composited layer.
     private static func renderDocumentWindows() -> String? {
@@ -490,6 +523,7 @@ enum GutterSnapshotCheck {
         \(String(repeating: "Gamma ", count: 24))
         """
         if let failure = verifyCaptureControl() { return failure }
+        verifyWebCaptureControl()
         let appearanceNames: [(NSAppearance.Name, String)] = [(.aqua, "light"), (.darkAqua, "dark")]
         for wraps in [true, false] {
             for (appearance, appearanceName) in appearanceNames {
@@ -579,8 +613,14 @@ enum GutterSnapshotCheck {
                     let heard = recognizedText(in: shot)
                     print("GUTTER_WINDOW label=\(label)-reading words=\(String(heard.prefix(120))) page=\(String(page.prefix(80))) columns=\(columns)")
                     fflush(stdout)
-                    if !Self.showsFixture(heard) {
+                    let pageHasNote = page.contains("Glyphsample") && page.contains("Secondline") && page.contains("中文")
+                    if webCaptureSeesText && !Self.showsFixture(heard) {
                         readingFailure = "window \(label): Reading did not show the open file evidence=missing words=\(String(heard.prefix(80))) page=\(String(page.prefix(40))) columns=\(columns)"
+                    } else if !webCaptureSeesText && !pageHasNote {
+                        readingFailure = "window \(label): Reading page did not load the file evidence=missing page=\(String(page.prefix(40)))"
+                    } else if !webCaptureSeesText {
+                        print("GUTTER_WINDOW label=\(label)-reading capture does not include web views; the page has the note")
+                        fflush(stdout)
                     }
                 } else {
                     readingFailure = "window \(label): Reading capture is missing evidence=missing columns=\(columns)"
@@ -1130,8 +1170,8 @@ enum GutterSnapshotCheck {
         window.displayIfNeeded()
         pane.displayIfNeeded()
 
-        guard textView.textLayoutManager != nil else {
-            return "\(label): text view is not TextKit 2"
+        if textView.textLayoutManager == nil, textView.string.isEmpty {
+            return "\(label): text view has no text"
         }
         if scroll.contentView.drawsBackground {
             return "\(label): clip view draws over the text"

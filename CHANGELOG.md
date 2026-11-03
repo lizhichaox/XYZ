@@ -2,7 +2,7 @@
 
 ## 0.5.27
 
-- Opening a file shows its text in the real editor and the real Reading page. The copied bitmap and the plain-text stand-in are gone, so the caret, selection, scrolling, find, and Markdown rendering stay on the native views. The file column keeps the width left after the sidebar. The window check first reads a normal text control, so a blind capture is not treated as a blank document. A blank file still fails.
+- Opening a file uses the text view a titled window can show. The copied bitmap and the plain-text cover stay gone, so the caret, selection, scrolling, find, and the Reading page stay on their own views. The file column keeps the width left after the sidebar. The window check first reads a normal text control. A blank file still fails.
 
 ## 0.5.26
 

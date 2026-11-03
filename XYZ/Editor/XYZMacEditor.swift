@@ -1176,11 +1176,11 @@ struct XYZMacEditor: NSViewRepresentable {
         return pane
     }
 
-    /// `init(usingTextLayoutManager:)` installs this view as the text viewport, so the body is drawn.
-    /// A hand-built content storage can leave `textLayoutManager` non-nil, which is enough for the
-    /// gutter to number lines, without ever attaching those glyphs to the view.
+    /// `init(frame:)` is the text view a titled window actually shows. The capture control
+    /// read that text. `init(usingTextLayoutManager:)` kept the glyphs on a layer the folder
+    /// window did not draw. The caret, selection, scrolling, and find stay on this view.
     private static func makeTextKit2View() -> XYZMacTextView {
-        let textView = XYZMacTextView(usingTextLayoutManager: true)
+        let textView = XYZMacTextView(frame: .zero)
         if ProcessInfo.processInfo.arguments.contains(GutterSnapshotCheck.argument) {
             let how = textView.textLayoutManager == nil ? "textkit1" : "convenience"
             print("GUTTER_PROD stage=init path=\(how)")
