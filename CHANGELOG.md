@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1
+
+- The tab bar keeps the dirty dot in a fixed slot, marks the active tab more clearly, and scrolls the active tab into view when the row overflows.
+- The status bar can change the encoding and the line ending. A choice the text cannot store is refused, and the file is written back in the new form.
+- View → Show Outline lists Markdown headings, JSON keys, or declarations. Choosing one jumps to that line. It is a scan, not a language server.
+- The file tree draws a quiet indent guide.
+
 ## 0.1.0
 
 - A folder window keeps open files in a tab bar. A single click is a preview tab; editing or a double click pins it. A dirty file shows a dot. ⌘W closes the tab, and ⌘1–⌘8 select a tab, with ⌘9 selecting the last.

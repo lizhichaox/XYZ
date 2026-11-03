@@ -1642,6 +1642,46 @@
         }
       }
     },
+    "No Outline": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有大纲"
+          }
+        }
+      }
+    },
+    "Outline": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "大纲"
+          }
+        }
+      }
+    },
+    "Show Outline": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示大纲"
+          }
+        }
+      }
+    },
+    "This text can't be stored in that encoding.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这段文字无法用该编码保存。"
+          }
+        }
+      }
+    },
     "简体中文": {
       "shouldTranslate": false
     }

@@ -184,6 +184,8 @@ final class EditorCommands: NSObject {
             DispatchQueue.main.async { [weak self] in
                 self?.goToHeading(nil)
             }
+        case "view.outline":
+            toggleOutline(nil)
         case "app.about":
             AboutWindow.show()
         default:
@@ -226,6 +228,11 @@ final class EditorCommands: NSObject {
         defaults.set(!defaults.bool(forKey: WordCountSetting.key), forKey: WordCountSetting.key)
     }
 
+    @objc func toggleOutline(_ sender: Any?) {
+        let defaults = UserDefaults.standard
+        defaults.set(!defaults.bool(forKey: OutlineSetting.key), forKey: OutlineSetting.key)
+    }
+
     @objc func toggleSource(_ sender: Any?) {
         target?.editorToggle(source: invocationSource())
     }
@@ -262,6 +269,9 @@ final class EditorCommands: NSObject {
         case "xyz.wordCount":
             menuItem.state = UserDefaults.standard.bool(forKey: WordCountSetting.key) ? .on : .off
             return true
+        case "xyz.outline":
+            menuItem.state = UserDefaults.standard.bool(forKey: OutlineSetting.key) ? .on : .off
+            return target?.supportsWorkspaceFiles == true
         case "xyz.workspace.filter":
             return target?.supportsWorkspaceFiles == true
         case "xyz.workspace.hidden":
@@ -297,6 +307,7 @@ enum PaletteTitles {
         case "view.reading": return String(localized: "Reading")
         case "view.toggleSource": return String(localized: "Toggle Source and Reading")
         case "view.goToHeading": return String(localized: "Go to Heading")
+        case "view.outline": return String(localized: "Show Outline")
         case "workspace.toggleSidebar": return String(localized: "Toggle Sidebar")
         case "workspace.focusFilter": return String(localized: "Filter Files")
         case "file.new": return String(localized: "New File")
@@ -405,6 +416,7 @@ enum EditorMenuSupport {
             ("xyz.actualSize", String(localized: "Actual Size"), "0", .command, #selector(EditorCommands.actualSize(_:))),
             ("xyz.lineNumbers", String(localized: "Show Line Numbers"), "", [], #selector(EditorCommands.toggleLineNumbers(_:))),
             ("xyz.wordCount", String(localized: "Show Word Count"), "", [], #selector(EditorCommands.toggleWordCount(_:))),
+            ("xyz.outline", String(localized: "Show Outline"), "", [], #selector(EditorCommands.toggleOutline(_:))),
         ]
         var previous: NSMenuItem?
         for spec in specs {

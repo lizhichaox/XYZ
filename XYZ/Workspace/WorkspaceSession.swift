@@ -403,6 +403,7 @@ final class WorkspaceSession: ObservableObject {
         if let open = buffers[id] {
             show(open)
         }
+        focusOpenEditor()
         return true
     }
 
@@ -426,7 +427,23 @@ final class WorkspaceSession: ObservableObject {
         }
     }
 
-    private func copyString(_ value: String) {
+    func chooseEncoding(_ encoding: TextEncoding) {
+        _ = buffer?.chooseEncoding(encoding)
+        objectWillChange.send()
+    }
+
+    func chooseLineEnding(_ ending: LineEnding) {
+        buffer?.chooseLineEnding(ending)
+        objectWillChange.send()
+    }
+
+    func focusOpenEditor() {
+        DispatchQueue.main.async { [weak self] in
+            self?.scrollLink.focusEditor?()
+        }
+    }
+
+    func copyString(_ value: String) {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
         pasteboard.setString(value, forType: .string)
@@ -819,9 +836,13 @@ final class WorkspaceFileBuffer: ObservableObject {
     private(set) var mixedLineEndings: Bool
     var onEditorState: ((WorkspaceFileBuffer) -> Void)?
     private var lastSaved: String
+    private var savedEncoding: TextEncoding
+    private var savedLineEnding: LineEnding
     private var saveTask: Task<Void, Never>?
 
-    var isDirty: Bool { text != lastSaved }
+    var isDirty: Bool {
+        text != lastSaved || encoding != savedEncoding || lineEnding != savedLineEnding
+    }
 
     fileprivate init(
         url: URL,
@@ -840,6 +861,8 @@ final class WorkspaceFileBuffer: ObservableObject {
         self.lineEnding = lineEnding
         self.mixedLineEndings = mixedLineEndings
         self.lastSaved = text
+        self.savedEncoding = encoding
+        self.savedLineEnding = lineEnding
         Self.nextGeneration += 1
         generation = Self.nextGeneration
     }
@@ -847,6 +870,29 @@ final class WorkspaceFileBuffer: ObservableObject {
     func retarget(relativePath: String, url: URL) {
         self.relativePath = relativePath
         self.url = url
+    }
+
+    /// Changes how the next save writes the bytes. Returns false when the text cannot be stored that way.
+    @discardableResult
+    func chooseEncoding(_ encoding: TextEncoding) -> Bool {
+        guard kind == .markdown || kind == .plainText else { return false }
+        guard TextBytes.canStore(text, as: encoding) else {
+            status = String(localized: "This text can't be stored in that encoding.")
+            return false
+        }
+        self.encoding = encoding
+        status = nil
+        onEditorState?(self)
+        scheduleSave()
+        return true
+    }
+
+    func chooseLineEnding(_ ending: LineEnding) {
+        guard kind == .markdown || kind == .plainText else { return }
+        lineEnding = ending
+        mixedLineEndings = false
+        onEditorState?(self)
+        scheduleSave()
     }
 
     /// Changes when the file is opened or reloaded, so one text view can swap documents.
@@ -862,7 +908,7 @@ final class WorkspaceFileBuffer: ObservableObject {
             saveTask?.cancel()
             return
         }
-        if newText == lastSaved {
+        if newText == lastSaved, encoding == savedEncoding, lineEnding == savedLineEnding {
             saveTask?.cancel()
             return
         }
@@ -941,6 +987,8 @@ final class WorkspaceFileBuffer: ObservableObject {
         isMissing = false
         status = nil
         reloadToken += 1
+        savedEncoding = encoding
+        savedLineEnding = lineEnding
         onEditorState?(self)
     }
 
@@ -955,7 +1003,8 @@ final class WorkspaceFileBuffer: ObservableObject {
 
     private func save(force: Bool) {
         guard kind == .markdown || kind == .plainText else { return }
-        guard force || text != lastSaved else { return }
+        let formDirty = encoding != savedEncoding || lineEnding != savedLineEnding
+        guard force || text != lastSaved || formDirty else { return }
         let editor = text
         let saved = lastSaved
         do {
@@ -965,11 +1014,14 @@ final class WorkspaceFileBuffer: ObservableObject {
                 lastSaved: saved,
                 encoding: encoding,
                 lineEnding: lineEnding,
-                force: force
+                force: force,
+                rewrite: formDirty && text == lastSaved
             )
             switch decision {
             case .write:
                 lastSaved = editor
+                savedEncoding = encoding
+                savedLineEnding = lineEnding
                 conflictText = nil
                 isMissing = false
                 status = nil

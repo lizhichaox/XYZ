@@ -185,39 +185,33 @@ private struct WorkspaceDetail: View {
     @Environment(\.undoManager) private var undoManager
     @AppStorage(WordCountSetting.key) private var showsWordCount = false
     @StateObject private var wordCount = WordCountModel()
+    @StateObject private var outline = OutlineModel()
     @State private var caret = EditorCaret()
+    @AppStorage(OutlineSetting.key) private var showsOutline = false
 
     var body: some View {
         VStack(spacing: 0) {
-            if !session.tabStrip.tabs.isEmpty {
-                EditorTabBar(session: session)
-                if let path = activePath {
-                    EditorBreadcrumb(rootName: session.displayName, relativePath: path) { crumb in
-                        session.revealCrumb(crumb)
+            HStack(spacing: 0) {
+                VStack(spacing: 0) {
+                    if !session.tabStrip.tabs.isEmpty {
+                        EditorTabBar(session: session)
+                        if let path = activePath {
+                            EditorBreadcrumb(rootName: session.displayName, relativePath: path) { crumb in
+                                session.revealCrumb(crumb)
+                            }
+                        }
                     }
+                    if let status = banner {
+                        bannerView(status)
+                    }
+                    fileBody
                 }
-            }
-            if let status = banner {
-                bannerView(status)
-            }
-            Group {
-                if session.buffer == nil {
-                    ContentUnavailableView {
-                        Label("No File Open", systemImage: "doc.text")
-                    } description: {
-                        Text("Choose a file in the sidebar.\n⌘P opens one. ⌘⇧F searches names and text.")
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                if showsOutline && showsText {
+                    Rectangle().fill(Color.primary.opacity(0.12)).frame(width: 1)
+                    OutlinePane(entries: outline.entries) { line in
+                        session.scrollLink.revealLine(line)
                     }
-                } else if showsReading {
-                    reading
-                } else if showsEditor {
-                    editor
-                } else if let buffer = session.buffer, buffer.kind == .tooLarge {
-                    placeholder(for: buffer)
-                        .background(Color.editorBackground)
-                } else if let buffer = session.buffer {
-                    FileSurface(url: buffer.url, viewer: format.viewer)
-                        .id(buffer.editorToken)
-                        .background(Color.editorBackground)
                 }
             }
         }
@@ -226,26 +220,64 @@ private struct WorkspaceDetail: View {
             if session.buffer != nil {
                 EditorStatusBar(
                     caret: showsEditor || showsReading ? caret : nil,
-                    encoding: showsText ? session.buffer?.encoding.label : nil,
-                    lineEnding: showsText ? session.buffer?.lineEnding.label : nil,
+                    encodingValue: showsText ? session.buffer?.encoding : nil,
+                    lineEndingValue: showsText ? session.buffer?.lineEnding : nil,
                     mixedEndings: session.buffer?.mixedLineEndings == true,
                     typeName: format.label,
                     words: format.isProse ? wordCount.stats : nil,
-                    showsReadingTime: showsWordCount && format.isProse
+                    showsReadingTime: showsWordCount && format.isProse,
+                    onEncoding: showsText ? { session.chooseEncoding($0) } : nil,
+                    onLineEnding: showsText ? { session.chooseLineEnding($0) } : nil
                 )
             }
         }
         .background(Color.editorBackground)
         .onAppear {
             countWords(immediate: true)
+            refreshOutline(immediate: true)
         }
         .onChange(of: session.buffer?.editorToken) { _, _ in
             session.previewBridge.send(session.buffer?.text ?? "")
             caret = EditorCaret()
             countWords(immediate: true)
+            refreshOutline(immediate: true)
         }
         .onChange(of: showsWordCount) { _, _ in
             countWords(immediate: true)
+        }
+        .onChange(of: showsOutline) { _, shown in
+            if shown { refreshOutline(immediate: true) }
+        }
+    }
+
+    @ViewBuilder
+    private var fileBody: some View {
+        if session.buffer == nil {
+            ContentUnavailableView {
+                Label("No File Open", systemImage: "doc.text")
+            } description: {
+                Text("Choose a file in the sidebar.\n⌘P opens one. ⌘⇧F searches names and text.")
+            }
+        } else if showsReading {
+            reading
+        } else if showsEditor {
+            editor
+        } else if let buffer = session.buffer, buffer.kind == .tooLarge {
+            placeholder(for: buffer)
+                .background(Color.editorBackground)
+        } else if let buffer = session.buffer {
+            FileSurface(url: buffer.url, viewer: format.viewer)
+                .id(buffer.editorToken)
+                .background(Color.editorBackground)
+        }
+    }
+
+    private func refreshOutline(immediate: Bool) {
+        guard showsOutline, showsText, let text = session.buffer?.text else { return }
+        if immediate {
+            outline.update(text: text, language: format.language)
+        } else {
+            outline.update(text: text, language: format.language)
         }
     }
 
@@ -355,6 +387,9 @@ private struct WorkspaceDetail: View {
                 session.previewBridge.send(newText)
                 if format.isProse {
                     wordCount.update(newText)
+                }
+                if showsOutline {
+                    outline.update(text: newText, language: format.language)
                 }
             }
         )

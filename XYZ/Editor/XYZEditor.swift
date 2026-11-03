@@ -121,6 +121,8 @@ final class EditorScrollLink {
         queuedReveal = nil
     }
 
+    var focusEditor: (() -> Void)?
+
     func noteToggle(to destination: EditorViewMode) {
         pending = (capture(), destination)
     }

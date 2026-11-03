@@ -175,9 +175,11 @@ struct WorkspaceSidebar: NSViewRepresentable {
                     }
                 } else {
                     session.openFile(node.model, pin: true)
+                    session.focusOpenEditor()
                 }
             } else if let hit = item as? SidebarHit {
                 session.openRelative(hit.relativePath, pin: true, line: hit.hit.lineNumber)
+                session.focusOpenEditor()
             }
         }
 
@@ -349,8 +351,10 @@ struct WorkspaceSidebar: NSViewRepresentable {
             guard row >= 0, let item = outline.item(atRow: row) else { return }
             if let node = item as? SidebarNode, !node.isDirectory {
                 session.openFile(node.model, pin: true)
+                session.focusOpenEditor()
             } else if let hit = item as? SidebarHit {
                 session.openRelative(hit.relativePath, pin: true, line: hit.hit.lineNumber)
+                session.focusOpenEditor()
             }
         }
 
@@ -763,6 +767,32 @@ fileprivate final class SidebarOutlineView: NSOutlineView {
     override func collapseItem(_ item: Any?, collapseChildren: Bool) {
         super.collapseItem(item, collapseChildren: collapseChildren)
         if let item { onCollapse?(item) }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        drawIndentGuides()
+    }
+
+    /// Quiet vertical rules at each indent, in the gutter beside the disclosure triangles.
+    private func drawIndentGuides() {
+        let rowRange = rows(in: visibleRect)
+        guard rowRange.length > 0, indentationPerLevel > 0 else { return }
+        NSColor.separatorColor.withAlphaComponent(0.9).setStroke()
+        let step = indentationPerLevel
+        for row in rowRange.location..<(rowRange.location + rowRange.length) {
+            let level = level(forRow: row)
+            guard level > 0 else { continue }
+            let rect = rect(ofRow: row)
+            for depth in 1...level {
+                let x = (CGFloat(depth) - 0.5) * step
+                let path = NSBezierPath()
+                path.move(to: NSPoint(x: x, y: rect.minY))
+                path.line(to: NSPoint(x: x, y: rect.maxY))
+                path.lineWidth = 1
+                path.stroke()
+            }
+        }
     }
 
     override func keyDown(with event: NSEvent) {

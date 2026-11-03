@@ -102,7 +102,8 @@ enum WorkspaceFileCoordination {
         lastSaved: String,
         encoding: TextEncoding,
         lineEnding: LineEnding,
-        force: Bool
+        force: Bool,
+        rewrite: Bool = false
     ) throws -> (WorkspaceWriteDecision, String?) {
         var decision = WorkspaceWriteDecision.upToDate
         var diskText: String?
@@ -133,11 +134,15 @@ enum WorkspaceFileCoordination {
                     disk: disk,
                     force: force
                 )
-                if decision == .write {
+                let shouldWrite = decision == .write || (rewrite && decision == .upToDate && disk != nil)
+                if shouldWrite {
                     guard let bytes = TextBytes.encode(editor, encoding: encoding, lineEnding: lineEnding) else {
                         throw TextBytes.EncodingError.unrepresentable
                     }
                     try bytes.write(to: url, options: .atomic)
+                    if decision == .upToDate {
+                        decision = .write
+                    }
                 }
             } catch {
                 inner = error

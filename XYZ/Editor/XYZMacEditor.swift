@@ -415,6 +415,10 @@ struct XYZMacEditor: NSViewRepresentable {
         scrollLink.revealLine = { [weak textView] line in
             textView?.jump(toLine: line)
         }
+        scrollLink.focusEditor = { [weak textView] in
+            guard let textView, let window = textView.window else { return }
+            window.makeFirstResponder(textView)
+        }
         let styleChanged = context.coordinator.style != style || markupChanged || context.coordinator.syntax != syntax
         context.coordinator.syntax = syntax
         if context.coordinator.style != style {
