@@ -32,7 +32,7 @@
 		8C000000000000000000001E /* WordCountBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B000000000000000000001E /* WordCountBar.swift */; };
 		8C000000000000000000001F /* highlight.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 8B000000000000000000001F /* highlight.min.js */; };
 		8C0000000000000000000020 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000020 /* Localizable.xcstrings */; };
-		8C0000000000000000000028 /* xyz in Resources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000028 /* xyz */; };
+		8C0000000000000000000028 /* bin in Resources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000028 /* bin */; };
 		8C0000000000000000000021 /* EscapeKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000021 /* EscapeKey.swift */; };
 		8C0000000000000000000022 /* LineNumberGutter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000022 /* LineNumberGutter.swift */; };
 		8C0000000000000000000026 /* GutterSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000026 /* GutterSnapshot.swift */; };
@@ -74,7 +74,7 @@
 		8B000000000000000000001E /* WordCountBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordCountBar.swift; sourceTree = "<group>"; };
 		8B000000000000000000001F /* highlight.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = highlight.min.js; sourceTree = "<group>"; };
 		8B0000000000000000000020 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
-		8B0000000000000000000028 /* xyz */ = {isa = PBXFileReference; lastKnownFileType = text.script.sh; path = bin/xyz; sourceTree = "<group>"; };
+		8B0000000000000000000028 /* bin */ = {isa = PBXFileReference; lastKnownFileType = folder; path = bin; sourceTree = "<group>"; };
 		8B0000000000000000000021 /* EscapeKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EscapeKey.swift; sourceTree = "<group>"; };
 		8B0000000000000000000022 /* LineNumberGutter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineNumberGutter.swift; sourceTree = "<group>"; };
 		8B0000000000000000000026 /* GutterSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GutterSnapshot.swift; sourceTree = "<group>"; };
@@ -200,7 +200,7 @@
 				8B0000000000000000000009 /* Preview.css */,
 				8B000000000000000000001F /* highlight.min.js */,
 				8B0000000000000000000020 /* Localizable.xcstrings */,
-				8B0000000000000000000028 /* xyz */,
+				8B0000000000000000000028 /* bin */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -275,7 +275,7 @@
 				8C0000000000000000000009 /* Preview.css in Resources */,
 				8C000000000000000000001F /* highlight.min.js in Resources */,
 				8C0000000000000000000020 /* Localizable.xcstrings in Resources */,
-				8C0000000000000000000028 /* xyz in Resources */,
+				8C0000000000000000000028 /* bin in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -294,7 +294,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "chmod +x \"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/bin/xyz\"\n";
+			shellScript = "dest=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/bin/xyz\"\nif [ ! -f \"$dest\" ]; then\n  if [ \"${PLATFORM_NAME}\" = \"macosx\" ]; then\n    echo \"xyz launcher was not copied to $dest\" >&2\n    exit 1\n  fi\n  exit 0\nfi\nchmod +x \"$dest\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
