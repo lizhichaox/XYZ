@@ -2,6 +2,7 @@
 
 ## 0.4.0
 
+- The tab strip is a title-bar accessory, so the title-bar material does not paint over it. The sidebar no longer installs a toolbar. ⌃⌘S toggles the sidebar once. Reading, Editing, and Toggle Sidebar are in the View menu. Find is in the Edit menu.
 - Files open in Reading. Markdown Reading is the rendered note. Other text Reading is the colored source, and it cannot be edited. ⌘/ switches to Editing, which is the source with line numbers. ⌘/ again returns to Reading. Pictures, PDF, media, and the plain-text fallback stay read-only.
 - Replace, line edits, and ⌘S are for Editing. ⌘F still finds in Reading. Settings can show line numbers while reading. The status bar says Read-only or Editing.
 

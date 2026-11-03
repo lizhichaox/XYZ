@@ -24,7 +24,12 @@ final class XYZMacTextView: NSTextView {
             guard showsLineNumbers != oldValue else { return }
             gutter.isHidden = !showsLineNumbers
             if showsLineNumbers {
+                if gutter.superview == nil {
+                    addSubview(gutter)
+                }
                 gutter.invalidateLines()
+            } else {
+                gutter.removeFromSuperview()
             }
             needsLayout = true
         }
@@ -34,7 +39,6 @@ final class XYZMacTextView: NSTextView {
         view.textView = self
         view.isHidden = true
         view.autoresizingMask = [.height]
-        addSubview(view)
         return view
     }()
     /// Restored once, after the view is in a window and the inset matches the pane.
@@ -378,6 +382,8 @@ final class XYZMacTextView: NSTextView {
         super.layout()
         guard !isAligning else { return }
         guard let width = enclosingScrollView?.contentSize.width, width > 1 else { return }
+        textContainer?.lineFragmentPadding = 0
+        enclosingScrollView?.rulersVisible = false
         let next = expectedInset(for: width)
         if textContainerInset != next {
             textContainerInset = next
@@ -663,6 +669,12 @@ struct XYZMacEditor: NSViewRepresentable {
             textView.isContinuousSpellCheckingEnabled = spellCheck
         }
         textView.showsLineNumbers = lineNumbers
+        textView.textContainer?.lineFragmentPadding = 0
+        scrollView.automaticallyAdjustsContentInsets = false
+        scrollView.contentInsets = NSEdgeInsets()
+        scrollView.scrollerInsets = NSEdgeInsets()
+        scrollView.contentView.automaticallyAdjustsContentInsets = false
+        scrollView.contentView.contentInsets = NSEdgeInsets()
         textView.documentUndoManager = undoManager
         scrollLink.capture = { [weak textView] in
             textView?.scrollAnchor() ?? EditorScrollAnchor(fraction: 0, probe: "", line: 1)

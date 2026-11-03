@@ -210,7 +210,7 @@ struct XYZEditor: View {
             markup: markup,
             spellCheck: spellCheck,
             syntax: syntax,
-            lineNumbers: lineNumbersVisible ?? lineNumbers,
+            lineNumbers: lineNumbersVisible ?? false,
             find: find,
             onSelection: onSelection,
             onTextChange: onTextChange

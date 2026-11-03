@@ -25,33 +25,39 @@ struct WorkspaceView: View {
     @Environment(\.undoManager) private var undoManager
     @StateObject private var commands = WorkspaceCommandBridge()
     @State private var columnVisibility = NavigationSplitViewVisibility.all
-    @State private var trafficInset: CGFloat = 108
+    @State private var trafficInset: CGFloat = 80
+    @State private var sidebarWidth: CGFloat = 0
     @AppStorage(HiddenFilesSetting.key) private var storedHiddenFiles = true
 
     var body: some View {
-        NavigationSplitView(columnVisibility: $columnVisibility) {
-            WorkspaceSidebar(session: session, undoManager: undoManager)
-                .ignoresSafeArea(edges: .top)
-                .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 420)
-        } detail: {
+        HSplitView {
+            if columnVisibility != .detailOnly {
+                WorkspaceSidebar(session: session, undoManager: undoManager)
+                    .frame(minWidth: 220, idealWidth: 260, maxWidth: 420)
+                    .background(GeometryReader { proxy in
+                        Color.clear.preference(key: SidebarWidthKey.self, value: proxy.size.width)
+                    })
+            }
             WorkspaceDetail(
                 session: session,
-                tabLeading: columnVisibility == .detailOnly ? trafficInset : 0,
                 find: commands.findModel
             )
-                .ignoresSafeArea(edges: .top)
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color.editorBackground.ignoresSafeArea())
+                .frame(minWidth: 480, maxWidth: .infinity, maxHeight: .infinity)
+                .layoutPriority(1)
+                .background(Color.editorBackground)
         }
-        .navigationSplitViewStyle(.balanced)
-        .toolbarRole(.editor)
-        .toolbarBackground(.hidden, for: .windowToolbar)
-        .toolbar(.hidden, for: .windowToolbar)
-        .ignoresSafeArea(edges: .top)
+        .onPreferenceChange(SidebarWidthKey.self) { sidebarWidth = $0 }
+        .onChange(of: columnVisibility) { _, value in
+            if value == .detailOnly {
+                sidebarWidth = 0
+            }
+        }
         .frame(minWidth: 880, minHeight: 520)
         .background(WorkspaceWindowChrome(
             title: titleText,
             representedFile: session.buffer?.url,
+            session: session,
+            tabLeading: columnVisibility == .detailOnly ? trafficInset : sidebarWidth,
             trafficInset: $trafficInset
         ))
         .background(
@@ -88,15 +94,26 @@ struct WorkspaceView: View {
 }
 
 /// The window title is the open file. The subtitle is the folder. The proxy icon is that file, never the folder.
+private struct SidebarWidthKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = nextValue()
+    }
+}
+
 private struct WorkspaceWindowChrome: NSViewRepresentable {
     var title: String
     var representedFile: URL?
+    var session: WorkspaceSession
+    var tabLeading: CGFloat
     @Binding var trafficInset: CGFloat
 
     func makeNSView(context: Context) -> WorkspaceChromeView {
         let view = WorkspaceChromeView()
         view.title = title
         view.representedFile = representedFile
+        view.session = session
+        view.tabLeading = tabLeading
         view.onTrafficInset = { inset in
             if abs(trafficInset - inset) > 0.5 {
                 trafficInset = inset
@@ -108,6 +125,8 @@ private struct WorkspaceWindowChrome: NSViewRepresentable {
     func updateNSView(_ view: WorkspaceChromeView, context: Context) {
         view.title = title
         view.representedFile = representedFile
+        view.session = session
+        view.tabLeading = tabLeading
         view.onTrafficInset = { inset in
             if abs(trafficInset - inset) > 0.5 {
                 trafficInset = inset
@@ -120,7 +139,10 @@ private struct WorkspaceWindowChrome: NSViewRepresentable {
 final class WorkspaceChromeView: NSView {
     var title = ""
     var representedFile: URL?
+    weak var session: WorkspaceSession?
+    var tabLeading: CGFloat = 0
     var onTrafficInset: (CGFloat) -> Void = { _ in }
+    private var tabs: TitlebarTabsController?
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -144,16 +166,17 @@ final class WorkspaceChromeView: NSView {
 
     override func layout() {
         super.layout()
-        // NavigationSplitView writes the title during layout. Put the file name back
-        // when it does, without touching the title bar when the values already match.
+        // SwiftUI can put the title and the sidebar toolbar back during layout.
         syncTitle()
         reportTrafficInset()
+        installTabs()
     }
 
     func apply() {
         guard let window else { return }
         syncTitle()
         reportTrafficInset()
+        installTabs()
     }
 
     /// The file name stays on the window for the Window menu. The title bar does not draw it.
@@ -167,6 +190,58 @@ final class WorkspaceChromeView: NSView {
         let lights = window.standardWindowButton(.zoomButton)?.frame.maxX ?? 70
         onTrafficInset(lights + 12)
     }
+
+    /// Tabs live in the title bar, not under the title-bar view.
+    private func installTabs() {
+        guard let window, let session else { return }
+        let current = window.titlebarAccessoryViewControllers.compactMap { $0 as? TitlebarTabsController }.first
+        let controller = current ?? TitlebarTabsController(session: session)
+        if current == nil {
+            window.addTitlebarAccessoryViewController(controller)
+        }
+        controller.update(session: session, leading: tabLeading)
+        tabs = controller
+    }
+}
+
+/// Full-width title-bar row. The system sets the width; the height is the tab strip.
+final class TitlebarTabsController: NSTitlebarAccessoryViewController {
+    private let host: NSHostingView<EditorTabBar>
+    private weak var session: WorkspaceSession?
+    private var leading: CGFloat = -1
+
+    init(session: WorkspaceSession) {
+        host = NSHostingView(rootView: EditorTabBar(session: session, leading: 0))
+        host.safeAreaRegions = []
+        super.init(nibName: nil, bundle: nil)
+        self.session = session
+        identifier = NSUserInterfaceItemIdentifier("xyz.titlebar.tabs")
+        layoutAttribute = .bottom
+        automaticallyAdjustsSize = false
+        let container = NSView(frame: NSRect(x: 0, y: 0, width: 800, height: 30))
+        host.frame = container.bounds
+        host.autoresizingMask = [.width, .height]
+        container.addSubview(host)
+        view = container
+    }
+
+    override func viewWillAppear() {
+        super.viewWillAppear()
+        view.frame.size.height = 30
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    func update(session: WorkspaceSession, leading: CGFloat) {
+        let sameSession = session === self.session
+        guard !sameSession || abs(leading - self.leading) > 0.5 else { return }
+        self.session = session
+        self.leading = leading
+        host.rootView = EditorTabBar(session: session, leading: leading)
+    }
 }
 
 enum WorkspaceChrome {
@@ -177,11 +252,11 @@ enum WorkspaceChrome {
         window.titlebarSeparatorStyle = .none
         window.toolbarStyle = .unifiedCompact
         window.toolbar?.showsBaselineSeparator = false
-        // The split view's toolbar is only the sidebar button, and it paints over the tabs.
-        // ⌃⌘S and View → Toggle Sidebar remain.
+        // NavigationSplitView used to put a sidebar button in a bar that covered the tabs.
         if window.toolbar != nil {
             window.toolbar = nil
         }
+        Self.clearTitlebarFill(of: window)
         if !window.styleMask.contains(.fullSizeContentView) {
             window.styleMask.insert(.fullSizeContentView)
         }
@@ -196,11 +271,31 @@ enum WorkspaceChrome {
             window.representedURL = representedFile
         }
     }
+
+    /// The title-bar material is what paints over SwiftUI content in that strip.
+    /// Buttons stay; the fill behind them does not.
+    private static func clearTitlebarFill(of window: NSWindow) {
+        guard let close = window.standardWindowButton(.closeButton) else { return }
+        var cursor: NSView? = close
+        var ancestors = Set<ObjectIdentifier>()
+        while let view = cursor {
+            ancestors.insert(ObjectIdentifier(view))
+            cursor = view.superview
+        }
+        guard let root = window.contentView?.superview else { return }
+        func walk(_ view: NSView) {
+            let coversButtons = ancestors.contains(ObjectIdentifier(view))
+            if let effect = view as? NSVisualEffectView, !coversButtons {
+                effect.alphaValue = 0
+            }
+            view.subviews.forEach(walk)
+        }
+        walk(root)
+    }
 }
 
 private struct WorkspaceDetail: View {
     @ObservedObject var session: WorkspaceSession
-    var tabLeading: CGFloat = 0
     var find: EditorFindModel?
     @Environment(\.undoManager) private var undoManager
     @AppStorage(WordCountSetting.key) private var showsWordCount = false
@@ -215,10 +310,6 @@ private struct WorkspaceDetail: View {
         VStack(spacing: 0) {
             HStack(spacing: 0) {
                 VStack(spacing: 0) {
-                    if !session.tabStrip.tabs.isEmpty {
-                        EditorTabBar(session: session)
-                            .padding(.leading, tabLeading)
-                    }
                     if let find, find.visible {
                         EditorFindBar(model: find)
                     }

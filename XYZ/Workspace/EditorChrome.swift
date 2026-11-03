@@ -119,6 +119,8 @@ struct EditorFindBar: View {
 /// Open files for the window. A preview tab is italic. A dirty file has a dot in a fixed slot.
 struct EditorTabBar: View {
     @ObservedObject var session: WorkspaceSession
+    /// Space for the traffic lights, or for the sidebar when it is open.
+    var leading: CGFloat = 0
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -158,6 +160,7 @@ struct EditorTabBar: View {
                 }
             }
         }
+        .padding(.leading, leading)
         .frame(height: 30)
         .background(WindowDragRegion())
         .background(Color.editorBackground)

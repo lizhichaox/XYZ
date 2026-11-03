@@ -25,6 +25,8 @@ struct XYZApp: App {
         .commands {
             AboutCommands()
             WorkspaceCommands()
+            MacViewCommands()
+            MacFindCommands()
         }
         #else
         .commands {
@@ -73,6 +75,54 @@ struct ViewModeCommands: Commands {
 }
 
 #if os(macOS)
+/// View-menu items. `after: .sidebar` disappears when the window has no sidebar toolbar item.
+private struct MacViewCommands: Commands {
+    var body: some Commands {
+        CommandGroup(before: .toolbar) {
+            Button("Reading") {
+                EditorCommands.shared.selectReading(nil)
+            }
+            Button("Editing") {
+                EditorCommands.shared.selectSource(nil)
+            }
+            Button("Toggle Reading and Editing") {
+                EditorCommands.shared.toggleSource(nil)
+            }
+            .keyboardShortcut("/", modifiers: .command)
+            Divider()
+            Button("Toggle Sidebar") {
+                EditorCommands.shared.toggleSidebarVisibility(nil)
+            }
+            .keyboardShortcut("s", modifiers: [.command, .control])
+        }
+    }
+}
+
+/// Find commands in the Edit menu. Shortcuts still go through the editor's key monitor
+/// when a rendered note needs the web view's own find.
+private struct MacFindCommands: Commands {
+    var body: some Commands {
+        CommandGroup(after: .textEditing) {
+            Button("Find") {
+                EditorCommands.shared.showFind(nil)
+            }
+            .keyboardShortcut("f", modifiers: .command)
+            Button("Find and Replace") {
+                EditorCommands.shared.showReplace(nil)
+            }
+            .keyboardShortcut("f", modifiers: [.command, .option])
+            Button("Find Next") {
+                EditorCommands.shared.findNext(nil)
+            }
+            .keyboardShortcut("g", modifiers: .command)
+            Button("Find Previous") {
+                EditorCommands.shared.findPrevious(nil)
+            }
+            .keyboardShortcut("g", modifiers: [.command, .shift])
+        }
+    }
+}
+
 private struct AboutCommands: Commands {
     var body: some Commands {
         CommandGroup(replacing: .appInfo) {

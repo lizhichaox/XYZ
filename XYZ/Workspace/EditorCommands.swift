@@ -191,11 +191,6 @@ final class EditorCommands: NSObject {
             goToLine(nil)
             return true
         }
-        if flags == [.command, .control] && key.lowercased() == "s" {
-            guard target?.supportsWorkspaceFiles == true else { return false }
-            toggleSidebarVisibility(nil)
-            return true
-        }
         if flags == .command && key.lowercased() == "s" {
             guard target?.editorIsEditing == true else {
                 NSSound.beep()
@@ -420,6 +415,38 @@ final class EditorCommands: NSObject {
 
     @objc func actualSize(_ sender: Any?) {
         TextZoom.reset()
+    }
+
+    @objc func showFind(_ sender: Any?) {
+        if target?.editorShowsRenderedReading == true {
+            NSApp.sendAction(#selector(NSResponder.performTextFinderAction(_:)), to: nil, from: sender)
+            return
+        }
+        target?.findModel?.show(replace: false)
+    }
+
+    @objc func showReplace(_ sender: Any?) {
+        guard target?.beginEditing(source: "menu") == true else {
+            NSSound.beep()
+            return
+        }
+        target?.findModel?.show(replace: true)
+    }
+
+    @objc func findNext(_ sender: Any?) {
+        if target?.editorShowsRenderedReading == true {
+            NSApp.sendAction(#selector(NSResponder.performTextFinderAction(_:)), to: nil, from: sender)
+            return
+        }
+        target?.findModel?.perform?(.next)
+    }
+
+    @objc func findPrevious(_ sender: Any?) {
+        if target?.editorShowsRenderedReading == true {
+            NSApp.sendAction(#selector(NSResponder.performTextFinderAction(_:)), to: nil, from: sender)
+            return
+        }
+        target?.findModel?.perform?(.previous)
     }
 
     @objc func toggleLineNumbers(_ sender: Any?) {
@@ -710,26 +737,16 @@ enum EditorMenuSupport {
             ("xyz.commandPalette", String(localized: "Command Palette…"), "p", .command, #selector(EditorCommands.showPalette(_:))),
             ("xyz.goToHeading", String(localized: "Go to Heading…"), "r", .command, #selector(EditorCommands.goToHeading(_:))),
             ("xyz.goToLine", String(localized: "Go to Line…"), "g", .control, #selector(EditorCommands.goToLine(_:))),
-            ("xyz.mode.source", String(localized: "Editing"), "", [], #selector(EditorCommands.selectSource(_:))),
-            ("xyz.mode.reading", String(localized: "Reading"), "", [], #selector(EditorCommands.selectReading(_:))),
-            ("xyz.mode.toggleSource", String(localized: "Toggle Reading and Editing"), "/", .command, #selector(EditorCommands.toggleSource(_:))),
             ("xyz.zoomIn", String(localized: "Zoom In"), "+", .command, #selector(EditorCommands.zoomIn(_:))),
             ("xyz.zoomOut", String(localized: "Zoom Out"), "-", .command, #selector(EditorCommands.zoomOut(_:))),
             ("xyz.actualSize", String(localized: "Actual Size"), "0", .command, #selector(EditorCommands.actualSize(_:))),
             ("xyz.lineNumbers", String(localized: "Show Line Numbers in Reading"), "", [], #selector(EditorCommands.toggleLineNumbers(_:))),
             ("xyz.wordWrap", String(localized: "Wrap Lines"), "", [], #selector(EditorCommands.toggleWordWrap(_:))),
-            ("xyz.workspace.sidebar", String(localized: "Toggle Sidebar"), "s", [.command, .control], #selector(EditorCommands.toggleSidebarVisibility(_:))),
             ("xyz.wordCount", String(localized: "Show Word Count"), "", [], #selector(EditorCommands.toggleWordCount(_:))),
             ("xyz.outline", String(localized: "Show Outline"), "", [], #selector(EditorCommands.toggleOutline(_:))),
         ]
         var previous: NSMenuItem?
         for spec in specs {
-            if spec.0 == "xyz.mode.source" {
-                previous = divider(after: previous, in: menu, identifier: "xyz.mode.divider")
-            }
-            if spec.0 == "xyz.mode.toggleSource" {
-                previous = divider(after: previous, in: menu, identifier: "xyz.mode.toggleDivider")
-            }
             if spec.0 == "xyz.zoomIn" {
                 previous = divider(after: previous, in: menu, identifier: "xyz.zoom.divider")
             }
