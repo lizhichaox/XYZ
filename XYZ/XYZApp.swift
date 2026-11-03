@@ -8,25 +8,7 @@ struct XYZApp: App {
     #endif
 
     var body: some Scene {
-        DocumentGroup(newDocument: { MarkdownFileDocument() }) { configuration in
-            DocumentEditorView(
-                document: configuration.document,
-                isEditable: configuration.isEditable,
-                fileURL: configuration.fileURL
-            )
-        }
-        #if os(macOS)
-        .defaultSize(width: 980, height: 700)
-        #endif
-        .commands {
-            #if os(iOS)
-            ViewModeCommands()
-            #endif
-            #if os(macOS)
-            AboutCommands()
-            WorkspaceCommands()
-            #endif
-        }
+        documents
 
         #if os(macOS)
         Settings {
@@ -34,6 +16,46 @@ struct XYZApp: App {
         }
         #endif
     }
+
+    @SceneBuilder
+    private var documents: some Scene {
+        #if os(macOS)
+        if #available(macOS 15.0, *) {
+            documentGroup
+                .defaultWindowPlacement { _, context in
+                    let frame = context.defaultDisplay.visibleRect
+                    return WindowPlacement(CGPoint(x: frame.minX, y: frame.minY), size: frame.size)
+                }
+                .commands {
+                    AboutCommands()
+                    WorkspaceCommands()
+                }
+        } else {
+            documentGroup
+                .defaultSize(width: 980, height: 700)
+                .commands {
+                    AboutCommands()
+                    WorkspaceCommands()
+                }
+        }
+        #else
+        documentGroup
+            .commands {
+                ViewModeCommands()
+            }
+        #endif
+    }
+
+    private var documentGroup: some Scene {
+        DocumentGroup(newDocument: { MarkdownFileDocument() }) { configuration in
+            DocumentEditorView(
+                document: configuration.document,
+                isEditable: configuration.isEditable,
+                fileURL: configuration.fileURL
+            )
+        }
+    }
+
 }
 
 struct ViewModeCommands: Commands {

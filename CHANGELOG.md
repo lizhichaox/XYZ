@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.4
+
+- Document and folder windows open filling the screen, under the menu bar and the Dock. A size chosen during a session stays until quit. The next launch fills the screen again.
+
 ## 0.1.3
 
 - Changing the text size updates the font once and leaves the rest of the note on viewport layout, so typing and scrolling stay smooth afterward.

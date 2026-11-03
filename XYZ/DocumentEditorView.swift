@@ -91,6 +91,7 @@ struct DocumentEditorView: View {
                 commands.currentText = { [bridge] in bridge.latestText }
             }
         )
+        .background(WindowFillAnchor())
         #else
         .focusedSceneValue(
             \.editorViewActions,

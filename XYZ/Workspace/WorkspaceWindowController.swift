@@ -25,11 +25,17 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
         window.styleMask.insert(.fullSizeContentView)
         window.contentMinSize = NSSize(width: 880, height: 520)
         window.isReleasedWhenClosed = false
-        window.setFrameAutosaveName("XYZWorkspace")
         super.init(window: window)
         window.delegate = self
         window.contentViewController = NSHostingController(rootView: WorkspaceView(session: session))
         session.activate()
+    }
+
+    override func showWindow(_ sender: Any?) {
+        super.showWindow(sender)
+        if let window {
+            WindowFill.fillOnce(window)
+        }
     }
 
     @available(*, unavailable)
@@ -257,6 +263,59 @@ final class XYZAppDelegate: NSObject, NSApplicationDelegate {
             WorkspaceWindowController.prepareForQuit()
         }
         return .terminateNow
+    }
+}
+
+/// Fills a document or folder window to the screen's visible frame once.
+///
+/// This is the Option-click green button: under the menu bar and the Dock, not a full-screen space.
+/// A size chosen later in the session stays. The next launch fills again, including when state
+/// restoration has just put back a saved frame.
+@MainActor
+enum WindowFill {
+    private static let filled = NSHashTable<NSWindow>.weakObjects()
+
+    static func fillOnce(_ window: NSWindow) {
+        guard !filled.contains(window) else { return }
+        filled.add(window)
+        apply(window)
+        // Scene restoration can put a saved frame back after the first layout pass.
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated {
+                apply(window)
+                DispatchQueue.main.async {
+                    MainActor.assumeIsolated {
+                        apply(window)
+                    }
+                }
+            }
+        }
+    }
+
+    private static func apply(_ window: NSWindow) {
+        guard let screen = window.screen ?? NSScreen.main else { return }
+        let frame = screen.visibleFrame
+        guard window.frame != frame else { return }
+        window.setFrame(frame, display: true, animate: false)
+    }
+}
+
+/// First appearance of a document window. Folder windows fill from their controller.
+struct WindowFillAnchor: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        WindowFillView()
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
+
+    final class WindowFillView: NSView {
+        nonisolated override func viewDidMoveToWindow() {
+            super.viewDidMoveToWindow()
+            MainActor.assumeIsolated {
+                guard let window = self.window else { return }
+                WindowFill.fillOnce(window)
+            }
+        }
     }
 }
 
