@@ -34,7 +34,6 @@ enum GutterSnapshotCheck {
         scroll.hasVerticalScroller = true
         scroll.drawsBackground = true
         scroll.borderType = .noBorder
-        scroll.wantsLayer = false
         scroll.clipsToBounds = true
         scroll.contentView.clipsToBounds = true
         scroll.contentView.drawsBackground = false
@@ -43,7 +42,6 @@ enum GutterSnapshotCheck {
         textView.isSelectable = true
         textView.isRichText = true
         textView.drawsBackground = true
-        textView.wantsLayer = false
         textView.clipsToBounds = true
         textView.usesAdaptiveColorMappingForDarkAppearance = false
         textView.isVerticallyResizable = true
@@ -131,14 +129,15 @@ enum GutterSnapshotCheck {
         ) else {
             return "\(label): could not allocate a bitmap"
         }
-        appearance.performAsCurrentDrawingAppearance {
-            scroll.cacheDisplay(in: bounds, to: rep)
-        }
-
         let background = backgroundColor(appearance)
-        let textInk = nonBackgroundPixels(in: rep, rect: textSample, background: background)
+        // TextKit 2 draws glyphs in fragment views. `cacheDisplay` on the scroll view does not
+        // include them, so the glyphs are drawn from the layout fragments into their own bitmap.
+        let textInk = glyphPixels(in: textView, appearance: appearance, background: background)
         if textInk < 40 {
             return "\(label): text area has \(textInk) glyph pixels in \(NSStringFromRect(textSample))"
+        }
+        appearance.performAsCurrentDrawingAppearance {
+            scroll.cacheDisplay(in: bounds, to: rep)
         }
         if editing, let gutter = textView.lineNumberGutter {
             var sample = gutter.convert(gutter.bounds, to: scroll)
@@ -150,6 +149,54 @@ enum GutterSnapshotCheck {
             }
         }
         return nil
+    }
+
+    /// Glyphs from the laid-out fragments. The scroll view's own snapshot does not include them.
+    private static func glyphPixels(in textView: XYZMacTextView, appearance: NSAppearance, background: NSColor) -> Int {
+        guard let manager = textView.textLayoutManager,
+              let content = manager.textContentManager else { return 0 }
+        let viewport = manager.textViewportLayoutController
+        viewport.layoutViewport()
+        let size = textView.bounds.size
+        guard size.width > 1, size.height > 1,
+              let rep = NSBitmapImageRep(
+                bitmapDataPlanes: nil,
+                pixelsWide: max(1, Int(size.width)),
+                pixelsHigh: max(1, Int(size.height)),
+                bitsPerSample: 8,
+                samplesPerPixel: 4,
+                hasAlpha: true,
+                isPlanar: false,
+                colorSpaceName: .deviceRGB,
+                bytesPerRow: 0,
+                bitsPerPixel: 0
+              ),
+              let graphics = NSGraphicsContext(bitmapImageRep: rep) else { return 0 }
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = graphics
+        let context = graphics.cgContext
+        context.translateBy(x: 0, y: size.height)
+        context.scaleBy(x: 1, y: -1)
+        appearance.performAsCurrentDrawingAppearance {
+            background.setFill()
+            NSRect(x: 0, y: 0, width: size.width, height: size.height).fill()
+            let origin = textView.textContainerOrigin
+            let start = viewport.viewportRange?.location ?? content.documentRange.location
+            var seen = 0
+            manager.enumerateTextLayoutFragments(from: start, options: []) { fragment in
+                seen += 1
+                let frame = fragment.layoutFragmentFrame
+                let point = CGPoint(x: origin.x + frame.minX, y: origin.y + frame.minY)
+                fragment.draw(at: point, in: context)
+                return seen < 40 && frame.minY < size.height + 40
+            }
+        }
+        NSGraphicsContext.restoreGraphicsState()
+        return nonBackgroundPixels(
+            in: rep,
+            rect: NSRect(x: textView.textContainerInset.width, y: 0, width: max(1, size.width - textView.textContainerInset.width - 8), height: size.height),
+            background: background
+        )
     }
 
     private static func backgroundColor(_ appearance: NSAppearance) -> NSColor {

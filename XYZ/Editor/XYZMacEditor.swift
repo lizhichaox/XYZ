@@ -806,9 +806,7 @@ struct XYZMacEditor: NSViewRepresentable {
         textView.usesFindBar = false
         textView.isIncrementalSearchingEnabled = true
         textView.drawsBackground = true
-        // A layer-backed text view, and a clip view that paints its own background, hide the
-        // glyphs on macOS 27 once the gutter is added above the clip. Draw the text directly.
-        textView.wantsLayer = false
+        // The clip view's background layer sits over TextKit 2 fragments once the gutter is added.
         textView.clipsToBounds = true
         textView.usesAdaptiveColorMappingForDarkAppearance = false
         textView.isVerticallyResizable = true

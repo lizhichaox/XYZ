@@ -51,7 +51,6 @@ final class LineNumberGutter: NSView {
         // Leave a column of text uncovered. A gutter as wide as the clip paints a blank editor.
         let room = max(visible.width - 24, 28)
         let column = min(max(width, 28), room)
-        wantsLayer = false
         clipsToBounds = true
         let next = NSRect(
             x: visible.minX,
