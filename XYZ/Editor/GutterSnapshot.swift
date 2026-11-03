@@ -485,8 +485,9 @@ enum GutterSnapshotCheck {
         }
         xyzCollect(16) + "||" + xyzCollect(22);
         """
-        guard let output = evaluate(web, script), !output.hasPrefix("error") else {
-            return "reading-align: \(output ?? "script did not return")"
+        let output = evaluate(web, script) ?? ""
+        if output.isEmpty || output.hasPrefix("error") {
+            return "reading-align: \(output.isEmpty ? "script did not return" : output)"
         }
         print("GUTTER_READING_ALIGN \(output)")
         fflush(stdout)
