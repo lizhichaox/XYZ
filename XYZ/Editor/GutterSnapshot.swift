@@ -528,7 +528,8 @@ enum GutterSnapshotCheck {
         中文短句
         \(String(repeating: "Gamma ", count: 24))
         """
-        if let failure = verifyCaptureControl() { return failure }
+        var failures: [String] = []
+        if let failure = verifyCaptureControl() { failures.append(failure) }
         verifyWebCaptureControl()
         let appearanceNames: [(NSAppearance.Name, String)] = [(.aqua, "light"), (.darkAqua, "dark")]
         for wraps in [true, false] {
@@ -542,19 +543,22 @@ enum GutterSnapshotCheck {
                     requireBody: true,
                     checkReading: wraps && appearance == .aqua
                 ) {
-                    return failure
+                    failures.append(failure)
                 }
             }
         }
-        if let failure = renderSwitchedFile() { return failure }
-        return renderDocumentWindow(
+        if let failure = renderSwitchedFile() { failures.append(failure) }
+        if let failure = renderDocumentWindow(
             fixture: "",
             wraps: true,
             appearance: .aqua,
             appearanceName: "light",
             fileName: "empty.md",
             requireBody: false
-        )
+        ) {
+            failures.append(failure)
+        }
+        return failures.isEmpty ? nil : failures.joined(separator: " | ")
     }
 
     private static func renderDocumentWindow(
@@ -672,27 +676,54 @@ enum GutterSnapshotCheck {
             if let paneImage = compositedImage(of: pane) {
                 saveShot(paneImage, name: "pane-\(label).png")
             }
-            saveShot(screen ?? windowImage, name: "window-\(label).png")
-            let recognized = Self.showsFixture(words)
+            let shot = screen ?? windowImage
+            saveShot(shot, name: "window-\(label).png")
+            let editorCrop = screen.flatMap { cropWindowImage($0, view: textView, window: window) }
+            if let editorCrop {
+                saveShot(editorCrop, name: "window-\(label)-editor.png")
+            }
+            let cropWords = editorCrop.map {
+                recognizedText(in: $0, languages: ["zh-Hans", "zh-Hant", "en-US"])
+            } ?? ""
+            let english = contains(words, "Glyphsample") && contains(words, "Secondline")
+            let chinese = contains(words, "中文") || contains(cropWords, "中文") || contains(cropWords, "短句")
+            let ink = editorCrop.map { inkCount($0) } ?? 0
+            print("GUTTER_CHECK label=\(label) english=\(english ? 1 : 0) chinese=\(chinese ? 1 : 0) ink=\(ink) crop=\(String(cropWords.prefix(80)))")
+            fflush(stdout)
+            var issues: [String] = []
+            if let readingFailure { issues.append(readingFailure) }
             if requireBody {
-                if !recognized {
-                    return "window \(label): composited window did not show the fixture words evidence=missing body=\(String(bodyWords.prefix(80)))"
+                if !english {
+                    issues.append("window \(label): composited window did not show the fixture words evidence=missing body=\(String(bodyWords.prefix(80)))")
+                } else if editorCrop != nil && ink < 40 {
+                    issues.append("window \(label): the editor area of the window picture has no ink evidence=missing")
+                } else if !chinese {
+                    issues.append("window \(label): the Chinese line was not legible in the window picture crop=\(String(cropWords.prefix(40)))")
                 }
                 if let interaction = exerciseEditor(textView, window: window) {
-                    return "window \(label): \(interaction)"
+                    print("GUTTER_CHECK label=\(label) typing=fail \(interaction)")
+                    issues.append("window \(label): \(interaction)")
+                } else {
+                    print("GUTTER_CHECK label=\(label) typing=pass caret=pass undo=pass")
                 }
-                let numbers = pane.gutter.testingSnapshot().rows.filter(\.shows).map(\.line)
-                print("GUTTER_WINDOW label=\(label) gutter=\(numbers.prefix(8))")
+                if let scroll = exerciseScroll(textView) {
+                    print("GUTTER_CHECK label=\(label) scroll=fail \(scroll)")
+                    issues.append("window \(label): \(scroll)")
+                }
                 fflush(stdout)
                 let disk = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
                 if disk != fixture {
-                    return "window \(label): synthetic file changed on disk stored=\((disk as NSString).length)"
+                    issues.append("window \(label): synthetic file changed on disk stored=\((disk as NSString).length)")
                 }
-            } else if recognized {
-                return "window \(label): blank document was accepted as a readable body"
+            } else if english || chinese {
+                issues.append("window \(label): blank document was accepted as a readable body")
+                print("GUTTER_CHECK label=\(label) blank=fail")
+            } else {
+                print("GUTTER_CHECK label=\(label) blank=pass")
             }
+            fflush(stdout)
             session.shutdown()
-            return readingFailure
+            return issues.isEmpty ? nil : issues.joined(separator: " | ")
         }
         return failure
     }
@@ -703,7 +734,7 @@ enum GutterSnapshotCheck {
         window.makeFirstResponder(textView)
         textView.setSelectedRange(NSRange(location: 0, length: 0))
         textView.insertText("Z", replacementRange: NSRange(location: 0, length: 0))
-        if !textView.string.hasPrefix("Z") || textView.string.dropFirst() != original {
+        if !textView.string.hasPrefix("Z") || String(textView.string.dropFirst()) != original {
             return "typing did not change the text view"
         }
         if textView.selectedRange().location != 1 {
@@ -714,6 +745,34 @@ enum GutterSnapshotCheck {
             textView.string = original
             return "undo did not restore the note"
         }
+        return nil
+    }
+
+    /// Moves the real scroller when the note is taller than the clip, then returns to the top.
+    private static func exerciseScroll(_ textView: XYZMacTextView) -> String? {
+        guard let scroll = textView.enclosingScrollView else { return "scroll view missing" }
+        let clip = scroll.contentView
+        let before = clip.bounds.origin.y
+        let room = textView.bounds.height - clip.bounds.height
+        guard room > 24 else {
+            print("GUTTER_CHECK scroll=fits")
+            fflush(stdout)
+            return nil
+        }
+        NSAnimationContext.beginGrouping()
+        NSAnimationContext.current.duration = 0
+        clip.scroll(to: NSPoint(x: clip.bounds.origin.x, y: before + min(80, room)))
+        scroll.reflectScrolledClipView(clip)
+        NSAnimationContext.endGrouping()
+        let after = clip.bounds.origin.y
+        NSAnimationContext.beginGrouping()
+        NSAnimationContext.current.duration = 0
+        clip.scroll(to: NSPoint(x: clip.bounds.origin.x, y: before))
+        scroll.reflectScrolledClipView(clip)
+        NSAnimationContext.endGrouping()
+        guard abs(after - before) > 1 else { return "scroll did not move the note" }
+        print("GUTTER_CHECK scroll=pass")
+        fflush(stdout)
         return nil
     }
 
@@ -777,11 +836,17 @@ enum GutterSnapshotCheck {
             let showsSecond = words.range(of: "Plainleaf", options: .caseInsensitive) != nil
                 && words.range(of: "Otherfile", options: .caseInsensitive) != nil
             if !showsSecond {
+                print("GUTTER_CHECK switch=fail")
+                fflush(stdout)
                 return "window switch: the plain file was not on screen evidence=missing words=\(String(words.prefix(80)))"
             }
             if session.buffer?.text != second {
+                print("GUTTER_CHECK switch=fail buffer")
+                fflush(stdout)
                 return "window switch: the open buffer is not the plain file"
             }
+            print("GUTTER_CHECK switch=pass")
+            fflush(stdout)
             session.shutdown()
             return nil
         }
@@ -919,16 +984,55 @@ enum GutterSnapshotCheck {
     }
 
     private static func showsFixture(_ words: String) -> Bool {
-        words.range(of: "Glyphsample", options: .caseInsensitive) != nil
-            && words.range(of: "Secondline", options: .caseInsensitive) != nil
-            && words.range(of: "中文") != nil
+        contains(words, "Glyphsample") && contains(words, "Secondline") && contains(words, "中文")
     }
 
-    private static func recognizedText(in image: CGImage) -> String {
+    private static func contains(_ words: String, _ needle: String) -> Bool {
+        words.range(of: needle, options: .caseInsensitive) != nil
+    }
+
+    /// The editor rectangle of a window-server image. Full-window recognition can miss
+    /// one Chinese line that is painted there.
+    private static func cropWindowImage(_ image: CGImage, view: NSView, window: NSWindow) -> CGImage? {
+        let rect = view.convert(view.bounds, to: nil)
+        let frame = window.frame
+        guard frame.width > 1, frame.height > 1, rect.width > 1, rect.height > 1 else { return nil }
+        let scaleX = CGFloat(image.width) / frame.width
+        let scaleY = CGFloat(image.height) / frame.height
+        var crop = CGRect(
+            x: rect.minX * scaleX,
+            y: (frame.height - rect.maxY) * scaleY,
+            width: rect.width * scaleX,
+            height: rect.height * scaleY
+        )
+        crop = crop.intersection(CGRect(x: 0, y: 0, width: CGFloat(image.width), height: CGFloat(image.height)))
+        guard crop.width > 2, crop.height > 2 else { return nil }
+        return image.cropping(to: crop.integral)
+    }
+
+    private static func inkCount(_ image: CGImage) -> Int {
+        let rep = NSBitmapImageRep(cgImage: image)
+        var count = 0
+        var y = 0
+        while y < rep.pixelsHigh {
+            var x = 0
+            while x < rep.pixelsWide {
+                if let color = rep.colorAt(x: x, y: y)?.usingColorSpace(.deviceRGB),
+                   color.redComponent < 0.82 || color.greenComponent < 0.82 || color.blueComponent < 0.82 {
+                    count += 1
+                }
+                x += 3
+            }
+            y += 3
+        }
+        return count
+    }
+
+    private static func recognizedText(in image: CGImage, languages: [String] = ["en-US", "zh-Hans"]) -> String {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = false
-        request.recognitionLanguages = ["en-US", "zh-Hans"]
+        request.recognitionLanguages = languages
         let handler = VNImageRequestHandler(cgImage: image, options: [:])
         do {
             try handler.perform([request])

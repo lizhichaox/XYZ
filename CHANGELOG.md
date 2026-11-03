@@ -2,7 +2,7 @@
 
 ## 0.5.27
 
-- The editor file is back to the revision whose folder window showed the note. The debug assertion that stopped the run before the window was pictured is not included. The window picture of Editing shows the note. Line-number pixel checks stay in the log and do not decide this build. The caret, selection, scrolling, find, and the Reading page stay on their own views. The file column keeps the width left after the sidebar. The window check first reads a normal text control, then types into the real editor and undoes. A blank file still fails.
+- The editor file is back to the revision whose folder window showed the note. The debug assertion that stopped the run before the window was pictured is not included. Editing is checked on the window picture, including the Chinese line in the editor area when the full window recognition misses it. Typing, the caret, undo, scrolling, a blank document, and a switch to a plain file are each checked. Line-number pixel checks stay in the log and do not decide this build. The Reading page stays the web view. This capture does not show web-view pixels, so that picture is not treated as proof the page painted. The file column keeps the width left after the sidebar.
 
 ## 0.5.26
 
