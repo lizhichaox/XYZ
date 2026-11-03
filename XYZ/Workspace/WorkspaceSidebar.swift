@@ -761,6 +761,7 @@ fileprivate final class SidebarColumnView: NSView {
         search.controlSize = .small
         search.cell = PaddedSearchFieldCell(textCell: "")
         search.placeholderString = String(localized: "Filter")
+        search.sendsSearchStringImmediately = true
         search.focusRingType = .none
         search.setAccessibilityLabel(String(localized: "Filter files"))
         search.setContentHuggingPriority(.required, for: .vertical)
