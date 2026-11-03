@@ -11,6 +11,7 @@ enum FolderOpening {
     private static var didInstallEarly = false
     private static var didHookOpenDocument = false
     private static var didHookOpenPanel = false
+    private static var didHookUntitled = false
     /// True through launch, so DocumentGroup does not present an Open panel on its own.
     private static var suppressDocumentOpenPanel = true
 
@@ -44,7 +45,9 @@ enum FolderOpening {
     /// Touching `NSDocumentController.shared` earlier would create the wrong controller and crash launch.
     static func installLate() {
         installEarly()
-        hookOpenDocument(on: type(of: NSDocumentController.shared))
+        let controller = type(of: NSDocumentController.shared)
+        hookOpenDocument(on: controller)
+        hookAutomaticUntitled(on: controller)
     }
 
     /// Document Open panel: files stay selectable, and a chosen folder becomes a workspace.
@@ -139,6 +142,66 @@ enum FolderOpening {
             method_setImplementation(method, imp)
         }
         didHookOpenDocument = true
+    }
+
+    /// DocumentGroup creates an untitled document on its own, some time after launch, because the
+    /// folder windows are not documents. That window stays at SwiftUI's default 500×500 and is never
+    /// shown. File → New and ⌘N still go through, because they are a click or a key.
+    private static func hookAutomaticUntitled(on cls: AnyClass) {
+        guard !didHookUntitled else { return }
+        let untitled = NSSelectorFromString("openUntitledDocumentAndDisplay:error:")
+        let hookedUntitled = hook(cls, untitled) { original, selector in
+            let block: @convention(block) (AnyObject, Bool, UnsafeMutablePointer<NSError?>?) -> AnyObject? = { controller, display, errorOut in
+                if !userAskedForUntitled() {
+                    errorOut?.pointee = NSError(
+                        domain: NSCocoaErrorDomain,
+                        code: CocoaError.userCancelled.rawValue
+                    )
+                    return nil
+                }
+                let call = unsafeBitCast(
+                    original,
+                    to: (@convention(c) (AnyObject, Selector, Bool, UnsafeMutablePointer<NSError?>?) -> AnyObject?).self
+                )
+                return call(controller, selector, display, errorOut)
+            }
+            return imp_implementationWithBlock(block)
+        }
+        let reopen = NSSelectorFromString("reopenDocumentForURL:withContentsOfURL:display:completionHandler:")
+        let hookedReopen = hook(cls, reopen) { original, selector in
+            let block: @convention(block) (AnyObject, AnyObject?, AnyObject?, Bool, AnyObject) -> Void = { controller, url, contents, display, completion in
+                if url == nil {
+                    let cancel = NSError(
+                        domain: NSCocoaErrorDomain,
+                        code: CocoaError.userCancelled.rawValue
+                    )
+                    let finish = unsafeBitCast(
+                        completion,
+                        to: (@convention(block) (AnyObject?, Bool, NSError?) -> Void).self
+                    )
+                    finish(nil, false, cancel)
+                    return
+                }
+                let call = unsafeBitCast(
+                    original,
+                    to: (@convention(c) (AnyObject, Selector, AnyObject?, AnyObject?, Bool, AnyObject) -> Void).self
+                )
+                call(controller, selector, url, contents, display, completion)
+            }
+            return imp_implementationWithBlock(block)
+        }
+        didHookUntitled = hookedUntitled || hookedReopen
+    }
+
+    /// A menu click or ⌘N. A timer or scene restoration has no current event.
+    private static func userAskedForUntitled() -> Bool {
+        guard let event = NSApp.currentEvent else { return false }
+        switch event.type {
+        case .keyDown, .keyUp, .leftMouseUp, .leftMouseDown:
+            return true
+        default:
+            return false
+        }
     }
 
     @discardableResult

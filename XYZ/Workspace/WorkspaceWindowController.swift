@@ -282,6 +282,9 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
     /// DocumentGroup can leave an untitled window and a hidden filled window beside the folder windows.
     static func closeStrayWindows() {
         for document in NSDocumentController.shared.documents where document.fileURL == nil {
+            for controller in document.windowControllers {
+                controller.window?.isRestorable = false
+            }
             document.close()
         }
         for window in NSApp.windows {
@@ -331,6 +334,7 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
         closingPhantoms = true
         defer { closingPhantoms = false }
         for window in NSApp.windows where isPhantom(window, includeVisible: includeVisible) {
+            window.isRestorable = false
             if let document = NSDocumentController.shared.document(for: window), document.fileURL == nil {
                 document.close()
             } else {

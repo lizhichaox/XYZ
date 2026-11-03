@@ -807,6 +807,37 @@ enum EditorMenuSupport {
         if let edit = editMenu(in: main) {
             ensureEditItems(in: edit)
         }
+        gateDocumentFindCommands(in: main)
+    }
+
+    /// Find, replace, and Go to Line need an open file. SwiftUI keeps the shortcut items enabled
+    /// until the menu is about to show, so the tracking pass sets them here too.
+    private static func gateDocumentFindCommands(in menu: NSMenu) {
+        let open = EditorCommands.shared.target?.editorHasOpenFile == true
+        for item in menu.items {
+            if isDocumentFind(item) {
+                item.isEnabled = open
+            }
+            if let submenu = item.submenu {
+                gateDocumentFindCommands(in: submenu)
+            }
+        }
+    }
+
+    private static func isDocumentFind(_ item: NSMenuItem) -> Bool {
+        switch item.identifier?.rawValue {
+        case "xyz.goToLine", "xyz.goToHeading":
+            return true
+        default:
+            break
+        }
+        let key = item.keyEquivalent.lowercased()
+        let flags = item.keyEquivalentModifierMask.intersection(.deviceIndependentFlagsMask)
+        if key == "f", flags == .command || flags == [.command, .option] { return true }
+        if key == "g", flags == .command || flags == [.command, .shift] { return true }
+        if key == "e", flags == .command { return true }
+        if key == "g", flags == .control { return true }
+        return false
     }
 
     /// ⇧⌘F used to filter the sidebar. Find in Files is ⌘K, in the Edit menu.
