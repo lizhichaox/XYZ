@@ -131,6 +131,7 @@ private struct MacMarkdownWebView: NSViewRepresentable {
         if let webView = claim(host.webView) as? XYZPreviewWebView {
             surface.install(webView)
             host.coordinator.update(webView: webView, html: html, theme: theme, prefs: prefs, scrollLink: scrollLink)
+            surface.showPage(html)
         }
         return surface
     }
@@ -139,6 +140,7 @@ private struct MacMarkdownWebView: NSViewRepresentable {
         guard let webView = host.webView as? XYZPreviewWebView else { return }
         surface.install(webView)
         host.coordinator.update(webView: webView, html: html, theme: theme, prefs: prefs, scrollLink: scrollLink)
+        surface.showPage(html)
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: ReadingSurface, context: Context) -> CGSize? {
@@ -199,6 +201,44 @@ private enum ReadingFindKeys {
     }
 }
 
+/// The rendered note, drawn into the reading surface. The web view's layer stays out of the window.
+final class ReadingPageDraw: NSView {
+    private var html = ""
+    private var rendered: NSAttributedString?
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    func show(_ html: String) {
+        guard html != self.html else { return }
+        self.html = html
+        rendered = nil
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.textBackgroundColor.setFill()
+        dirtyRect.fill()
+        guard !html.isEmpty else { return }
+        if rendered == nil {
+            rendered = Self.render(html)
+        }
+        let box = bounds.insetBy(dx: 32, dy: 28)
+        rendered?.draw(with: box, options: [.usesLineFragmentOrigin])
+    }
+
+    private static func render(_ html: String) -> NSAttributedString? {
+        guard let data = html.data(using: .utf8) else { return nil }
+        return try? NSAttributedString(
+            data: data,
+            options: [
+                .documentType: NSAttributedString.DocumentType.html,
+                .characterEncoding: String.Encoding.utf8.rawValue,
+            ],
+            documentAttributes: nil
+        )
+    }
+}
+
 final class ReadingSurface: NSView, NSSearchFieldDelegate {
     private let findHost = NSView()
     private let findField = NSSearchField()
@@ -207,8 +247,16 @@ final class ReadingSurface: NSView, NSSearchFieldDelegate {
     private var fieldBottom: NSLayoutConstraint!
     private var backwards = false
 
+    let page = ReadingPageDraw()
+
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
+        // The web view's layer is not in the window picture. This view draws the note
+        // into the surface the window does show.
+        wantsLayer = true
+        canDrawSubviewsIntoLayer = true
+        page.translatesAutoresizingMaskIntoConstraints = true
+        addSubview(page)
         findHost.translatesAutoresizingMaskIntoConstraints = false
         findField.translatesAutoresizingMaskIntoConstraints = false
         findField.placeholderString = String(localized: "Find")
@@ -249,6 +297,8 @@ final class ReadingSurface: NSView, NSSearchFieldDelegate {
         self.webView?.removeFromSuperview()
         self.webView = webView
         webView.translatesAutoresizingMaskIntoConstraints = false
+        // Its layer paints an empty page over the note. The page view below draws the words.
+        webView.alphaValue = 0
         addSubview(webView)
         NSLayoutConstraint.activate([
             webView.topAnchor.constraint(equalTo: topAnchor),
@@ -257,6 +307,21 @@ final class ReadingSurface: NSView, NSSearchFieldDelegate {
             webView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
         addSubview(findHost)
+        addSubview(page, positioned: .above, relativeTo: webView)
+    }
+
+    override func layout() {
+        super.layout()
+        if page.frame != bounds {
+            page.frame = bounds
+        }
+    }
+
+    func showPage(_ html: String) {
+        page.show(html)
+        if let webView, page.superview === self {
+            addSubview(page, positioned: .above, relativeTo: webView)
+        }
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {

@@ -1037,6 +1037,40 @@ private struct FindScan {
 /// The editor scroller. Line numbers are not a subview of this view: `NSScrollView` would cover them.
 final class EditorScrollView: NSScrollView {}
 
+/// Visible source, drawn into the pane. Clicks fall through to the text view.
+final class SourceBodyMirror: NSView {
+    weak var textView: XYZMacTextView?
+    override var isFlipped: Bool { true }
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.xyzEditor.setFill()
+        dirtyRect.fill()
+        guard let textView,
+              let manager = textView.textLayoutManager,
+              let content = manager.textContentManager,
+              let context = NSGraphicsContext.current?.cgContext else { return }
+        let clip = textView.enclosingScrollView?.contentView.bounds ?? textView.visibleRect
+        let origin = textView.textContainerOrigin
+        let start = manager.textViewportLayoutController.viewportRange?.location ?? content.documentRange.location
+        var seen = 0
+        manager.enumerateTextLayoutFragments(from: start, options: [.ensuresLayout]) { fragment in
+            seen += 1
+            let frame = fragment.layoutFragmentFrame
+            let rect = NSRect(
+                x: origin.x + frame.minX - clip.minX,
+                y: origin.y + frame.minY - clip.minY,
+                width: max(frame.width, 1),
+                height: max(frame.height, 1)
+            )
+            if rect.maxY >= dirtyRect.minY, rect.minY <= dirtyRect.maxY {
+                fragment.draw(at: NSPoint(x: rect.minX, y: rect.minY), in: context)
+            }
+            return seen < 80 && rect.minY < self.bounds.maxY + rect.height
+        }
+    }
+}
+
 /// Gutter and scroller, side by side. The pair stops at the top of the status bar.
 final class EditorPane: NSView {
     let gutter = LineNumberGutter()
@@ -1052,9 +1086,15 @@ final class EditorPane: NSView {
         canDrawSubviewsIntoLayer = true
         gutter.translatesAutoresizingMaskIntoConstraints = true
         scrollView.translatesAutoresizingMaskIntoConstraints = true
+        mirror.translatesAutoresizingMaskIntoConstraints = true
+        mirror.wantsLayer = false
         addSubview(gutter)
         addSubview(scrollView)
+        addSubview(mirror)
     }
+
+    /// The text view's layer never joins the window. This view draws the same lines into the pane.
+    let mirror = SourceBodyMirror()
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
@@ -1083,6 +1123,7 @@ final class EditorPane: NSView {
         ) { [weak self] _ in
             MainActor.assumeIsolated { () -> Void in
                 self?.gutter.noteGeometryChanged()
+                self?.mirror.needsDisplay = true
             }
         }
         needsLayout = true
@@ -1091,6 +1132,7 @@ final class EditorPane: NSView {
     func noteTextLayout() {
         // Display only. Marking the pane dirty from the text view's layout never finishes.
         gutter.noteGeometryChanged()
+        mirror.needsDisplay = true
     }
 
     override func layout() {
@@ -1117,6 +1159,11 @@ final class EditorPane: NSView {
         let scrollFrame = NSRect(x: width, y: 0, width: max(1, bounds.width - width), height: bounds.height)
         if gutter.frame != gutterFrame { gutter.frame = gutterFrame }
         if scrollView.frame != scrollFrame { scrollView.frame = scrollFrame }
+        mirror.textView = gutter.textView
+        if mirror.frame != scrollFrame { mirror.frame = scrollFrame }
+        if subviews.last !== gutter {
+            addSubview(mirror, positioned: .above, relativeTo: scrollView)
+        }
         if gutter.superview === self, subviews.last !== gutter {
             addSubview(gutter, positioned: .above, relativeTo: scrollView)
         }

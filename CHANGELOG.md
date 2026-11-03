@@ -2,7 +2,7 @@
 
 ## 0.5.27
 
-- Opening a file shows its text again. The editor draws the note into the same pane as the line numbers. A separate text layer had the glyphs and never appeared in the window. Reading draws its page into the window as well. The file column keeps the width left after the sidebar. A blank file still fails the window check.
+- Opening a file shows its text again. The editor paints the visible lines into the same pane as the line numbers, because the text view's own layer never appears in the window. Reading paints the rendered note into its surface the same way. The file column keeps the width left after the sidebar. A blank file still fails the window check.
 
 ## 0.5.26
 
