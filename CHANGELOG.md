@@ -7,6 +7,7 @@
 - A one-pixel hairline runs under the title bar, across the sidebar and the editor. Light stays white. The line is the same divider used between the other surfaces.
 - The Explorer header no longer shows a file count. New File, New Folder, Refresh, and Collapse All sit at its trailing edge. Collapse All closes nested folders and does not open them again for the file that is already open.
 - The status bar draws Editing and Read-only in bold, with a pencil and an open book. The words are unchanged. VoiceOver reads the mode once.
+- Double-clicking a sidebar divider fits that column to the names on screen. The Explorer includes indentation and the header actions. The outline includes heading depth. The editor keeps room when both sidebars are open.
 - The line-number check opens a normal folder window on a synthetic file, switches Reading to Editing, and reads the composited text with text recognition. A blank document must not pass. Shots of that window are saved for light and dark.
 
 ## 0.5.25

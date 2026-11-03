@@ -36,6 +36,41 @@ public enum SidebarReveal {
     }
 }
 
+/// One double-click fit. The result stays inside the same limits as a drag, and leaves the editor 480 points when both sidebars are open.
+public enum SidebarFit {
+    public static let sidebarMinimum: CGFloat = 220
+    public static let outlineMinimum: CGFloat = 160
+    public static let editorMinimum: CGFloat = 480
+
+    public static func sidebar(
+        content: CGFloat,
+        window: CGFloat,
+        outline: CGFloat,
+        outlineShown: Bool
+    ) -> CGFloat {
+        let cap = max(260, floor(window * 0.4))
+        let other = outlineShown ? max(outlineMinimum, outline) : 0
+        let room = window - other - editorMinimum
+        let upper = min(cap, max(sidebarMinimum, room))
+        let desired = max(sidebarMinimum, content.rounded(.up))
+        return min(desired, max(sidebarMinimum, upper))
+    }
+
+    public static func outline(
+        content: CGFloat,
+        window: CGFloat,
+        sidebar: CGFloat,
+        sidebarShown: Bool
+    ) -> CGFloat {
+        let other = sidebarShown ? max(sidebarMinimum, sidebar) : 0
+        let hardMax = window - (sidebarShown ? sidebarMinimum + editorMinimum : editorMinimum)
+        let editorCap = window - other - editorMinimum
+        let upper = max(outlineMinimum, min(hardMax, editorCap))
+        let desired = max(outlineMinimum, content.rounded(.up))
+        return min(desired, upper)
+    }
+}
+
 /// The Explorer section for the open folder. Collapsed hides the file list and stays that way for the session.
 public enum ExplorerSection {
     public static func toggle(_ expanded: Bool) -> Bool { !expanded }

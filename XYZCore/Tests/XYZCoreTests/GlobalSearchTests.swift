@@ -58,6 +58,23 @@ final class GlobalSearchTests: XCTestCase {
         XCTAssertLessThan(excerpt.count, line.count)
     }
 
+    func testDoubleClickFitKeepsTheEditorAndStaysPut() {
+        let wide = SidebarFit.sidebar(content: 640, window: 1100, outline: 220, outlineShown: true)
+        XCTAssertEqual(wide, SidebarFit.sidebar(content: 640, window: 1100, outline: 220, outlineShown: true))
+        XCTAssertLessThanOrEqual(wide + 220 + SidebarFit.editorMinimum, 1100)
+        XCTAssertGreaterThanOrEqual(wide, SidebarFit.sidebarMinimum)
+        let tight = SidebarFit.sidebar(content: 800, window: 880, outline: 220, outlineShown: true)
+        XCTAssertEqual(tight, SidebarFit.sidebarMinimum)
+        let empty = SidebarFit.sidebar(content: 0, window: 1100, outline: 0, outlineShown: false)
+        XCTAssertEqual(empty, SidebarFit.sidebarMinimum)
+        let outline = SidebarFit.outline(content: 500, window: 1100, sidebar: 260, sidebarShown: true)
+        XCTAssertEqual(outline, SidebarFit.outline(content: 500, window: 1100, sidebar: 260, sidebarShown: true))
+        XCTAssertLessThanOrEqual(260 + outline + SidebarFit.editorMinimum, 1100 + 0.5)
+        XCTAssertEqual(SidebarFit.outline(content: 0, window: 1100, sidebar: 260, sidebarShown: true), SidebarFit.outlineMinimum)
+        let nested = SidebarFit.sidebar(content: 480, window: 1400, outline: 0, outlineShown: false)
+        XCTAssertEqual(nested, 480)
+    }
+
     func testLevelZeroDisclosureStaysOnScreen() {
         XCTAssertEqual(OutlineDisclosure.originX(-16), 8 as CGFloat)
         XCTAssertGreaterThanOrEqual(OutlineDisclosure.originX(-13), OutlineDisclosure.minimumX)

@@ -752,6 +752,60 @@ enum SidebarColumnFitCheck {
         if width < 400 {
             return "sidebar column \(width) in a 437pt sidebar"
         }
+        let latin = SidebarContentMeasure.explorerRow(String(repeating: "i", count: 12), depth: 0)
+        let cjk = SidebarContentMeasure.explorerRow(String(repeating: "文", count: 12), depth: 0)
+        if cjk <= latin {
+            return "sidebar fit treated 12 Chinese characters as no wider than 12 i's \(cjk) \(latin)"
+        }
+        let nested = SidebarContentMeasure.explorerRow("note.md", depth: 3)
+        let top = SidebarContentMeasure.explorerRow("note.md", depth: 0)
+        if nested <= top {
+            return "sidebar fit ignored nesting \(nested) \(top)"
+        }
+        let shortName = SidebarContentMeasure.explorerRow("a.md", depth: 0)
+        let longName = SidebarContentMeasure.explorerRow(String(repeating: "Very Long File Name ", count: 4), depth: 0)
+        if longName <= shortName {
+            return "sidebar fit ignored a long file name"
+        }
+        let header = SidebarContentMeasure.header("XYZ")
+        if header < 4 * 22 {
+            return "sidebar fit left no room for the header actions \(header)"
+        }
+        if SidebarContentMeasure.explorerRow("a.md", depth: 1) != SidebarContentMeasure.explorerRow("a.md", depth: 1) {
+            return "sidebar fit changed on the same name"
+        }
+        let deep = SidebarContentMeasure.outlineRow(String(repeating: "节", count: 8), depth: 4)
+        let shallow = SidebarContentMeasure.outlineRow("A", depth: 0)
+        if deep <= shallow {
+            return "outline fit ignored a deep Chinese heading"
+        }
+        if SidebarContentMeasure.outline([]) < SidebarFit.outlineMinimum {
+            return "outline fit gave an empty panel no width"
+        }
+        let split = XYZSplitView(frame: NSRect(x: 0, y: 0, width: 1100, height: 600))
+        split.install(
+            sidebar: NSView(),
+            detail: NSView(),
+            outline: NSView(),
+            showsSidebar: true,
+            showsOutline: true,
+            outlineWidth: 220
+        )
+        var leftFits = 0
+        var rightFits = 0
+        split.measureSidebar = {
+            leftFits += 1
+            return 300
+        }
+        split.measureOutline = {
+            rightFits += 1
+            return 240
+        }
+        split.testingDoubleClick(.left)
+        split.testingDoubleClick(.right)
+        if leftFits != 1 || rightFits != 1 {
+            return "divider double-click did not call both fit hooks \(leftFits) \(rightFits)"
+        }
         return nil
     }
 }

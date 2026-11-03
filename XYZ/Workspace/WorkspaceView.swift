@@ -26,6 +26,8 @@ private struct WorkspaceSplit<Sidebar: View, Detail: View, Outline: View>: NSVie
     var showsOutline: Bool
     var outlineWidth: CGFloat
     var onOutlineWidth: (CGFloat) -> Void
+    var sidebarContentWidth: () -> CGFloat
+    var outlineContentWidth: () -> CGFloat
     var sidebar: Sidebar
     var detail: Detail
     var outline: Outline
@@ -35,6 +37,8 @@ private struct WorkspaceSplit<Sidebar: View, Detail: View, Outline: View>: NSVie
         showsOutline: Bool,
         outlineWidth: CGFloat,
         onOutlineWidth: @escaping (CGFloat) -> Void,
+        sidebarContentWidth: @escaping () -> CGFloat,
+        outlineContentWidth: @escaping () -> CGFloat,
         @ViewBuilder sidebar: () -> Sidebar,
         @ViewBuilder detail: () -> Detail,
         @ViewBuilder outline: () -> Outline
@@ -43,6 +47,8 @@ private struct WorkspaceSplit<Sidebar: View, Detail: View, Outline: View>: NSVie
         self.showsOutline = showsOutline
         self.outlineWidth = outlineWidth
         self.onOutlineWidth = onOutlineWidth
+        self.sidebarContentWidth = sidebarContentWidth
+        self.outlineContentWidth = outlineContentWidth
         self.sidebar = sidebar()
         self.detail = detail()
         self.outline = outline()
@@ -60,6 +66,8 @@ private struct WorkspaceSplit<Sidebar: View, Detail: View, Outline: View>: NSVie
         context.coordinator.detail = main
         context.coordinator.outline = outlineHost
         split.onOutlineWidth = onOutlineWidth
+        split.measureSidebar = sidebarContentWidth
+        split.measureOutline = outlineContentWidth
         split.install(
             sidebar: side,
             detail: main,
@@ -76,6 +84,8 @@ private struct WorkspaceSplit<Sidebar: View, Detail: View, Outline: View>: NSVie
         context.coordinator.detail?.rootView = detail
         context.coordinator.outline?.rootView = outline
         split.onOutlineWidth = onOutlineWidth
+        split.measureSidebar = sidebarContentWidth
+        split.measureOutline = outlineContentWidth
         split.setSidebarShown(showsSidebar)
         split.setOutline(shown: showsOutline, width: outlineWidth)
     }
@@ -98,6 +108,8 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
     fileprivate var detail: NSView?
     fileprivate var outline: NSView?
     var onOutlineWidth: ((CGFloat) -> Void)?
+    var measureSidebar: () -> CGFloat = { SidebarFit.sidebarMinimum }
+    var measureOutline: () -> CGFloat = { SidebarFit.outlineMinimum }
     private let panes = PaneSplitView()
     private let leftDivider = SidebarDivider(edge: .left)
     private let rightDivider = SidebarDivider(edge: .right)
@@ -129,6 +141,9 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
         leftDivider.dragEnded = { [weak self] in
             self?.dividerDrag = false
         }
+        leftDivider.fitContent = { [weak self] in
+            self?.fitToContent(.left)
+        }
         rightDivider.boundaryX = { [weak self] in
             self?.detail?.frame.maxX ?? 0
         }
@@ -137,6 +152,9 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
         }
         rightDivider.dragEnded = { [weak self] in
             self?.dividerDrag = false
+        }
+        rightDivider.fitContent = { [weak self] in
+            self?.fitToContent(.right)
         }
     }
 
@@ -318,6 +336,50 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
         }
     }
 
+    /// One double-click. The same content returns the same width.
+    private func fitToContent(_ edge: SidebarDivider.Edge) {
+        guard bounds.width > 1 else { return }
+        switch edge {
+        case .left:
+            guard sidebarShown else { return }
+            let outlineWidth = outlineShown ? (outline?.frame.width ?? savedOutline) : 0
+            let width = SidebarFit.sidebar(
+                content: measureSidebar(),
+                window: bounds.width,
+                outline: outlineWidth,
+                outlineShown: outlineShown
+            )
+            savedPosition = width
+            adjusting = true
+            panes.setPosition(width, ofDividerAt: 0)
+            adjusting = false
+        case .right:
+            guard outlineShown else { return }
+            let sidebarWidth = sidebarShown ? (sidebar?.frame.width ?? savedPosition) : 0
+            let width = SidebarFit.outline(
+                content: measureOutline(),
+                window: bounds.width,
+                sidebar: sidebarWidth,
+                sidebarShown: sidebarShown
+            )
+            savedOutline = width
+            let index = panes.subviews.count - 2
+            guard index >= 0 else { return }
+            adjusting = true
+            panes.setPosition(bounds.width - width, ofDividerAt: index)
+            adjusting = false
+            onOutlineWidth?(width)
+        }
+        placeDividers()
+    }
+
+    func testingDoubleClick(_ edge: SidebarDivider.Edge) {
+        switch edge {
+        case .left: leftDivider.fitContent()
+        case .right: rightDivider.fitContent()
+        }
+    }
+
     private func moveDivider(_ edge: SidebarDivider.Edge, to position: CGFloat) {
         let index: Int
         switch edge {
@@ -443,6 +505,76 @@ private final class PaneSplitView: NSSplitView {
     override func resetCursorRects() {}
 }
 
+/// Width of the names currently shown, measured with the sidebar fonts.
+enum SidebarContentMeasure {
+    private static let rowFont = NSFont.systemFont(ofSize: 12)
+    private static let activeFont = NSFont.systemFont(ofSize: 12, weight: .semibold)
+    private static let headerFont = NSFont.systemFont(ofSize: 11, weight: .semibold)
+    private static let headerTracking: CGFloat = 0.6
+
+    static func explorer(_ session: WorkspaceSession) -> CGFloat {
+        var widest = header(session.displayName)
+        guard session.rootExpanded else { return widest }
+        func walk(_ parent: String, depth: Int) {
+            for node in session.visibleChildren(of: parent) {
+                widest = max(widest, explorerRow(node.name, depth: depth))
+                if node.isDirectory, session.isExpanded(node.relativePath) {
+                    walk(node.relativePath, depth: depth + 1)
+                }
+            }
+        }
+        walk("", 0)
+        return widest
+    }
+
+    static func outline(_ entries: [OutlineEntry]) -> CGFloat {
+        var widest = outlineHeader()
+        if entries.isEmpty {
+            return max(widest, labeled("No Outline", font: rowFont, leading: 16, trailing: 16))
+        }
+        for entry in entries {
+            widest = max(widest, outlineRow(entry.title, depth: entry.depth))
+        }
+        return widest
+    }
+
+    static func explorerRow(_ name: String, depth: Int) -> CGFloat {
+        let text = width(name, font: rowFont)
+        let indent = CGFloat(depth) * 16
+        let disclosure = OutlineDisclosure.inset
+        let iconAndPadding: CGFloat = 2 + 16 + 6 + 6
+        return (indent + disclosure + iconAndPadding + text).rounded(.up)
+    }
+
+    static func header(_ name: String) -> CGFloat {
+        let title = width(name.localizedUppercase, font: headerFont, kern: headerTracking)
+        let actions: CGFloat = 4 * 22
+        return (12 + 12 + 4 + title + 6 + actions + 4).rounded(.up)
+    }
+
+    static func outlineRow(_ title: String, depth: Int) -> CGFloat {
+        let text = width(title, font: activeFont)
+        let indent = 8 + CGFloat(min(max(depth, 0), 6)) * 12
+        return (indent + 14 + 2 + text + 8).rounded(.up)
+    }
+
+    static func outlineHeader() -> CGFloat {
+        let title = width(String(localized: "Outline").localizedUppercase, font: NSFont.systemFont(ofSize: 11, weight: .medium), kern: headerTracking)
+        return (12 + title + 12).rounded(.up)
+    }
+
+    private static func labeled(_ text: String, font: NSFont, leading: CGFloat, trailing: CGFloat) -> CGFloat {
+        (leading + width(text, font: font) + trailing).rounded(.up)
+    }
+
+    private static func width(_ text: String, font: NSFont, kern: CGFloat = 0) -> CGFloat {
+        let attributes: [NSAttributedString.Key: Any] = kern == 0
+            ? [.font: font]
+            : [.font: font, .kern: kern]
+        return (text as NSString).size(withAttributes: attributes).width
+    }
+}
+
 private enum SidebarDividerColor {
     static func separator(for appearance: NSAppearance) -> NSColor {
         if appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua {
@@ -464,6 +596,7 @@ private final class SidebarDivider: NSView {
     var boundaryX: () -> CGFloat = { 0 }
     var moveTo: (CGFloat) -> Void = { _ in }
     var dragEnded: () -> Void = {}
+    var fitContent: () -> Void = {}
 
     private let hairline = CALayer()
     private let accent = CALayer()
@@ -566,6 +699,13 @@ private final class SidebarDivider: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        if event.clickCount >= 2 {
+            hoverToken += 1
+            dragging = false
+            setHighlight(on: false, reason: "fit")
+            fitContent()
+            return
+        }
         hoverToken += 1
         dragging = true
         setHighlight(on: true, reason: "drag")
@@ -636,7 +776,9 @@ struct WorkspaceView: View {
                 showsSidebar: columnVisibility != .detailOnly,
                 showsOutline: showsMarkdownOutline,
                 outlineWidth: session.outlineWidth,
-                onOutlineWidth: { session.rememberOutlineWidth($0) }
+                onOutlineWidth: { session.rememberOutlineWidth($0) },
+                sidebarContentWidth: { SidebarContentMeasure.explorer(session) },
+                outlineContentWidth: { SidebarContentMeasure.outline(outline.entries) }
             ) {
                 WorkspaceSidebar(session: session, undoManager: undoManager)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
