@@ -85,7 +85,7 @@ enum XYZDiagnostics {
     }
 
     private static func windowLine(_ window: NSWindow) -> String {
-        let reason = WorkspaceWindowController.phantomReason(window)
+        let reason = MainActor.assumeIsolated { WorkspaceWindowController.phantomReason(window) }
         let controller = window.windowController.map { String(describing: type(of: $0)) } ?? "nil"
         let delegate = window.delegate.map { String(describing: type(of: $0)) } ?? "nil"
         let content = window.contentView.map { String(describing: type(of: $0)) } ?? "nil"
