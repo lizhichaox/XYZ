@@ -1820,6 +1820,7 @@ private final class PaletteCell: NSTableCellView {
 }
 
 /// The sandbox cannot write `/usr/local/bin`. The dialog is the install step, with Copy.
+@MainActor
 enum XYZCommandInstall {
     static func showInstall() {
         let script = Bundle.main.bundleURL
