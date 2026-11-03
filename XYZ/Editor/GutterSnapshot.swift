@@ -1593,6 +1593,7 @@ enum GutterSnapshotCheck {
 
     @MainActor
     private static func gestureWindow(root: URL, lineKey: String, readingKey: String) -> String? {
+        let notes = root.appendingPathComponent("Notes", isDirectory: true)
         let session = WorkspaceSession(rootURL: root, bookmark: nil)
         let controller = WorkspaceWindowController(session: session)
         defer { session.shutdown() }
