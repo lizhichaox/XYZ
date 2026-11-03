@@ -11,6 +11,21 @@ public struct WorkspaceNameSpan: Equatable, Sendable, Hashable {
     }
 }
 
+/// Keeps an outline disclosure on screen when the window is flush with the left edge.
+/// AppKit places a level-0 twisty to the left of the cell, often at a negative x.
+public enum OutlineDisclosure {
+    public static let inset: CGFloat = 20
+    public static let minimumX: CGFloat = 8
+
+    public static func shift(proposedX: CGFloat) -> CGFloat {
+        max(inset, minimumX - proposedX)
+    }
+
+    public static func originX(_ proposedX: CGFloat) -> CGFloat {
+        proposedX + shift(proposedX: proposedX)
+    }
+}
+
 /// The Explorer section for the open folder. Collapsed hides the file list and stays that way for the session.
 public enum ExplorerSection {
     public static func toggle(_ expanded: Bool) -> Bool { !expanded }

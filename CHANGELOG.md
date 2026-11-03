@@ -5,6 +5,7 @@
 - Find (⌘F) is a compact bar at the top right of the note, in Reading and in Editing. It fills from the selection, shows `n of m`, highlights every match, and marks the current one. ⌘G, ⇧⌘G, Return, and Shift-Return move through the matches and say when the search wraps. Match case, whole word, and regex stay on while they are pressed. ⌥⌘F adds Replace and Replace All in Editing. Esc closes the bar.
 - ⌘K searches note names and their text. File-name matches come first, then open and recent notes, then lines of text with the match in the line. An empty field lists recent files. With no folder open, the panel says so. ⌘P stays commands and go to file.
 - The open folder's row in Explorer is a section header. Its chevron and the row itself collapse the file list. The number on the right is how many files are in the folder. The choice lasts for the session.
+- Folder arrows in the sidebar stay inside the window when it is flush with the left edge of the screen.
 
 ## 0.5.16
 

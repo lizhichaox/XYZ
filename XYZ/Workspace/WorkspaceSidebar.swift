@@ -985,7 +985,7 @@ fileprivate final class SidebarRootHeader: NSView {
         addSubview(label)
         addSubview(countLabel)
         NSLayoutConstraint.activate([
-            chevron.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 8),
+            chevron.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             chevron.centerYAnchor.constraint(equalTo: centerYAnchor),
             chevron.widthAnchor.constraint(equalToConstant: 12),
             chevron.heightAnchor.constraint(equalToConstant: 12),
@@ -1206,6 +1206,21 @@ fileprivate final class SidebarOutlineView: NSOutlineView {
         drawIndentGuides()
     }
 
+    /// Level-0 twisties are drawn left of the cell. A flush-left window then clips them off the screen.
+    override func frameOfOutlineCell(atRow row: Int) -> NSRect {
+        var frame = super.frameOfOutlineCell(atRow: row)
+        frame.origin.x = OutlineDisclosure.originX(frame.origin.x)
+        return frame
+    }
+
+    override func frameOfCell(atColumn column: Int, row: Int) -> NSRect {
+        var frame = super.frameOfCell(atColumn: column, row: row)
+        let shift = OutlineDisclosure.shift(proposedX: super.frameOfOutlineCell(atRow: row).origin.x)
+        frame.origin.x += shift
+        frame.size.width = max(0, frame.size.width - shift)
+        return frame
+    }
+
     /// Quiet vertical rules at each indent, in the gutter beside the disclosure triangles.
     private func drawIndentGuides() {
         let rowRange = rows(in: visibleRect)
@@ -1217,7 +1232,7 @@ fileprivate final class SidebarOutlineView: NSOutlineView {
             guard level > 0 else { continue }
             let rect = rect(ofRow: row)
             for depth in 1...level {
-                let x = (CGFloat(depth) - 0.5) * step
+                let x = OutlineDisclosure.inset + (CGFloat(depth) - 0.5) * step
                 let path = NSBezierPath()
                 path.move(to: NSPoint(x: x, y: rect.minY))
                 path.line(to: NSPoint(x: x, y: rect.maxY))

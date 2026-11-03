@@ -58,6 +58,13 @@ final class GlobalSearchTests: XCTestCase {
         XCTAssertLessThan(excerpt.count, line.count)
     }
 
+    func testLevelZeroDisclosureStaysOnScreen() {
+        XCTAssertEqual(OutlineDisclosure.originX(-16), 8)
+        XCTAssertGreaterThanOrEqual(OutlineDisclosure.originX(-13), OutlineDisclosure.minimumX)
+        XCTAssertEqual(OutlineDisclosure.originX(16), 36)
+        XCTAssertEqual(OutlineDisclosure.shift(proposedX: 16), OutlineDisclosure.inset)
+    }
+
     func testExplorerSectionCollapsesAndCountsFiles() {
         XCTAssertFalse(ExplorerSection.toggle(true))
         XCTAssertTrue(ExplorerSection.toggle(false))
