@@ -2,7 +2,7 @@
 
 ## 0.5.27
 
-- Opening a file uses the text view a titled window can show. The copied bitmap and the plain-text cover stay gone, so the caret, selection, scrolling, find, and the Reading page stay on their own views. The file column keeps the width left after the sidebar. The window check first reads a normal text control. A blank file still fails.
+- Opening a file keeps the real text view. Its layer uses the same flip as the view, so the glyphs join the folder window. The caret, selection, scrolling, find, and the Reading page stay on their own views. The file column keeps the width left after the sidebar. The window check first reads a normal text control. A blank file still fails.
 
 ## 0.5.26
 

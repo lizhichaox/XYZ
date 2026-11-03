@@ -795,6 +795,22 @@ private struct FindScan {
         guard window != nil else { return }
         layoutSubtreeIfNeeded()
         alignIfReady()
+        joinWindowLayer()
+    }
+
+    /// The glyphs are already in this view. A flipped text view inside the folder window
+    /// was leaving that layer out of the window unless the layer uses the view's flip.
+    /// The text view stays the editor: caret, selection, scrolling, and find are unchanged.
+    func joinWindowLayer() {
+        guard window != nil else { return }
+        wantsLayer = true
+        layer?.isGeometryFlipped = isFlipped
+        if let scroll = enclosingScrollView {
+            scroll.wantsLayer = true
+            scroll.contentView.drawsBackground = false
+        }
+        textLayoutManager?.textViewportLayoutController.layoutViewport()
+        needsDisplay = true
     }
 
     func scrollAnchor() -> EditorScrollAnchor {
@@ -1225,9 +1241,11 @@ struct XYZMacEditor: NSViewRepresentable {
         scrollView.contentView.contentInsets = NSEdgeInsets()
         scrollView.clipsToBounds = true
         scrollView.drawsBackground = true
+        scrollView.wantsLayer = true
         scrollView.contentView.clipsToBounds = true
         scrollView.contentView.drawsBackground = false
         textView.clipsToBounds = true
+        textView.joinWindowLayer()
         textView.documentUndoManager = undoManager
         scrollLink.capture = { [weak textView] in
             textView?.scrollAnchor() ?? EditorScrollAnchor(fraction: 0, probe: "", line: 1)

@@ -656,7 +656,10 @@ enum GutterSnapshotCheck {
             let words = recognizedText(in: screen ?? windowImage)
             let chain = layerChain(from: textView)
             let viewNames = textView.subviews.map { NSStringFromClass(type(of: $0)) }.joined(separator: ",")
-            print("GUTTER_WINDOW label=\(label) words=\(String(words.prefix(180))) body=\(String(bodyWords.prefix(120))) storage=\(stored) layer=\(textView.layer == nil ? 0 : 1) screen=\(screen == nil ? 0 : 1) chain=\(chain) views=\(viewNames)")
+            let box = textView.convert(textView.bounds, to: nil)
+            let visible = textView.visibleRect
+            let clipY = textView.enclosingScrollView?.contentView.bounds.origin.y ?? -1
+            print("GUTTER_WINDOW label=\(label) words=\(String(words.prefix(180))) body=\(String(bodyWords.prefix(120))) storage=\(stored) layer=\(textView.layer == nil ? 0 : 1) screen=\(screen == nil ? 0 : 1) chain=\(chain) views=\(viewNames) geom=\(Int(box.width))x\(Int(box.height))@\(Int(box.minX)),\(Int(box.minY)) visY=\(Int(visible.origin.y)) visH=\(Int(visible.height)) clipY=\(Int(clipY)) flip=\(textView.layer?.isGeometryFlipped == true ? 1 : 0)")
             fflush(stdout)
             saveShot(image, name: "editing-\(label).png")
             if let paneImage = compositedImage(of: pane) {
