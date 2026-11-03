@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.26
+
+- Editing draws the document text in the real window, not only into an offscreen bitmap. TextKit 2 puts the body in fragment subviews. A layer-backed SwiftUI window was compositing the text view's layer without those subviews, so the gutter showed and the page stayed white. `cacheDisplay` still called `draw` and counted that ink.
+- The line-number check opens a normal folder window on a synthetic file, switches Reading to Editing, and reads the composited text with text recognition. A blank document must not pass. Shots of that window are saved for light and dark.
+
 ## 0.5.25
 
 - Editing shows the document text and the line-number gutter at the same time. The hosted text view is the TextKit 2 viewport again, so glyphs are drawn in the clip. A separate content storage could number lines without painting the body.

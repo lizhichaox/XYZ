@@ -52,6 +52,30 @@ final class XYZMacTextView: NSTextView {
 
     override func changeColor(_ sender: Any?) {}
 
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        embedBodyInWindowLayer()
+    }
+
+    /// TextKit 2 draws the body into fragment subviews. A layer-backed document window
+    /// composites this view's layer and leaves those subviews out, so the gutter shows
+    /// and the page stays blank. Flattening the fragments into this layer is what the
+    /// screen displays. `cacheDisplay` never needed it, which is why a bitmap of `draw`
+    /// reported body ink for a blank window.
+    func embedBodyInWindowLayer() {
+        wantsLayer = true
+        canDrawSubviewsIntoLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        clipsToBounds = false
+        guard let scroll = enclosingScrollView else { return }
+        scroll.wantsLayer = true
+        scroll.canDrawSubviewsIntoLayer = true
+        scroll.contentView.wantsLayer = true
+        scroll.contentView.canDrawSubviewsIntoLayer = true
+        scroll.contentView.drawsBackground = false
+        scroll.contentView.layer?.backgroundColor = nil
+    }
+
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
@@ -1121,8 +1145,7 @@ struct XYZMacEditor: NSViewRepresentable {
         textView.usesFindBar = false
         textView.isIncrementalSearchingEnabled = true
         textView.drawsBackground = true
-        // The clip view's background layer sits over TextKit 2 fragments once the gutter is added.
-        textView.clipsToBounds = true
+        textView.embedBodyInWindowLayer()
         textView.usesAdaptiveColorMappingForDarkAppearance = false
         textView.isVerticallyResizable = true
         textView.textContainer?.lineFragmentPadding = 0
@@ -1160,9 +1183,12 @@ struct XYZMacEditor: NSViewRepresentable {
         scrollView.contentView.automaticallyAdjustsContentInsets = false
         scrollView.contentView.contentInsets = NSEdgeInsets()
         // The clip view's background layer sits over TextKit 2 fragments. The text view paints
-        // the canvas itself.
+        // the canvas itself. Fragment subviews are drawn into these layers; otherwise a
+        // SwiftUI window shows the gutter and a white page. cacheDisplay still calls draw.
         scrollView.clipsToBounds = true
+        scrollView.canDrawSubviewsIntoLayer = true
         scrollView.contentView.clipsToBounds = true
+        scrollView.contentView.canDrawSubviewsIntoLayer = true
         scrollView.contentView.drawsBackground = false
         pane.attach(textView)
         textView.syncLineNumbers(lineNumbers)
@@ -1172,6 +1198,7 @@ struct XYZMacEditor: NSViewRepresentable {
         context.coordinator.restyle(edited: nil)
         context.coordinator.observeScroll(of: scrollView)
         applyWrap(textView: textView, scrollView: scrollView, wraps: style.wraps)
+        textView.embedBodyInWindowLayer()
         // Leave `layoutManager` unread. On this path it installs TextKit 1 and the assert
         // in a debug build is the crash the hosted check hit. Release builds kept editing
         // and drew no wrapped line numbers.
@@ -1229,6 +1256,7 @@ struct XYZMacEditor: NSViewRepresentable {
         scrollView.clipsToBounds = true
         scrollView.contentView.clipsToBounds = true
         scrollView.contentView.drawsBackground = false
+        textView.embedBodyInWindowLayer()
         textView.documentUndoManager = undoManager
         scrollLink.capture = { [weak textView] in
             textView?.scrollAnchor() ?? EditorScrollAnchor(fraction: 0, probe: "", line: 1)
