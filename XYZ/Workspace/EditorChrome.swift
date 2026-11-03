@@ -343,10 +343,10 @@ struct EditorFindBar: View {
         Button(title) { on.wrappedValue.toggle() }
             .buttonStyle(.borderless)
             .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(on.wrappedValue ? Color.xyzAccent : Color.xyzSecondaryText)
+            .foregroundStyle(on.wrappedValue ? Color(nsColor: .xyzFindToggleInk) : Color.xyzSecondaryText)
             .padding(.horizontal, 4)
             .padding(.vertical, 2)
-            .background(on.wrappedValue ? Color.xyzSelection : Color.clear)
+            .background(on.wrappedValue ? Color(nsColor: .xyzFindToggleFill) : Color.clear)
             .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
             .focused($slot, equals: target)
             .onKeyPress(.tab) {
@@ -577,13 +577,7 @@ private struct EditorTabItem: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(name)
-            if tab.isPinned {
-                Image(systemName: "pin.fill")
-                    .font(.system(size: 9))
-                    .foregroundStyle(Color.xyzSecondaryText)
-                    .frame(width: 12, height: 12)
-                    .accessibilityLabel(String(localized: "Pinned"))
-            }
+            .help(tab.id)
             closeControl
         }
         .padding(.leading, 10)
@@ -606,7 +600,6 @@ private struct EditorTabItem: View {
             guard !tab.isPinned else { return }
             close()
         }, keep: keep))
-        .help(tab.id)
         .contextMenu {
             Button("Close") { close() }
             if tab.isPinned {
@@ -637,16 +630,20 @@ private struct EditorTabItem: View {
 
     @ViewBuilder
     private var closeControl: some View {
-        if showsClose {
-            Button(action: close) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 9, weight: .semibold))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 16, height: 16)
-                    .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(String(localized: "Close Tab"))
+        if tab.isPinned || showsClose {
+            TabSlotButton(
+                symbol: tab.isPinned ? "pin.fill" : "xmark",
+                help: tab.isPinned ? String(localized: "Unpin") : String(localized: "Close Tab"),
+                action: {
+                    switch EditorTabStrip.trailingClick(pinned: tab.isPinned) {
+                    case .unpin:
+                        togglePin()
+                    case .close:
+                        close()
+                    }
+                }
+            )
+            .frame(width: 16, height: 16)
         } else {
             Circle()
                 .fill(tab.isDirty ? Color.xyzInk.opacity(0.72) : Color.clear)
@@ -679,6 +676,104 @@ private struct EditorTabItem: View {
             return Font.system(size: 12).italic()
         }
         return Font.system(size: 12, weight: active ? .semibold : .regular)
+    }
+}
+
+/// The pin or the close mark. The view eats the click so the tab does not select or drag.
+private struct TabSlotButton: NSViewRepresentable {
+    var symbol: String
+    var help: String
+    var action: () -> Void
+
+    func makeNSView(context: Context) -> TabSlotControl {
+        let view = TabSlotControl()
+        view.symbol = symbol
+        view.toolTip = help
+        view.action = action
+        return view
+    }
+
+    func updateNSView(_ view: TabSlotControl, context: Context) {
+        view.symbol = symbol
+        view.toolTip = help
+        view.action = action
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: TabSlotControl, context: Context) -> CGSize? {
+        CGSize(width: 16, height: 16)
+    }
+}
+
+private final class TabSlotControl: NSView {
+    var action: () -> Void = {}
+    var symbol = "xmark" {
+        didSet {
+            if symbol != oldValue { needsDisplay = true }
+        }
+    }
+    private var hovering = false
+    private var tracking: NSTrackingArea?
+
+    override var intrinsicContentSize: NSSize { NSSize(width: 16, height: 16) }
+
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let tracking { removeTrackingArea(tracking) }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        tracking = area
+        addTrackingArea(area)
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        hovering = true
+        needsDisplay = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        hovering = false
+        needsDisplay = true
+    }
+
+    override func mouseDown(with event: NSEvent) {}
+
+    override func mouseDragged(with event: NSEvent) {}
+
+    override func mouseUp(with event: NSEvent) {
+        guard event.clickCount == 1 else { return }
+        let local = convert(event.locationInWindow, from: nil)
+        guard bounds.contains(local) else { return }
+        action()
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        if hovering {
+            NSColor.xyzSelection.setFill()
+            NSBezierPath(roundedRect: bounds, xRadius: 4, yRadius: 4).fill()
+        }
+        let weight: NSFont.Weight = symbol == "xmark" ? .semibold : .regular
+        let config = NSImage.SymbolConfiguration(pointSize: 9, weight: weight)
+            .applying(NSImage.SymbolConfiguration(paletteColors: [.xyzSecondaryText]))
+        guard let image = NSImage(systemSymbolName: symbol, accessibilityDescription: toolTip)?
+            .withSymbolConfiguration(config) else { return }
+        let side = min(bounds.width, bounds.height, 11)
+        let rect = NSRect(x: bounds.midX - side / 2, y: bounds.midY - side / 2, width: side, height: side)
+        image.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+    }
+
+    override func accessibilityRole() -> NSAccessibility.Role? { .button }
+
+    override func accessibilityLabel() -> String? { toolTip }
+
+    override func accessibilityPerformPress() -> Bool {
+        action()
+        return true
     }
 }
 

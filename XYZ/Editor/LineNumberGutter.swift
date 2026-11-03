@@ -69,15 +69,20 @@ final class LineNumberGutter: NSView {
         let plain: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: plainColor]
         let current: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.xyzInk]
         let placed = placedRows(textView: textView, lineCount: lines.count)
+        let highlight = LogicalLineGutter.highlighted(
+            sourceLines: placed.rows.map(\.line),
+            caret: caretLine
+        )
         var drawn = 0
         var first = 0
         var last = 0
-        for row in placed.rows {
+        for (index, row) in placed.rows.enumerated() {
             if row.y > bounds.maxY || row.y + row.height < 0 { continue }
-            if row.line == caretLine {
+            if highlight.indices.contains(index), highlight[index] {
                 NSColor.xyzCurrentLine.setFill()
                 NSRect(x: 0, y: row.y, width: bounds.width, height: max(row.height, 1)).fill()
             }
+            guard row.showsNumber else { continue }
             let label = String(row.line) as NSString
             let attributes = row.line == caretLine ? current : plain
             let width = ceil(label.size(withAttributes: attributes).width)
@@ -102,16 +107,22 @@ final class LineNumberGutter: NSView {
 
     private struct Row {
         var line: Int
+        /// False on a wrapped continuation. The number stays on the first visual row of the source line.
+        var showsNumber: Bool
         var y: CGFloat
         var height: CGFloat
     }
 
-    /// Fragment frames when TextKit 2 has them. Otherwise one slot per source line from the line box.
+    /// Visual rows from TextKit. Wrapped continuations keep the source line and hide the digit.
+    /// Without fragments, and with wrapping off, one slot per source line.
     private func placedRows(textView: XYZMacTextView, lineCount: Int) -> (rows: [Row], api: String) {
         let fragments = fragmentRows(textView: textView)
         let visible = fragments.filter { $0.y < bounds.maxY && $0.y + $0.height > 0 }
         if !visible.isEmpty {
-            return (visible, "textLayoutManager.enumerateTextLayoutFragments")
+            return (visible, "textLineFragments")
+        }
+        if textView.style.wraps {
+            return ([], "wrapped-unlaid")
         }
         return (lineBoxRows(textView: textView, lineCount: lineCount), "lineBox")
     }
@@ -122,20 +133,45 @@ final class LineNumberGutter: NSView {
         let lines = lineIndex()
         let visible = textView.visibleRect
         let originY = textView.textContainerOrigin.y
-        let start = manager.textViewportLayoutController.viewportRange?.location ?? content.documentRange.location
+        let documentStart = content.documentRange.location
+        let start = manager.textViewportLayoutController.viewportRange?.location ?? documentStart
         var rows: [Row] = []
         var seen = 0
+        var previousLine: Int?
         manager.enumerateTextLayoutFragments(from: start, options: []) { fragment in
             seen += 1
             if seen > 400 { return false }
-            let frame = fragment.layoutFragmentFrame
-            let offset = content.offset(from: content.documentRange.location, to: fragment.rangeInElement.location)
-            let line = lines.line(at: max(0, offset))
-            rows.append(Row(
-                line: line,
-                y: originY + frame.minY - visible.minY,
-                height: max(frame.height, 1)
-            ))
+            let elementStart = fragment.rangeInElement.location
+            let base = content.offset(from: documentStart, to: elementStart)
+            let lineFragments = fragment.textLineFragments
+            if lineFragments.isEmpty {
+                let line = lines.line(at: max(0, base))
+                let shows = previousLine != line
+                previousLine = line
+                let frame = fragment.layoutFragmentFrame
+                rows.append(Row(
+                    line: line,
+                    showsNumber: shows,
+                    y: originY + frame.minY - visible.minY,
+                    height: max(frame.height, 1)
+                ))
+                return true
+            }
+            for lineFragment in lineFragments {
+                let local = lineFragment.characterRange.location - elementStart
+                let offset = base + max(0, local)
+                let line = lines.line(at: max(0, offset))
+                let shows = previousLine != line
+                previousLine = line
+                let bounds = lineFragment.typographicBounds
+                let frame = fragment.layoutFragmentFrame
+                rows.append(Row(
+                    line: line,
+                    showsNumber: shows,
+                    y: originY + frame.minY + bounds.minY - visible.minY,
+                    height: max(bounds.height, 1)
+                ))
+            }
             return true
         }
         return rows
@@ -154,7 +190,7 @@ final class LineNumberGutter: NSView {
         rows.reserveCapacity(max(0, last - first + 1))
         for line in first...last {
             let y = originY + CGFloat(line - 1) * box - visible.minY
-            rows.append(Row(line: line, y: y, height: box))
+            rows.append(Row(line: line, showsNumber: true, y: y, height: box))
         }
         return rows
     }

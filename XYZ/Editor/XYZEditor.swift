@@ -337,6 +337,31 @@ extension NSColor {
         xyzAccent.withAlphaComponent(0.14)
     }
 
+    /// Find matches. Light stays an accent tint. Dark uses a visible orange.
+    static var xyzFindMatch: NSColor {
+        xyzDynamic(
+            light: xyzAccent.withAlphaComponent(0.16),
+            dark: NSColor(srgbRed: 234 / 255, green: 92 / 255, blue: 0, alpha: 0.50)
+        )
+    }
+
+    /// The current find match. Dark is a stronger orange so it reads on `#1E1E1E`.
+    static var xyzFindCurrent: NSColor {
+        xyzDynamic(
+            light: xyzAccent.withAlphaComponent(0.42),
+            dark: NSColor(srgbRed: 234 / 255, green: 92 / 255, blue: 0, alpha: 0.92)
+        )
+    }
+
+    /// Pressed find toggles. Light keeps the quiet accent tint. Dark is solid accent.
+    static var xyzFindToggleFill: NSColor {
+        xyzDynamic(light: xyzAccent.withAlphaComponent(0.14), dark: xyzAccent)
+    }
+
+    static var xyzFindToggleInk: NSColor {
+        xyzDynamic(light: xyzAccent, dark: NSColor.white)
+    }
+
     /// Hairline between white surfaces. Light `#E5E5E5`, dark `#2B2B2B`.
     static var xyzDivider: NSColor {
         xyzDynamic(light: xyzSRGB(229, 229, 229), dark: xyzSRGB(43, 43, 43))

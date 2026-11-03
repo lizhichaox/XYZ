@@ -67,7 +67,7 @@ Names truncate at the tail, with the full name in the tooltip. Extensions stay v
 
 Markdown files (`.md`, `.markdown`) follow the window's view mode. Other text, including source files and dotfiles, opens in the editor. Code and structured text use a fixed-width face and a quiet coloring of comments, strings, numbers, and keywords. JSON can be pretty-printed in Reading, and CSV or TSV can be a table. A file is not treated as binary just because an 8 KiB sample ends in the middle of a UTF-8 character, which is common with Chinese text. Pictures, PDF, and audio or video open in a viewer. Anything else that is not text uses Quick Look. Text over 5 MB stays out of the editor and can be handed to the default app. Edits are written back with a coordinated save, in the encoding and line ending the file already used. If the file changes on disk while you have unsaved edits, XYZ asks before overwriting.
 
-Open files stay in a tab bar under the title bar, across the editor. A tab shows an icon, the name, and a close button. A single click opens a preview tab (italic) and replaces the previous preview. Double-click the file, double-click the tab, or edit the file to keep it. Pin on the tab menu sticks it: a pin icon, and it stays out of preview replacement, Close Others, Close to the Right, and Close All. Middle-click does not close a pinned tab. A breadcrumb row under the tabs is the path. The status bar runs the full width of the window and shows the caret, encoding, line ending, file type, and Read-only or Editing.
+Open files stay in a tab bar under the title bar, across the editor. A tab shows an icon, the name, and a close button. A single click opens a preview tab (italic) and replaces the previous preview. Double-click the file, double-click the tab, or edit the file to keep it. Pin on the tab menu sticks it: a pin icon in the close slot, and it stays out of preview replacement, Close Others, Close to the Right, and Close All. Click the pin to unpin. Middle-click does not close a pinned tab. A breadcrumb row under the tabs is the path. The status bar runs the full width of the window and shows the caret, encoding, line ending, file type, and Read-only or Editing.
 
 The Mac sandbox already has user-selected read-write and app-scoped bookmark entitlements. Opening a folder stores a security-scoped bookmark in your user defaults (not in the repo) so recent folders can reopen next launch. iPhone and iPad still use the document browser only; the tree model lives in `XYZCore` so a later iOS folder view can reuse it.
 
@@ -148,9 +148,9 @@ A build made with `CODE_SIGNING_ALLOWED=NO` does not embed these entitlements, s
 
 ## Version
 
-XYZ uses MAJOR.MINOR.PATCH. `MARKETING_VERSION` in `Config/Base.xcconfig` is the version shown in About, and `CURRENT_PROJECT_VERSION` is the build number. Those two assignments are the only version source. The target does not set them again, because a value in the project file would override the xcconfig. A small change bumps the last number, a medium change the middle number, and a large or breaking change the first. This release is 0.5.20 (build 36). See `CHANGELOG.md`.
+XYZ uses MAJOR.MINOR.PATCH. `MARKETING_VERSION` in `Config/Base.xcconfig` is the version shown in About, and `CURRENT_PROJECT_VERSION` is the build number. Those two assignments are the only version source. The target does not set them again, because a value in the project file would override the xcconfig. A small change bumps the last number, a medium change the middle number, and a large or breaking change the first. This release is 0.5.21 (build 37). See `CHANGELOG.md`.
 
-About XYZ is a small window titled About XYZ. It shows the app icon, the version line `0.5.20 (36)`, and the credit line. The credit links the name LIZHICHAO to [lizhichao.com](https://lizhichao.com). Esc or ⌘W closes it.
+About XYZ is a small window titled About XYZ. It shows the app icon, the version line `0.5.21 (37)`, and the credit line. The credit links the name LIZHICHAO to [lizhichao.com](https://lizhichao.com). Esc or ⌘W closes it.
 
 ## App icon
 

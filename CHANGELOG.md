@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.21
+
+- Clicking the pin on a pinned tab unpins it. The pin sits in the close slot. Hovering it shows Unpin, and an accent tint. Middle-click still does not close a pinned tab.
+- Collapsing or expanding Explorer no longer paints the sidebar white in dark mode. The sidebar fill follows the appearance.
+- Find next and previous scroll the current match into view in Editing and in Reading.
+- In dark mode, pressed find toggles, find matches, and the text selection are easier to see. Light mode stays an accent tint on white.
+- With wrapping on, line numbers stay the source line. A wrapped continuation is blank. Reading numbers are the lines in the Markdown file, including lists, code fences, and tables.
+
 ## 0.5.20
 
 - A single click in Explorer opens a preview tab, with an italic title. The next single click replaces that tab. Double-click the file, double-click the tab, or edit it, and the tab stays with a roman title.

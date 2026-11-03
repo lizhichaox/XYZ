@@ -47,6 +47,7 @@ struct PreviewPrefs: Equatable {
     var latin = "system"
     var cjk = "pingfang"
     var readableWidth = false
+    var lineNumbers = false
     /// `<base href>` for the note's folder. Set before the content, so its pictures resolve.
     var baseHref = ""
 
@@ -56,7 +57,8 @@ struct PreviewPrefs: Equatable {
         let latinCSS = PreviewPage.javaScriptLiteral(PreviewFontCSS.latin(latin))
         let cjkCSS = PreviewPage.javaScriptLiteral(PreviewFontCSS.cjk(cjk))
         let monoCSS = PreviewPage.javaScriptLiteral(PreviewFontCSS.mono(latin))
-        return "setPrefs(\(size), \(readableWidth), \(spacing), \(latinCSS), \(cjkCSS), \(monoCSS));"
+        let numbers = lineNumbers ? "true" : "false"
+        return "setPrefs(\(size), \(readableWidth), \(spacing), \(latinCSS), \(cjkCSS), \(monoCSS)); setLineNumbers(\(numbers));"
     }
 }
 
@@ -96,6 +98,7 @@ struct MarkdownWebView: View {
     @AppStorage(XYZEditorStyle.latinFontKey) private var latinFont = "system"
     @AppStorage(XYZEditorStyle.cjkFontKey) private var cjkFont = "pingfang"
     @AppStorage(XYZEditorStyle.readableWidthKey) private var readableWidth = false
+    @AppStorage(XYZEditorStyle.readingLineNumbersKey) private var readingLineNumbers = false
 
     var body: some View {
         let prefs = PreviewPrefs(
@@ -104,6 +107,7 @@ struct MarkdownWebView: View {
             latin: latinFont,
             cjk: cjkFont,
             readableWidth: readableWidth,
+            lineNumbers: readingLineNumbers,
             baseHref: LocalAssets.baseHref(for: baseDirectory)
         )
         #if os(macOS)
@@ -842,6 +846,7 @@ private enum PreviewPage {
           xyzPinned = 0;
           xyzPinUntil = 0;
           xyzDecorate();
+          if (typeof xyzLayoutGutter === "function") xyzLayoutGutter();
         }
         function setBase(href) {
           var base = document.getElementById("xyz-base");
@@ -930,8 +935,101 @@ private enum PreviewPage {
             cursor = 0;
           }
           marks[cursor].className = "xyz-find xyz-find-current";
-          marks[cursor].scrollIntoView({block: "center"});
+          xyzScrollMark(marks[cursor]);
           return {count: count, index: cursor + 1, wrapped: wrapped, invalid: false};
+        }
+        function xyzScrollMark(mark) {
+          function place() {
+            if (!mark || !mark.getBoundingClientRect) return;
+            var rect = mark.getBoundingClientRect();
+            var viewH = window.innerHeight || document.documentElement.clientHeight || 0;
+            if (viewH < 1) return;
+            var margin = Math.max(48, Math.min(120, viewH * 0.15));
+            var top = window.scrollY + rect.top;
+            var bottom = top + Math.max(rect.height, 1);
+            var viewTop = window.scrollY + margin;
+            var viewBottom = window.scrollY + viewH - margin;
+            if (top >= viewTop && bottom <= viewBottom) return;
+            var next = top - (viewH - rect.height) / 2;
+            var max = Math.max(0, document.documentElement.scrollHeight - viewH);
+            xyzPinned = 0;
+            xyzPinUntil = 0;
+            window.scrollTo(0, Math.max(0, Math.min(max, next)));
+          }
+          requestAnimationFrame(function() { requestAnimationFrame(place); });
+        }
+        function xyzBlockLabels(start, end, visualRows) {
+          if (visualRows < 1) return [];
+          start = Math.max(1, start | 0);
+          end = Math.max(start, end | 0);
+          var logical = end - start + 1;
+          var rows = [];
+          if (visualRows <= logical) {
+            for (var i = 0; i < visualRows; i++) rows.push(start + i);
+            return rows;
+          }
+          var extra = visualRows - logical;
+          var share = Math.floor(extra / logical);
+          var remainder = extra % logical;
+          for (var offset = 0; offset < logical; offset++) {
+            rows.push(start + offset);
+            var blanks = share;
+            if (remainder > 0) { blanks += 1; remainder -= 1; }
+            for (var b = 0; b < blanks; b++) rows.push(null);
+          }
+          return rows;
+        }
+        function setLineNumbers(on) {
+          document.documentElement.setAttribute("data-lines", on ? "true" : "false");
+          xyzLayoutGutter();
+        }
+        function xyzLayoutGutter() {
+          var host = document.getElementById("xyz-gutter");
+          if (!host) {
+            host = document.createElement("div");
+            host.id = "xyz-gutter";
+            document.body.appendChild(host);
+          }
+          host.textContent = "";
+          if (document.documentElement.getAttribute("data-lines") !== "true") return;
+          var content = document.getElementById("content");
+          if (!content) return;
+          var lineH = parseFloat(getComputedStyle(document.body).lineHeight);
+          if (!lineH || lineH < 1) lineH = 24;
+          var blocks = content.querySelectorAll("[data-line]");
+          var gutterTop = host.getBoundingClientRect().top + window.scrollY;
+          for (var i = 0; i < blocks.length; i++) {
+            var block = blocks[i];
+            var start = parseInt(block.getAttribute("data-line"), 10) || 0;
+            if (start < 1) continue;
+            var end = parseInt(block.getAttribute("data-end"), 10) || start;
+            if (end < start) end = start;
+            var rect = block.getBoundingClientRect();
+            var visual = Math.max(1, Math.round(rect.height / lineH));
+            var labels = xyzBlockLabels(start, end, visual);
+            var top = rect.top + window.scrollY;
+            for (var row = 0; row < labels.length; row++) {
+              if (labels[row] == null) continue;
+              var label = document.createElement("div");
+              label.className = "xyz-ln";
+              label.setAttribute("data-source-line", String(labels[row]));
+              label.textContent = String(labels[row]);
+              label.style.top = (top - gutterTop + row * lineH) + "px";
+              host.appendChild(label);
+            }
+          }
+          xyzMarkCurrentLine();
+        }
+        function xyzMarkCurrentLine() {
+          var host = document.getElementById("xyz-gutter");
+          if (!host) return;
+          var found = xyzTop();
+          var current = found && found.line ? String(found.line) : "";
+          var labels = host.querySelectorAll(".xyz-ln");
+          for (var i = 0; i < labels.length; i++) {
+            if (labels[i].getAttribute("data-source-line") === current) labels[i].className = "xyz-ln xyz-ln-current";
+            else labels[i].className = "xyz-ln";
+          }
         }
         function xyzDecorate() {
           var root = document.getElementById("content");
@@ -981,6 +1079,7 @@ private enum PreviewPage {
           if (mono) root.style.setProperty("--font-mono", mono);
           root.setAttribute("data-readable", readable ? "true" : "false");
           if (kept && kept.line) xyzRevealLine(kept.line);
+          if (typeof xyzLayoutGutter === "function") xyzLayoutGutter();
         }
         function xyzSourceLine(start, end, fraction) {
           start = Math.max(1, start | 0);
@@ -1067,7 +1166,8 @@ private enum PreviewPage {
           window.scrollTo(0, max * Math.min(1, Math.max(0, +fraction || 0)));
           xyzReport();
         }
-        window.addEventListener("scroll", function() { xyzReport(); }, {passive: true});
+        window.addEventListener("scroll", function() { xyzReport(); if (typeof xyzMarkCurrentLine === "function") xyzMarkCurrentLine(); }, {passive: true});
+        window.addEventListener("resize", function() { if (typeof xyzLayoutGutter === "function") xyzLayoutGutter(); });
         function xyzUnpin() { xyzPinned = 0; xyzPinUntil = 0; }
         window.addEventListener("wheel", xyzUnpin, {passive: true});
         window.addEventListener("touchmove", xyzUnpin, {passive: true});

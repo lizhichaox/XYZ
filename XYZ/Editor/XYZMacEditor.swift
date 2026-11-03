@@ -54,6 +54,12 @@ final class XYZMacTextView: NSTextView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
+        let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        selectedTextAttributes = [
+            .backgroundColor: dark
+                ? NSColor(srgbRed: 38 / 255, green: 79 / 255, blue: 120 / 255, alpha: 1)
+                : NSColor.selectedTextBackgroundColor,
+        ]
         onAppearanceChange?()
     }
 
@@ -298,8 +304,8 @@ final class XYZMacTextView: NSTextView {
         if full.length > 0 {
             storage.removeAttribute(.backgroundColor, range: full)
         }
-        let faint = NSColor.xyzAccent.withAlphaComponent(0.16)
-        let strong = NSColor.xyzAccent.withAlphaComponent(0.42)
+        let faint = NSColor.xyzFindMatch
+        let strong = NSColor.xyzFindCurrent
         let cap = min(findMarks.count, 2_000)
         if cap > 0 {
             for index in 0..<cap {
@@ -364,7 +370,78 @@ final class XYZMacTextView: NSTextView {
         guard query.pattern.isEmpty == false, let range = scanned.range else { return }
         let nsRange = NSRange(location: range.location, length: range.length)
         setSelectedRange(nsRange)
-        reveal(EditorScrollAnchor(fraction: 0, probe: "", line: scanned.line))
+        revealFindRange(nsRange)
+    }
+
+    /// Puts the current match on screen, with a margin. A later layout pass repeats it,
+    /// because TextKit 2 can put the clip back.
+    func revealFindRange(_ range: NSRange) {
+        scrollFindRange(range)
+        DispatchQueue.main.async { [weak self] in
+            self?.scrollFindRange(range)
+        }
+    }
+
+    private func scrollFindRange(_ range: NSRange) {
+        guard let scroll = enclosingScrollView, let rect = findRect(range) else { return }
+        let visible = scroll.contentView.bounds
+        if rect.maxY + visible.height > bounds.height, let manager = textLayoutManager {
+            let used = manager.usageBoundsForTextContainer
+            let fitted = ceil(max(used.maxY + textContainerInset.height * 2, rect.maxY + visible.height))
+            if bounds.height + 1 < fitted {
+                setFrameSize(NSSize(width: bounds.width, height: fitted))
+            }
+        }
+        let y = FindScroll.origin(
+            matchMin: rect.minY,
+            matchMax: rect.maxY,
+            visibleOrigin: visible.origin.y,
+            visibleLength: visible.height,
+            contentLength: bounds.height,
+            margin: 48
+        )
+        var x = visible.origin.x
+        if rect.minX < visible.minX + 12 || rect.maxX > visible.maxX - 12 {
+            let maxX = max(0, bounds.width - visible.width)
+            x = min(max(0, rect.midX - visible.width / 2), maxX)
+        }
+        guard abs(y - visible.origin.y) > 1 || abs(x - visible.origin.x) > 1 else { return }
+        NSAnimationContext.beginGrouping()
+        NSAnimationContext.current.duration = 0
+        NSAnimationContext.current.allowsImplicitAnimation = false
+        scroll.contentView.scroll(to: NSPoint(x: x, y: y))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        NSAnimationContext.endGrouping()
+    }
+
+    private func findRect(_ range: NSRange) -> NSRect? {
+        guard let manager = textLayoutManager, let content = manager.textContentManager else { return nil }
+        let length = (string as NSString).length
+        let startOffset = min(max(0, range.location), length)
+        let document = content.documentRange
+        let start = content.location(document.location, offsetBy: startOffset) ?? document.location
+        let end = content.location(start, offsetBy: max(range.length, 1)) ?? document.endLocation
+        if let layoutRange = NSTextRange(location: document.location, end: end) {
+            manager.ensureLayout(for: layoutRange)
+        }
+        guard let fragment = manager.textLayoutFragment(for: start) else { return nil }
+        var frame = fragment.layoutFragmentFrame
+        let elementStart = fragment.rangeInElement.location
+        if let lineFragment = fragment.textLineFragments.first(where: {
+            let local = $0.characterRange.location - elementStart
+            let doc = content.offset(from: document.location, to: elementStart) + max(0, local)
+            return doc <= startOffset && startOffset < doc + max($0.characterRange.length, 1)
+        }) {
+            let bounds = lineFragment.typographicBounds
+            frame = NSRect(
+                x: frame.minX + bounds.minX,
+                y: frame.minY + bounds.minY,
+                width: max(bounds.width, 1),
+                height: max(bounds.height, 1)
+            )
+        }
+        let origin = textContainerOrigin
+        return NSRect(x: origin.x + frame.minX, y: origin.y + frame.minY, width: max(frame.width, 1), height: max(frame.height, 1))
     }
 
     private func revealMatch(_ model: EditorFindModel, forward: Bool, stayIfAlreadyThere: Bool) {
@@ -1186,6 +1263,15 @@ struct XYZMacEditor: NSViewRepresentable {
         scrollView.contentView.clipsToBounds = true
         scrollView.contentView.drawsBackground = false
         textView.insertionPointColor = textView.isEditable ? .labelColor : .clear
+        applySelectionChrome(textView)
+    }
+
+    private func applySelectionChrome(_ textView: XYZMacTextView) {
+        let dark = textView.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        let background: NSColor = dark
+            ? NSColor(srgbRed: 38 / 255, green: 79 / 255, blue: 120 / 255, alpha: 1)
+            : .selectedTextBackgroundColor
+        textView.selectedTextAttributes = [.backgroundColor: background]
     }
 
     /// Wrap tracks the pane. With wrap off, the line keeps its length and the pane scrolls sideways.

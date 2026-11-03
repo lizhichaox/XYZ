@@ -764,6 +764,8 @@ fileprivate final class SidebarColumnView: NSView {
         header.translatesAutoresizingMaskIntoConstraints = false
         scroll.translatesAutoresizingMaskIntoConstraints = false
         scroll.drawsBackground = false
+        scroll.contentView.drawsBackground = false
+        scroll.contentView.backgroundColor = .xyzSidebar
         scroll.hasVerticalScroller = true
         scroll.hasHorizontalScroller = false
         scroll.autohidesScrollers = true
@@ -811,6 +813,7 @@ fileprivate final class SidebarColumnView: NSView {
     func setTreeVisible(_ visible: Bool) {
         scroll.isHidden = !visible
         if !visible { setPlaceholder(nil) }
+        needsDisplay = true
     }
 
     func setPlaceholder(_ text: String?) {
@@ -833,10 +836,27 @@ fileprivate final class SidebarColumnView: NSView {
         applySidebarTint()
     }
 
+    override var isOpaque: Bool { true }
+
+    /// Fill in `draw` so the color follows the appearance. A layer `CGColor` captured
+    /// outside that pass stays white, and collapse uncovers it.
+    override func draw(_ dirtyRect: NSRect) {
+        NSColor.xyzSidebar.setFill()
+        dirtyRect.fill()
+        guard let layer else { return }
+        effectiveAppearance.performAsCurrentDrawingAppearance {
+            layer.backgroundColor = NSColor.xyzSidebar.cgColor
+        }
+    }
+
     func applySidebarTint() {
-        wantsLayer = true
-        layer?.backgroundColor = NSColor.xyzSidebar.cgColor
+        wantsLayer = false
+        layer?.backgroundColor = nil
+        needsDisplay = true
         outline.backgroundColor = .xyzSidebar
+        scroll.drawsBackground = false
+        scroll.contentView.drawsBackground = false
+        scroll.contentView.backgroundColor = .xyzSidebar
         outline.enclosingScrollView?.drawsBackground = false
     }
 

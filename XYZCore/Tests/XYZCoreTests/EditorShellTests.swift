@@ -117,6 +117,19 @@ final class EditorTabTests: XCTestCase {
         XCTAssertEqual(strip.tabs.count, 2)
     }
 
+    func testThePinGlyphUnpins() {
+        XCTAssertEqual(EditorTabStrip.trailingClick(pinned: true), .unpin)
+        XCTAssertEqual(EditorTabStrip.trailingClick(pinned: false), .close)
+        var strip = EditorTabStrip()
+        strip.open("a.md", pin: false)
+        strip.setPinned(id: "a.md", true)
+        XCTAssertEqual(EditorTabStrip.trailingClick(pinned: strip.tabs[0].isPinned), .unpin)
+        strip.setPinned(id: "a.md", false)
+        XCTAssertFalse(strip.tabs[0].isPreview)
+        XCTAssertFalse(strip.tabs[0].isPinned)
+        XCTAssertEqual(EditorTabStrip.trailingClick(pinned: strip.tabs[0].isPinned), .close)
+    }
+
     func testKeepingAPreviewDoesNotStickIt() {
         var strip = EditorTabStrip()
         strip.open("a.md", pin: false)

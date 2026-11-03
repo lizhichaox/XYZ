@@ -157,6 +157,11 @@ public struct EditorTabStrip: Equatable, Sendable {
         return !tab.isPinned
     }
 
+    /// A click on the trailing glyph. The pin unpins. The close mark closes.
+    public static func trailingClick(pinned: Bool) -> TabTrailingClick {
+        pinned ? .unpin : .close
+    }
+
     /// Closes a tab and selects the neighbor to its right, or the one to its left.
     @discardableResult
     public mutating func close(id: String) -> String? {
@@ -198,6 +203,12 @@ public struct EditorTabStrip: Equatable, Sendable {
             self.activeID = WorkspacePaths.replacing(activeID, from: old, to: new)
         }
     }
+}
+
+/// What the glyph in a tab's close slot does.
+public enum TabTrailingClick: Equatable, Sendable {
+    case unpin
+    case close
 }
 
 /// Paths of tabs closed in one window, most recent first.
