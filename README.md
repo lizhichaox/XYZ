@@ -19,6 +19,14 @@ Reading is an HTML page in one `WKWebView` per window. The view stays with the w
 
 The View menu lists Source and Reading. ⌘/ is Source Code Mode, as in [Typora's shortcut list](https://support.typora.io/Shortcut-Keys/). It switches Source and Reading. ⌘E is Edit → Use Selection for Find. In a folder window, ⌘1 through ⌘8 select those tabs and ⌘9 selects the last. ⌘W closes the current tab. Find in the open file is ⌘F, in a bar above the editor. ⌥⌘F adds replace. ⌘K opens a search panel over the window: recent files, then filename and text matches as you type. Esc or ⌘K closes it. Replace across files is Edit → Replace in Folder…, only in Editing, and Replace All still asks before it changes anything. ⌘P opens the command palette. XYZ has no print command; Print is ⌘⇧⌥P.
 
+`xyz` from the terminal opens a folder or a file, like `code .`. The command is `XYZ.app/Contents/Resources/bin/xyz`. XYZ → Install 'xyz' Command in PATH… shows the line to copy, because the app is sandboxed and cannot write `/usr/local/bin` itself:
+
+```sh
+ln -sf /Applications/XYZ.app/Contents/Resources/bin/xyz /usr/local/bin/xyz
+```
+
+Homebrew users can link into `/opt/homebrew/bin` instead. `xyz .` opens the current folder, `xyz file.md` opens that file in its parent folder, and `xyz` alone launches the app. `-n` or `--new-window` starts another instance. `--help` and `--version` print usage and the version.
+
 ⌘P is Quick Open. An empty field lists files opened in that folder, most recent first. Typing matches any file, and the matched characters are semibold. A leading `>` lists commands (view modes, Go to Heading, sidebar, new file, new folder, Open Folder, Reveal in Finder, Copy Path, Copy Relative Path, Close Tab, Reload, About XYZ) and shows each shortcut on the right. A leading `@` lists the note's headings, deeper ones indented; View → Go to Heading… (⌘R) opens the palette that way. Choosing a heading puts the caret on it in Source, or scrolls Reading to it. ↑ and ↓, or ⌃P and ⌃N, move the selection. Return runs it. ⌘Return opens a file in a new window. Esc or a click outside dismisses the palette. It is not a button on the note.
 
 The sidebar has no filter field. ⌘K searches file names, paths, and text in the open folder. On macOS 26 and later the command palette uses Liquid Glass when Reduce Transparency and Increase Contrast are off. Earlier systems keep a sidebar material and a material palette.
@@ -140,9 +148,9 @@ A build made with `CODE_SIGNING_ALLOWED=NO` does not embed these entitlements, s
 
 ## Version
 
-XYZ uses MAJOR.MINOR.PATCH. `MARKETING_VERSION` in `Config/Base.xcconfig` is the version shown in About, and `CURRENT_PROJECT_VERSION` is the build number. Those two assignments are the only version source. The target does not set them again, because a value in the project file would override the xcconfig. A small change bumps the last number, a medium change the middle number, and a large or breaking change the first. This release is 0.5.14 (build 30). See `CHANGELOG.md`.
+XYZ uses MAJOR.MINOR.PATCH. `MARKETING_VERSION` in `Config/Base.xcconfig` is the version shown in About, and `CURRENT_PROJECT_VERSION` is the build number. Those two assignments are the only version source. The target does not set them again, because a value in the project file would override the xcconfig. A small change bumps the last number, a medium change the middle number, and a large or breaking change the first. This release is 0.5.15 (build 31). See `CHANGELOG.md`.
 
-About XYZ is a small window titled About XYZ. It shows the app icon, the version line `0.5.14 (30)`, and the credit line. The credit links the name LIZHICHAO to [lizhichao.com](https://lizhichao.com). Esc or ⌘W closes it.
+About XYZ is a small window titled About XYZ. It shows the app icon, the version line `0.5.15 (31)`, and the credit line. The credit links the name LIZHICHAO to [lizhichao.com](https://lizhichao.com). Esc or ⌘W closes it.
 
 ## App icon
 

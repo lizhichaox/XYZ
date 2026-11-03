@@ -108,6 +108,7 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
     private var adjusting = false
     private var chromeAnimating = false
     private var chromeTimer: Timer?
+    private var dividerDrag = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -125,11 +126,17 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
         leftDivider.moveTo = { [weak self] position in
             self?.moveDivider(.left, to: position)
         }
+        leftDivider.dragEnded = { [weak self] in
+            self?.dividerDrag = false
+        }
         rightDivider.boundaryX = { [weak self] in
             self?.detail?.frame.maxX ?? 0
         }
         rightDivider.moveTo = { [weak self] position in
             self?.moveDivider(.right, to: position)
+        }
+        rightDivider.dragEnded = { [weak self] in
+            self?.dividerDrag = false
         }
     }
 
@@ -148,9 +155,11 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
             return
         }
         adjusting = true
-        if !chromeAnimating, sidebarShown, let sidebar, sidebar.superview != nil, sidebar.frame.width < 200 {
-            let room = bounds.width - (outlineShown ? savedOutline : 0) - 480
-            panes.setPosition(min(max(savedPosition, 220), max(220, room)), ofDividerAt: 0)
+        if !chromeAnimating, !dividerDrag, sidebarShown, let sidebar, sidebar.superview != nil {
+            let target = clampedSidebarWidth()
+            if abs(sidebar.frame.width - target) > 2 {
+                panes.setPosition(target, ofDividerAt: 0)
+            }
         }
         applyOutlineWidthIfNeeded()
         adjusting = false
@@ -282,12 +291,18 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
         placeDividers()
     }
 
+    /// Default about 260. Never the equal split, and never more than 40% of the window.
+    private func clampedSidebarWidth() -> CGFloat {
+        let cap = max(260, floor(bounds.width * 0.4))
+        let room = bounds.width - (outlineShown ? savedOutline : 0) - 480
+        let desired = min(max(savedPosition, 220), cap)
+        return min(desired, max(220, room))
+    }
+
     private func applyPositions() {
         guard bounds.width > 1 else { return }
         if sidebarShown, panes.subviews.count > 1, panes.subviews[0] === sidebar {
-            let room = bounds.width - (outlineShown ? savedOutline : 0) - 480
-            let position = min(max(savedPosition, 220), max(220, room))
-            panes.setPosition(position, ofDividerAt: 0)
+            panes.setPosition(clampedSidebarWidth(), ofDividerAt: 0)
         }
         applyOutlineWidthIfNeeded()
         placeDividers()
@@ -317,6 +332,7 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
         let lower = splitView(panes, constrainMinCoordinate: position, ofSubviewAt: index)
         let upper = splitView(panes, constrainMaxCoordinate: position, ofSubviewAt: index)
         let clamped = min(max(position, lower), max(lower, upper))
+        dividerDrag = true
         adjusting = true
         panes.setPosition(clamped, ofDividerAt: index)
         adjusting = false
@@ -392,7 +408,8 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
             return max(480, splitView.bounds.width - 160)
         }
         let reserve: CGFloat = outlineShown ? 160 : 0
-        return max(220, splitView.bounds.width - 480 - reserve)
+        let cap = max(260, floor(splitView.bounds.width * 0.4))
+        return min(cap, max(220, splitView.bounds.width - 480 - reserve))
     }
 
     func splitView(_ splitView: NSSplitView, constrainSplitPosition proposedPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
@@ -412,8 +429,9 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
                 onOutlineWidth?(width)
             }
         }
-        if !chromeAnimating, sidebarShown, let sidebar, sidebar.superview != nil {
-            savedPosition = sidebar.frame.width
+        if dividerDrag, !chromeAnimating, sidebarShown, let sidebar, sidebar.superview != nil {
+            let cap = max(260, floor(bounds.width * 0.4))
+            savedPosition = min(max(220, sidebar.frame.width), cap)
         }
     }
 }
@@ -433,8 +451,8 @@ private enum SidebarDividerColor {
         return NSColor(srgbRed: 229 / 255, green: 229 / 255, blue: 229 / 255, alpha: 1)
     }
 
-    /// VS Code `focusBorder` (#007FD4).
-    static let accent = NSColor(srgbRed: 0, green: 127 / 255, blue: 212 / 255, alpha: 1)
+    /// Same blue as `NSColor.xyzAccent` (`#0078D4`).
+    static let accent = NSColor(srgbRed: 0, green: 120 / 255, blue: 212 / 255, alpha: 1)
 }
 
 /// A 5pt grab strip. The resting mark is one pixel. Hover and drag thicken it in the sash blue.
@@ -445,6 +463,7 @@ private final class SidebarDivider: NSView {
     let edge: Edge
     var boundaryX: () -> CGFloat = { 0 }
     var moveTo: (CGFloat) -> Void = { _ in }
+    var dragEnded: () -> Void = {}
 
     private let hairline = CALayer()
     private let accent = CALayer()
@@ -499,7 +518,7 @@ private final class SidebarDivider: NSView {
         }
         let area = NSTrackingArea(
             rect: bounds,
-            options: [.mouseEnteredAndExited, .cursorUpdate, .activeAlways, .inVisibleRect],
+            options: [.mouseEnteredAndExited, .mouseMoved, .cursorUpdate, .activeAlways, .inVisibleRect],
             owner: self,
             userInfo: nil
         )
@@ -513,19 +532,28 @@ private final class SidebarDivider: NSView {
     }
 
     override func cursorUpdate(with event: NSEvent) {
+        setResizeCursor()
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        setResizeCursor()
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        setResizeCursor()
+        inside = true
+        XYZDiagnostics.note("divider enter edge=\(edge.rawValue)")
+        scheduleHover()
+    }
+
+    /// AppKit often skips `cursorUpdate` when a web view or text view is underneath. Setting the cursor here is what the pointer actually uses.
+    private func setResizeCursor() {
         NSCursor.resizeLeftRight.set()
         let now = Date()
         if now.timeIntervalSince(lastCursorLog) > 0.4 {
             lastCursorLog = now
             XYZDiagnostics.note("divider cursorUpdate edge=\(edge.rawValue)")
         }
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        NSCursor.resizeLeftRight.set()
-        inside = true
-        XYZDiagnostics.note("divider enter edge=\(edge.rawValue)")
-        scheduleHover()
     }
 
     override func mouseExited(with event: NSEvent) {
@@ -550,6 +578,7 @@ private final class SidebarDivider: NSView {
             if next.type == .leftMouseUp { break }
         }
         dragging = false
+        dragEnded()
         setHighlight(on: false, reason: "dragEnd")
         if inside {
             scheduleHover()
@@ -979,6 +1008,7 @@ final class TitlebarLayoutToggles: NSView {
         left.onClick = onSidebar
         right.filled = outlineShown
         right.isToggleEnabled = outlineEnabled
+        right.alphaValue = outlineEnabled ? 1 : 0.38
         right.onClick = onOutline
         left.needsDisplay = true
         right.needsDisplay = true
@@ -1528,6 +1558,15 @@ final class WorkspaceCommandBridge: ObservableObject, EditorCommandTarget {
 
     func revealPosition(line: Int, column: Int) {
         session?.revealPosition(line: line, column: column)
+    }
+
+    func editorLineCount() -> Int {
+        guard let text = session?.buffer?.text, !text.isEmpty else { return 1 }
+        var count = 1
+        for byte in text.utf8 where byte == 0x0A {
+            count += 1
+        }
+        return count
     }
 
     func beginTabSwitch() -> Bool {

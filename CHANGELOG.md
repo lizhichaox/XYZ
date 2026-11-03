@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.15
+
+- A new window's sidebar opens near 260 points, and it will not grow past about 40% of the window on its own.
+- Editing draws a full-width current-line band, and indent guides for 2-space and tab indents.
+- ⌥Z turns line wrap on or off, and the status bar says Wrap while it is on.
+- ⌃G opens a small Go to Line field. Return jumps. Esc closes it.
+- Middle-click closes a tab. ⌘0 returns the text to the size it had before this zoom.
+- Reading and Editing keep the same top line. Restoring that line also moves the outline highlight.
+- The divider logs `divider cursorUpdate` when the pointer is over it, including above the reader and the editor.
+- The outline icon in the title bar is dimmed when the file is not Markdown.
+- Light is white and near-black ink. Dark follows a calm VS Code / Obsidian pair. The blue `#0078D4` is only for focus, the active tab, selection, and links.
+- `xyz .` opens that folder. The command lives in the app. XYZ → Install 'xyz' Command in PATH… shows the symlink to copy. See the README.
+
 ## 0.5.14
 
 - The outline follows the heading on screen while Reading, and while Editing is scrolled away from the caret. Choosing a heading still jumps to it.

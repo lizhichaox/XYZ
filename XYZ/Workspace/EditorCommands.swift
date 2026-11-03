@@ -65,6 +65,7 @@ protocol EditorCommandTarget: AnyObject {
     func paletteHeadings() -> [OutlineHeading]
     func revealHeading(line: Int)
     func revealPosition(line: Int, column: Int)
+    func editorLineCount() -> Int
     func reopenClosedTab() -> Bool
     func revealActiveFile()
     func beginTabSwitch() -> Bool
@@ -106,6 +107,7 @@ extension EditorCommandTarget {
     func paletteHeadings() -> [OutlineHeading] { [] }
     func revealHeading(line: Int) {}
     func revealPosition(line: Int, column: Int) {}
+    func editorLineCount() -> Int { 1 }
     func reopenClosedTab() -> Bool { false }
     func revealActiveFile() {}
     func beginTabSwitch() -> Bool { false }
@@ -489,6 +491,10 @@ final class EditorCommands: NSObject {
             toggleOutline(nil)
         case "app.about":
             AboutWindow.show()
+        case "app.installCLI":
+            XYZCommandInstall.showInstall()
+        case "app.uninstallCLI":
+            XYZCommandInstall.showUninstall()
         default:
             break
         }
@@ -515,7 +521,12 @@ final class EditorCommands: NSObject {
             NSSound.beep()
             return
         }
-        palette.show(target: target, query: ":")
+        let count = target?.editorLineCount() ?? 1
+        XYZDiagnostics.note("goto open lines=\(count)")
+        GoToLinePanel.show(lineCount: count) { [weak self] line in
+            XYZDiagnostics.note("goto jump line=\(line)")
+            self?.target?.revealPosition(line: line, column: 1)
+        }
     }
 
     @objc func reopenClosedTab(_ sender: Any?) {
@@ -613,8 +624,9 @@ final class EditorCommands: NSObject {
     @objc func toggleWordWrap(_ sender: Any?) {
         let defaults = UserDefaults.standard
         let current = defaults.object(forKey: XYZEditorStyle.wordWrapKey) as? Bool ?? true
-        defaults.set(!current, forKey: XYZEditorStyle.wordWrapKey)
-        XYZDiagnostics.note("wrap on=\(!current)")
+        let next = !current
+        defaults.set(next, forKey: XYZEditorStyle.wordWrapKey)
+        XYZDiagnostics.note("wrap on=\(next) was=\(current)")
     }
 
     @objc func toggleSource(_ sender: Any?) {
@@ -765,6 +777,8 @@ enum PaletteTitles {
         case "tab.close": return String(localized: "Close Tab")
         case "file.reload": return String(localized: "Reload")
         case "app.about": return String(localized: "About XYZ")
+        case "app.installCLI": return String(localized: "Install 'xyz' Command in PATH")
+        case "app.uninstallCLI": return String(localized: "Uninstall 'xyz' Command")
         default: return nil
         }
     }
@@ -1744,7 +1758,7 @@ private final class PaletteRowView: NSTableRowView {
     override func drawSelection(in dirtyRect: NSRect) {
         guard selectionHighlightStyle != .none else { return }
         let rect = bounds.insetBy(dx: 6, dy: 1)
-        NSColor.unemphasizedSelectedContentBackgroundColor.setFill()
+        NSColor.xyzSelection.setFill()
         NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6).fill()
     }
 }
@@ -1802,6 +1816,150 @@ private final class PaletteCell: NSTableCellView {
         titleField.attributedStringValue = title
         shortcutField.stringValue = shortcut
         shortcutField.isHidden = shortcut.isEmpty
+    }
+}
+
+/// The sandbox cannot write `/usr/local/bin`. The dialog is the install step, with Copy.
+enum XYZCommandInstall {
+    static func showInstall() {
+        let script = Bundle.main.bundleURL
+            .appendingPathComponent("Contents/Resources/bin/xyz", isDirectory: false)
+            .path
+        let command = "ln -sf \(shellQuoted(script)) /usr/local/bin/xyz"
+        present(
+            title: String(localized: "Install 'xyz' Command in PATH"),
+            body: String(localized: "XYZ is sandboxed, so it cannot change your PATH. Run this in Terminal. Homebrew users can use /opt/homebrew/bin instead of /usr/local/bin."),
+            command: command
+        )
+    }
+
+    static func showUninstall() {
+        present(
+            title: String(localized: "Uninstall 'xyz' Command"),
+            body: String(localized: "Run this in Terminal if the command was linked in /usr/local/bin."),
+            command: "rm -f /usr/local/bin/xyz"
+        )
+    }
+
+    private static func present(title: String, body: String, command: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = body + "\n\n" + command
+        alert.addButton(withTitle: String(localized: "Copy"))
+        alert.addButton(withTitle: String(localized: "OK"))
+        if alert.runModalClosingOnEscape() == .alertFirstButtonReturn {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(command, forType: .string)
+        }
+    }
+
+    private static func shellQuoted(_ path: String) -> String {
+        "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+}
+
+/// A small field, not the command palette. Esc closes it. Return jumps.
+@MainActor
+final class GoToLinePanel: NSObject, NSTextFieldDelegate {
+    static var current: GoToLinePanel?
+
+    private let panel: NSPanel
+    private let field = NSTextField()
+    private let lineCount: Int
+    private let jump: (Int) -> Void
+
+    static func show(lineCount: Int, jump: @escaping (Int) -> Void) {
+        let panel = GoToLinePanel(lineCount: max(1, lineCount), jump: jump)
+        current = panel
+        panel.present()
+    }
+
+    private init(lineCount: Int, jump: @escaping (Int) -> Void) {
+        self.lineCount = lineCount
+        self.jump = jump
+        panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 280, height: 64),
+            styleMask: [.titled, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        super.init()
+        panel.title = String(localized: "Go to Line")
+        panel.isFloatingPanel = true
+        panel.level = .floating
+        panel.isReleasedWhenClosed = false
+        panel.hidesOnDeactivate = true
+        panel.titlebarAppearsTransparent = true
+        panel.backgroundColor = .xyzEditor
+        panel.isRestorable = false
+        panel.isExcludedFromWindowsMenu = true
+        panel.delegate = self
+        EscapeKey.register(panel)
+        field.placeholderString = String(format: String(localized: "Go to line 1–%lld"), Int64(lineCount))
+        field.font = .systemFont(ofSize: 13)
+        field.focusRingType = .none
+        field.target = self
+        field.action = #selector(commit(_:))
+        field.delegate = self
+        field.translatesAutoresizingMaskIntoConstraints = false
+        panel.contentView?.addSubview(field)
+        if let content = panel.contentView {
+            NSLayoutConstraint.activate([
+                field.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 16),
+                field.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -16),
+                field.centerYAnchor.constraint(equalTo: content.centerYAnchor),
+            ])
+        }
+    }
+
+    private func present() {
+        if let parent = NSApp.keyWindow {
+            let frame = parent.frame
+            let size = panel.frame.size
+            panel.setFrameOrigin(NSPoint(
+                x: frame.midX - size.width / 2,
+                y: frame.midY - size.height / 2
+            ))
+        } else {
+            panel.center()
+        }
+        panel.makeKeyAndOrderFront(nil)
+        panel.makeFirstResponder(field)
+    }
+
+    @objc private func commit(_ sender: Any?) {
+        let digits = field.stringValue.trimmingCharacters(in: .whitespaces)
+        guard let line = Int(digits), line >= 1 else {
+            NSSound.beep()
+            return
+        }
+        let clamped = min(line, lineCount)
+        jump(clamped)
+        close()
+    }
+
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
+            XYZDiagnostics.note("goto close")
+            close()
+            return true
+        }
+        return false
+    }
+
+    private func close() {
+        panel.orderOut(nil)
+        if GoToLinePanel.current === self {
+            GoToLinePanel.current = nil
+        }
+    }
+}
+
+extension GoToLinePanel: NSWindowDelegate {
+    func windowWillClose(_ notification: Notification) {
+        if GoToLinePanel.current === self {
+            GoToLinePanel.current = nil
+        }
     }
 }
 #endif

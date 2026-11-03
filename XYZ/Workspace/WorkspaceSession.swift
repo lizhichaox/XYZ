@@ -271,7 +271,9 @@ final class WorkspaceSession: ObservableObject {
         }
         let previous = viewMode
         if previous != mode {
-            scrollLink.noteToggle(to: mode)
+            let fallback = viewportLine > 0 ? viewportLine : caret.line
+            let line = scrollLink.noteToggle(to: mode, fallbackLine: fallback)
+            XYZDiagnostics.note("mode \(previous.rawValue)->\(mode.rawValue) line=\(line)")
         }
         viewMode = mode
         if let id = tabStrip.activeID {
@@ -810,6 +812,10 @@ final class WorkspaceSession: ObservableObject {
             viewMode = tab.mode
         }
         guard let line = pendingRevealLine else { return }
+        if line > 1 {
+            viewportLine = line
+            XYZDiagnostics.note("outline restore line=\(line)")
+        }
         let needle = pendingRevealNeedle
         pendingRevealLine = nil
         pendingRevealNeedle = nil

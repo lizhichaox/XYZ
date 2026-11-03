@@ -239,7 +239,7 @@ private struct EditorTabItem: View {
             Button(action: select) {
                 Text(name)
                     .font(titleFont)
-                    .foregroundStyle(active ? Color.primary : Color.secondary)
+                    .foregroundStyle(active ? Color.xyzInk : Color.xyzSecondaryText)
                     .lineLimit(1)
                     .truncationMode(.middle)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -256,7 +256,7 @@ private struct EditorTabItem: View {
         .overlay(alignment: .top) {
             if active {
                 Rectangle()
-                    .fill(Color.primary.opacity(0.72))
+                    .fill(Color.xyzAccent)
                     .frame(height: 2)
             }
         }
@@ -264,7 +264,7 @@ private struct EditorTabItem: View {
             Rectangle().fill(Color.primary.opacity(0.12)).frame(width: 1)
         }
         .onHover { hovering = $0 }
-        .background(MiddleClickCatcher(action: close))
+        .overlay(TabMiddleClick(tabID: tab.id, action: close))
         .help(tab.id)
         .contextMenu {
             Button("Close") { close() }
@@ -336,39 +336,64 @@ private struct EditorTabItem: View {
     }
 }
 
-/// Middle-click closes a tab. Left clicks pass through to the tab's own controls.
-private struct MiddleClickCatcher: NSViewRepresentable {
+/// Middle-click closes a tab. A monitor looks at the tab's frame, because the title field eats the event before hit testing.
+private struct TabMiddleClick: NSViewRepresentable {
+    var tabID: String
     var action: () -> Void
 
-    func makeNSView(context: Context) -> MiddleClickView {
-        let view = MiddleClickView()
+    func makeNSView(context: Context) -> TabMiddleTarget {
+        let view = TabMiddleTarget()
+        view.tabID = tabID
         view.action = action
         return view
     }
 
-    func updateNSView(_ view: MiddleClickView, context: Context) {
+    func updateNSView(_ view: TabMiddleTarget, context: Context) {
+        view.tabID = tabID
         view.action = action
+    }
+
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: TabMiddleTarget, context: Context) -> CGSize? {
+        CGSize(width: proposal.width ?? 120, height: proposal.height ?? 35)
     }
 }
 
-private final class MiddleClickView: NSView {
+private final class TabMiddleTarget: NSView {
+    var tabID = ""
     var action: () -> Void = {}
+    private static var live: [WeakTab] = []
+    private static var monitor: Any?
 
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        guard bounds.contains(point) else { return nil }
-        switch NSApp.currentEvent?.type {
-        case .otherMouseDown, .otherMouseUp, .otherMouseDragged:
-            return self
-        default:
-            return nil
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        Self.live.removeAll { $0.view == nil }
+        if window != nil {
+            Self.live.append(WeakTab(view: self))
+            Self.install()
         }
     }
 
-    override func otherMouseUp(with event: NSEvent) {
-        if event.buttonNumber == 2 {
-            action()
+    private static func install() {
+        guard monitor == nil else { return }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.otherMouseUp]) { event in
+            guard event.buttonNumber == 2, event.window != nil else { return event }
+            live.removeAll { $0.view == nil }
+            for item in live {
+                guard let view = item.view, view.window === event.window else { continue }
+                let local = view.convert(event.locationInWindow, from: nil)
+                guard view.bounds.contains(local) else { continue }
+                view.action()
+                return nil
+            }
+            return event
         }
     }
+}
+
+private struct WeakTab {
+    weak var view: TabMiddleTarget?
 }
 
 /// The file's path, from the folder root. Choosing a folder reveals it in the sidebar.
@@ -503,7 +528,7 @@ struct EditorStatusBar: View {
     private func statusText(_ value: String) -> some View {
         Text(value)
             .font(.system(size: 11))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(Color.xyzSecondaryText)
             .monospacedDigit()
             .lineLimit(1)
     }

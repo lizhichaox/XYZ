@@ -51,7 +51,7 @@ final class LineNumberGutter: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        NSColor.textBackgroundColor.setFill()
+        NSColor.xyzEditor.setFill()
         dirtyRect.fill()
         guard let textView, bounds.width > 2, bounds.height > 2 else {
             XYZDiagnostics.gutterDraw(dirty: dirtyRect, bounds: bounds, lines: 0, first: 0, last: 0, color: "none", api: "no-text-view")
@@ -65,9 +65,9 @@ final class LineNumberGutter: NSView {
         let font = Self.font(textView.style.fontSize)
         let length = (textView.string as NSString).length
         let caretLine = lines.line(at: min(max(0, textView.selectedRange().location), length))
-        let plainColor = NSColor.secondaryLabelColor
+        let plainColor = NSColor.xyzSecondaryText
         let plain: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: plainColor]
-        let current: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.labelColor]
+        let current: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.xyzInk]
         let placed = placedRows(textView: textView, lineCount: lines.count)
         var drawn = 0
         var first = 0
@@ -75,7 +75,7 @@ final class LineNumberGutter: NSView {
         for row in placed.rows {
             if row.y > bounds.maxY || row.y + row.height < 0 { continue }
             if row.line == caretLine {
-                NSColor.labelColor.withAlphaComponent(0.10).setFill()
+                NSColor.xyzInk.withAlphaComponent(0.08).setFill()
                 NSRect(x: 0, y: row.y, width: bounds.width, height: max(row.height, 1)).fill()
             }
             let label = String(row.line) as NSString

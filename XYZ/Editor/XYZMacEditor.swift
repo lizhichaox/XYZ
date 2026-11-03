@@ -545,60 +545,76 @@ private struct FindScan {
     }
 
     override func drawBackground(in rect: NSRect) {
-        super.drawBackground(in: rect)
+        NSColor.xyzEditor.setFill()
+        rect.fill()
         guard isEditable else { return }
+        drawCurrentLineBand(in: rect)
         drawIndentGuides(in: rect)
-        guard let manager = textLayoutManager, let content = manager.textContentManager else { return }
-        let document = content.documentRange
-        let length = (string as NSString).length
-        let clamped = min(max(0, selectedRange().location), length)
-        guard let start = content.location(document.location, offsetBy: clamped),
-              let fragment = manager.textLayoutFragment(for: start) else { return }
-        let lineTop = textContainerOrigin.y + fragment.layoutFragmentFrame.minY
-        let full = NSRect(
-            x: -textContainerOrigin.x,
-            y: lineTop,
-            width: bounds.width + textContainerOrigin.x,
-            height: fragment.layoutFragmentFrame.height
-        )
-        let paint = full.intersection(rect.insetBy(dx: -textContainerOrigin.x, dy: 0))
-        guard !paint.isNull, paint.width > 0, paint.height > 0 else { return }
-        NSColor.labelColor.withAlphaComponent(0.045).setFill()
-        paint.fill()
     }
 
-    /// A hairline at each indent of the visible lines. Editing only.
+    /// Full-width band for the caret line. TextKit 2 often has no fragment here, so this uses the line box, same as the gutter.
+    private func drawCurrentLineBand(in rect: NSRect) {
+        let box = lineBoxHeight()
+        let line = EditorScrollAnchor.lineNumber(at: selectedRange().location, in: string)
+        let y = textContainerOrigin.y + CGFloat(max(0, line - 1)) * box
+        let band = NSRect(x: 0, y: y, width: bounds.width, height: box)
+        guard band.intersects(rect) else { return }
+        NSColor.xyzInk.withAlphaComponent(0.08).setFill()
+        band.fill()
+    }
+
+    /// A hairline at each 2-space or tab indent. Editing only. Drawn from the source line, not a layout fragment.
     private func drawIndentGuides(in rect: NSRect) {
-        guard isEditable, let manager = textLayoutManager else { return }
-        guard let start = manager.textViewportLayoutController.viewportRange?.location else { return }
+        let ns = string as NSString
+        guard ns.length > 0 else { return }
+        let index = lineIndexCache ?? LineIndex(string)
+        let box = lineBoxHeight()
+        let originY = textContainerOrigin.y
+        let first = max(1, Int(floor((rect.minY - originY) / box)) + 1)
+        let last = min(index.count, max(first, Int(ceil((rect.maxY - originY) / box)) + 1))
+        guard first <= last else { return }
         let face = font ?? NSFont.systemFont(ofSize: style.fontSize)
-        let step = max(8, ("    " as NSString).size(withAttributes: [.font: face]).width)
+        let step = max(6, ("  " as NSString).size(withAttributes: [.font: face]).width)
         let originX = textContainerOrigin.x
-        NSColor.separatorColor.withAlphaComponent(0.55).setStroke()
-        manager.enumerateTextLayoutFragments(from: start, options: []) { fragment in
-            let frame = fragment.layoutFragmentFrame
-            let top = self.textContainerOrigin.y + frame.minY
-            if top > rect.maxY { return false }
-            let bottom = top + frame.height
-            guard bottom >= rect.minY, let paragraph = fragment.textElement as? NSTextParagraph else { return true }
-            var columns = 0
-            for character in paragraph.attributedString.string {
-                if character == " " { columns += 1 }
-                else if character == "\t" { columns += 4 }
-                else { break }
-            }
-            let levels = columns / 4
-            guard levels > 0 else { return true }
-            let path = NSBezierPath()
+        NSColor.xyzSecondaryText.withAlphaComponent(0.45).setStroke()
+        let path = NSBezierPath()
+        for line in first...last {
+            let start = index.starts[line - 1]
+            let end = line < index.count ? index.starts[line] : ns.length
+            guard end > start else { continue }
+            let levels = Self.indentLevels(ns.substring(with: NSRange(location: start, length: end - start)))
+            guard levels > 0 else { continue }
+            let top = originY + CGFloat(line - 1) * box
+            let bottom = top + box
             for level in 1...levels {
                 let x = originX + CGFloat(level) * step
                 path.move(to: NSPoint(x: x, y: top))
                 path.line(to: NSPoint(x: x, y: bottom))
             }
-            path.lineWidth = 1
-            path.stroke()
-            return true
         }
+        path.lineWidth = 1
+        path.stroke()
+    }
+
+    private func lineBoxHeight() -> CGFloat {
+        let face = font ?? NSFont.systemFont(ofSize: style.fontSize)
+        let natural = face.ascender - face.descender + face.leading
+        return max(1, style.paragraphStyle(naturalLineHeight: natural).minimumLineHeight)
+    }
+
+    /// Two spaces, or one tab, are one indent.
+    private static func indentLevels(_ line: String) -> Int {
+        var columns = 0
+        for character in line {
+            if character == " " {
+                columns += 1
+            } else if character == "\t" {
+                columns += 2
+            } else {
+                break
+            }
+        }
+        return columns / 2
     }
 
     override func viewDidMoveToWindow() {
@@ -1057,6 +1073,9 @@ struct XYZMacEditor: NSViewRepresentable {
         }
         if let anchor = scrollLink.take(for: .source) {
             textView.reveal(anchor)
+            if anchor.line > 1 {
+                scrollLink.onViewportLine?(anchor.line)
+            }
         }
         if let queued = scrollLink.takeQueuedEditorReveal() {
             textView.jump(toLine: queued.line, column: queued.column, selecting: queued.needle)
@@ -1082,16 +1101,16 @@ struct XYZMacEditor: NSViewRepresentable {
         textView.needsLayout = true
         let font = EditorTypography.baseFont(style)
         let paragraph = style.paragraphStyle(naturalLineHeight: EditorTypography.naturalLineHeight(font))
-        textView.backgroundColor = .textBackgroundColor
-        textView.textColor = .labelColor
+        textView.backgroundColor = .xyzEditor
+        textView.textColor = .xyzInk
         textView.insertionPointColor = .labelColor
         textView.defaultParagraphStyle = paragraph
         textView.typingAttributes = [
             .font: font,
-            .foregroundColor: NSColor.labelColor,
+            .foregroundColor: NSColor.xyzInk,
             .paragraphStyle: paragraph,
         ]
-        scrollView.backgroundColor = .textBackgroundColor
+        scrollView.backgroundColor = .xyzEditor
         scrollView.clipsToBounds = true
         scrollView.contentView.clipsToBounds = true
         scrollView.contentView.drawsBackground = false
@@ -1105,9 +1124,9 @@ struct XYZMacEditor: NSViewRepresentable {
         scrollView.horizontalScrollElasticity = .none
         if wraps {
             textView.autoresizingMask = [.width]
-            let width = max(scrollView.contentSize.width, 1)
+            let width = max(scrollView.contentView.bounds.width, scrollView.bounds.width, 1)
             textView.setFrameSize(NSSize(width: width, height: max(textView.bounds.height, 1)))
-            textView.textContainer?.containerSize = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
+            textView.textContainer?.containerSize = NSSize(width: max(1, width - 1), height: CGFloat.greatestFiniteMagnitude)
         } else {
             textView.autoresizingMask = [.width, .height]
             textView.textContainer?.containerSize = NSSize(
@@ -1412,7 +1431,7 @@ enum EditorTypography {
         textView.defaultParagraphStyle = paragraph
         textView.typingAttributes = [
             .font: font,
-            .foregroundColor: NSColor.labelColor,
+            .foregroundColor: NSColor.xyzInk,
             .paragraphStyle: paragraph,
         ]
         keepViewportLayout(textView, displayViewport: true)

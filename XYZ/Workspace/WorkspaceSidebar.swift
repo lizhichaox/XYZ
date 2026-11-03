@@ -1294,10 +1294,10 @@ fileprivate final class SidebarRowView: NSTableRowView {
         let row = outline.row(for: self)
         guard row >= 0 else { return }
         if outline.selectedRow == row {
-            NSColor.labelColor.withAlphaComponent(0.12).setFill()
+            NSColor.xyzSelection.setFill()
             bounds.fill()
         } else if outline.hoveredRowIndex == row {
-            NSColor.labelColor.withAlphaComponent(0.06).setFill()
+            NSColor.xyzAccent.withAlphaComponent(0.06).setFill()
             bounds.fill()
         }
     }

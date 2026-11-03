@@ -707,7 +707,7 @@ private final class SearchRowView: NSTableRowView {
 
     override func drawSelection(in dirtyRect: NSRect) {
         guard selectionHighlightStyle != .none else { return }
-        NSColor.labelColor.withAlphaComponent(0.1).setFill()
+        NSColor.xyzSelection.setFill()
         bounds.fill()
     }
 }

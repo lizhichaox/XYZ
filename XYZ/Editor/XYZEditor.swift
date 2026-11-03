@@ -150,8 +150,14 @@ final class EditorScrollLink {
 
     var focusEditor: (() -> Void)?
 
-    func noteToggle(to destination: EditorViewMode) {
-        pending = (capture(), destination)
+    @discardableResult
+    func noteToggle(to destination: EditorViewMode, fallbackLine: Int = 0) -> Int {
+        var anchor = capture()
+        if anchor.line <= 1, fallbackLine > 1 {
+            anchor = EditorScrollAnchor(fraction: anchor.fraction, probe: "", line: fallbackLine)
+        }
+        pending = (anchor, destination)
+        return anchor.line
     }
 
     func take(for destination: EditorViewMode) -> EditorScrollAnchor? {
@@ -238,13 +244,13 @@ struct XYZEditor: View {
 extension Color {
     static var editorBackground: Color {
         #if os(macOS)
-        Color(nsColor: .textBackgroundColor)
+        Color(nsColor: .xyzEditor)
         #else
         Color(uiColor: .systemBackground)
         #endif
     }
 
-    /// Sidebar and status bar. A step off the editor's text background, in both appearances.
+    /// Sidebar and status bar. A step off the editor, in both appearances.
     static var sidebarBackground: Color {
         #if os(macOS)
         Color(nsColor: .xyzSidebar)
@@ -252,19 +258,59 @@ extension Color {
         Color(uiColor: .secondarySystemBackground)
         #endif
     }
+
+    #if os(macOS)
+    static var xyzAccent: Color { Color(nsColor: .xyzAccent) }
+    static var xyzInk: Color { Color(nsColor: .xyzInk) }
+    static var xyzSecondaryText: Color { Color(nsColor: .xyzSecondaryText) }
+    #endif
 }
 
 #if os(macOS)
 extension NSColor {
-    /// Flat sidebar. Light is a step off white (`#F8F8F8`). Dark is `#181818`, a step under the editor.
-    static var xyzSidebar: NSColor {
-        NSColor(name: "xyz.sidebar") { appearance in
-            let dark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-            if dark {
-                return NSColor(srgbRed: 24.0 / 255.0, green: 24.0 / 255.0, blue: 24.0 / 255.0, alpha: 1)
-            }
-            return NSColor(srgbRed: 248.0 / 255.0, green: 248.0 / 255.0, blue: 248.0 / 255.0, alpha: 1)
+    /// One light theme and one dark theme. Accent is the divider hover blue, used sparingly.
+    static func xyzDynamic(light: NSColor, dark: NSColor) -> NSColor {
+        NSColor(name: nil) { appearance in
+            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light
         }
+    }
+
+    static func xyzSRGB(_ red: CGFloat, _ green: CGFloat, _ blue: CGFloat) -> NSColor {
+        NSColor(srgbRed: red / 255, green: green / 255, blue: blue / 255, alpha: 1)
+    }
+
+    /// Editor and Reading canvas. Light `#FFFFFF`, dark `#1E1E1E`.
+    static var xyzEditor: NSColor {
+        xyzDynamic(light: xyzSRGB(255, 255, 255), dark: xyzSRGB(30, 30, 30))
+    }
+
+    /// Sidebars and the status bar. Light `#F8F8F8`, dark `#181818`.
+    static var xyzSidebar: NSColor {
+        xyzDynamic(light: xyzSRGB(248, 248, 248), dark: xyzSRGB(24, 24, 24))
+    }
+
+    /// Body text. Light `#1F1F1F`, dark `#D4D4D4`.
+    static var xyzInk: NSColor {
+        xyzDynamic(light: xyzSRGB(31, 31, 31), dark: xyzSRGB(212, 212, 212))
+    }
+
+    /// Tree, breadcrumbs, status, gutter. Light `#5F6368`, dark `#9D9D9D`.
+    static var xyzSecondaryText: NSColor {
+        xyzDynamic(light: xyzSRGB(95, 99, 104), dark: xyzSRGB(157, 157, 157))
+    }
+
+    /// Divider hover and the few accent marks. `#0078D4` (passes WCAG AA on white).
+    static var xyzAccent: NSColor {
+        xyzSRGB(0, 120, 212)
+    }
+
+    /// Selected row. Accent at 14%, not a grey slab.
+    static var xyzSelection: NSColor {
+        xyzAccent.withAlphaComponent(0.14)
+    }
+
+    static var xyzDivider: NSColor {
+        xyzDynamic(light: xyzSRGB(229, 229, 229), dark: xyzSRGB(43, 43, 43))
     }
 }
 #endif

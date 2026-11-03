@@ -51,6 +51,9 @@ jobs:
           xcodebuild -version
           swift --version
 
+      - name: Test xyz command
+        run: sh Scripts/xyz-test.sh
+
       - name: Test XYZCore
         id: test
         run: swift test --package-path XYZCore

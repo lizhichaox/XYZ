@@ -133,6 +133,8 @@ public struct PaletteCommand: Equatable, Sendable, Identifiable {
         PaletteCommand(id: "tab.close", title: "Close Tab", shortcut: "⌘W", keywords: ["close", "tab"]),
         PaletteCommand(id: "file.reload", title: "Reload", keywords: ["refresh", "disk"]),
         PaletteCommand(id: "app.about", title: "About XYZ", keywords: ["about"]),
+        PaletteCommand(id: "app.installCLI", title: "Install 'xyz' Command in PATH", keywords: ["cli", "terminal", "shell", "command", "path", "install"]),
+        PaletteCommand(id: "app.uninstallCLI", title: "Uninstall 'xyz' Command", keywords: ["cli", "terminal", "uninstall", "path"]),
     ]
 }
 

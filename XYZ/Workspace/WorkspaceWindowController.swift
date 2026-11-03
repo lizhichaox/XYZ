@@ -462,6 +462,50 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
     }
 }
 
+/// Folders and files from Launch Services (`xyz .`, a Dock drop). Counts only in the diag log.
+@MainActor
+enum CLIOpen {
+    static func receive(_ urls: [URL]) {
+        var folders = 0
+        var files = 0
+        for url in urls {
+            var isDirectory: ObjCBool = false
+            let exists = FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory)
+            if exists && isDirectory.boolValue {
+                folders += 1
+            } else if exists {
+                files += 1
+            }
+        }
+        XYZDiagnostics.note("cli open count=\(urls.count) folders=\(folders) files=\(files)")
+        for url in urls {
+            let scoped = url.startAccessingSecurityScopedResource()
+            openOne(url)
+            if scoped {
+                url.stopAccessingSecurityScopedResource()
+            }
+        }
+        NSApp.activate()
+    }
+
+    private static func openOne(_ url: URL) {
+        var isDirectory: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory) else { return }
+        if isDirectory.boolValue {
+            _ = WorkspaceWindowController.open(url: url)
+            return
+        }
+        let parent = url.deletingLastPathComponent()
+        guard let controller = WorkspaceWindowController.open(url: parent) else { return }
+        let root = parent.standardizedFileURL.path
+        let full = url.standardizedFileURL.path
+        let prefix = root + "/"
+        guard full.hasPrefix(prefix) else { return }
+        let relative = String(full.dropFirst(prefix.count))
+        controller.session.openRelative(relative, pin: true)
+    }
+}
+
 enum WorkspaceFolders {
     static func isDirectory(_ url: URL) -> Bool {
         var isDirectory = ObjCBool(false)
@@ -550,30 +594,18 @@ final class XYZAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func application(_ application: NSApplication, open urls: [URL]) {
-        // A Dock drop can arrive once the document controller exists. Hook it before SwiftUI opens the URL.
+        // `open -b com.lizhichao.XYZ <path>` delivers these URLs with a sandbox extension.
         FolderOpening.installLate()
-        let folders = urls.filter(WorkspaceFolders.isDirectory)
-        WorkspaceLog.externalOpen(source: "application-open", urlCount: urls.count, folderCount: folders.count)
-        for url in folders {
-            WorkspaceLog.externalOpenFolder(source: "application-open", path: url.path)
-        }
-        guard !folders.isEmpty else { return }
         MainActor.assumeIsolated {
-            for url in folders {
-                WorkspaceWindowController.open(url: url)
-            }
+            CLIOpen.receive(urls)
         }
     }
 
     func application(_ sender: NSApplication, openFile filename: String) -> Bool {
         FolderOpening.installLate()
         let url = URL(fileURLWithPath: filename)
-        let isFolder = WorkspaceFolders.isDirectory(url)
-        WorkspaceLog.externalOpen(source: "open-file", urlCount: 1, folderCount: isFolder ? 1 : 0)
-        guard isFolder else { return false }
-        WorkspaceLog.externalOpenFolder(source: "open-file", path: url.path)
-        MainActor.assumeIsolated { () -> Void in
-            _ = WorkspaceWindowController.open(url: url)
+        MainActor.assumeIsolated {
+            CLIOpen.receive([url])
         }
         return true
     }

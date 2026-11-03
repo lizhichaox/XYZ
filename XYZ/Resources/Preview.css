@@ -1,12 +1,12 @@
 :root {
   color-scheme: light dark;
-  --text: #1c1c1e;
-  --muted: #636366;
-  --link: #0b57d0;
-  --border: rgba(60, 60, 67, 0.18);
-  --code: rgba(120, 120, 128, 0.12);
-  --quote: #aeaeb2;
-  --mark: rgba(11, 87, 208, 0.22);
+  --text: #1f1f1f;
+  --muted: #5f6368;
+  --link: #0078d4;
+  --border: #e5e5e5;
+  --code: #f6f8fa;
+  --quote: #6e7781;
+  --mark: rgba(0, 120, 212, 0.18);
   --canvas: #ffffff;
   --code-keyword: #cf222e;
   --code-string: #0a3069;
@@ -18,13 +18,13 @@
 }
 
 :root[data-theme="dark"] {
-  --text: #f2f2f7;
-  --muted: #aeaeb2;
-  --link: #8cb4ff;
-  --border: rgba(255, 255, 255, 0.16);
-  --code: rgba(255, 255, 255, 0.08);
-  --quote: #8e8e93;
-  --mark: rgba(140, 180, 255, 0.28);
+  --text: #d4d4d4;
+  --muted: #9d9d9d;
+  --link: #4da3e0;
+  --border: #2b2b2b;
+  --code: #2a2a2a;
+  --quote: #9d9d9d;
+  --mark: rgba(0, 127, 212, 0.35);
   --canvas: #1e1e1e;
   --code-keyword: #ff7b72;
   --code-string: #a5d6ff;
@@ -37,13 +37,13 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --text: #f2f2f7;
-    --muted: #aeaeb2;
-    --link: #8cb4ff;
-    --border: rgba(255, 255, 255, 0.16);
-    --code: rgba(255, 255, 255, 0.08);
-    --quote: #8e8e93;
-    --mark: rgba(140, 180, 255, 0.28);
+    --text: #d4d4d4;
+    --muted: #9d9d9d;
+    --link: #4da3e0;
+    --border: #2b2b2b;
+    --code: #2a2a2a;
+    --quote: #9d9d9d;
+    --mark: rgba(0, 127, 212, 0.35);
     --canvas: #1e1e1e;
     --code-keyword: #ff7b72;
     --code-string: #a5d6ff;
@@ -68,7 +68,7 @@ html, body {
 body {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", sans-serif;
   font-size: var(--text-size, 16px);
-  line-height: 1.75;
+  line-height: 1.65;
   line-break: strict;
   hanging-punctuation: first last;
   text-spacing-trim: space-first;
@@ -147,7 +147,7 @@ pre {
   padding: 10px 12px;
   overflow: auto;
   max-width: 100%;
-  border: 1px solid var(--border);
+  border: 0;
   border-radius: 6px;
   margin: 1em 0;
   line-height: 1.5;
@@ -165,7 +165,7 @@ pre code {
 blockquote {
   margin: 1.2em 0;
   padding: 0.05em 0 0.05em 0.95em;
-  border-left: 2px solid var(--quote);
+  border-left: 2px solid var(--link);
   color: var(--muted);
 }
 
