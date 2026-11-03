@@ -67,7 +67,10 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
             panel.makeFirstResponder(search)
         }
         DispatchQueue.main.async { [weak self] in
-            self?.suppressResign = false
+            MainActor.assumeIsolated { () -> Void in
+                self?.suppressResign = false
+                WorkspaceWindowController.closeStrayWindows()
+            }
         }
     }
 
@@ -505,6 +508,12 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
             panel.orderOut(nil)
         }
         closing = false
+        // ⌘K can leave a hidden untitled window behind. Drop it once the panel is gone.
+        DispatchQueue.main.async {
+            MainActor.assumeIsolated { () -> Void in
+                WorkspaceWindowController.closeStrayWindows()
+            }
+        }
     }
 
     private func moreLabel(_ count: Int, capped: Bool) -> String {

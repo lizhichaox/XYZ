@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.9
+
+- A hidden untitled window is closed: the 500×500 one after launch, and the full-size one ⌘K used to leave behind. ⌘K is not treated as File → New.
+- The editor ends at the top of the status bar. A short note no longer sticks about 18 points past the window.
+
 ## 0.5.8
 
 - Editing draws the source again, in light and dark, with line numbers beside it. The editor stops at the status bar.

@@ -466,7 +466,19 @@ private struct FindScan {
         if showsLineNumbers {
             installGutter()
         }
+        clampToClip()
         alignIfReady()
+    }
+
+    /// A short note is stretched to the clip. The insets were added again, so the text view
+    /// stuck about 18 points past the window. Long notes stay taller than the clip and scroll.
+    private func clampToClip() {
+        guard let scroll = enclosingScrollView else { return }
+        let clip = scroll.contentView.bounds.height
+        guard clip > 1, bounds.height > clip else { return }
+        let extra = bounds.height - clip
+        guard extra <= textContainerInset.height * 2 + 6 else { return }
+        setFrameSize(NSSize(width: bounds.width, height: clip))
     }
 
     /// Turns numbers on or off on this view. Called from SwiftUI updates, including a mode
@@ -770,6 +782,31 @@ private struct FindScan {
     }
 }
 
+/// The editor scroller. Its frame stays inside the window, above the status bar.
+final class EditorScrollView: NSScrollView {
+    private var clamping = false
+
+    override func layout() {
+        super.layout()
+        guard !clamping else { return }
+        clamping = true
+        clampToWindow()
+        clamping = false
+    }
+
+    /// SwiftUI sometimes gives this view a frame that continues past the window bottom.
+    private func clampToWindow() {
+        guard let window, let content = window.contentView, let parent = superview else { return }
+        let mine = convert(bounds, to: content)
+        let clipped = mine.intersection(content.bounds)
+        guard !clipped.isNull, clipped.height > 1 else { return }
+        guard abs(clipped.height - mine.height) > 0.5 || abs(clipped.minY - mine.minY) > 0.5 else { return }
+        let next = content.convert(clipped, to: parent)
+        guard next.width > 1, next.height > 1, next != frame else { return }
+        frame = next
+    }
+}
+
 struct XYZMacEditor: NSViewRepresentable {
     var text: String
     var isEditable: Bool
@@ -831,7 +868,7 @@ struct XYZMacEditor: NSViewRepresentable {
             coordinator?.restyle(edited: nil)
         }
 
-        let scrollView = NSScrollView()
+        let scrollView = EditorScrollView()
         scrollView.drawsBackground = true
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
@@ -965,7 +1002,10 @@ struct XYZMacEditor: NSViewRepresentable {
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context: Context) -> CGSize? {
-        CGSize(width: proposal.width ?? 640, height: proposal.height ?? 480)
+        let width = proposal.width.flatMap { $0.isFinite && $0 > 1 ? $0 : nil } ?? 640
+        let offered = proposal.height ?? nsView.bounds.height
+        let height = offered.isFinite && offered > 1 ? offered : 480
+        return CGSize(width: width, height: height)
     }
 
     private func applyChrome(textView: XYZMacTextView, scrollView: NSScrollView, style: XYZEditorStyle) {

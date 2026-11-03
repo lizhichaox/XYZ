@@ -349,16 +349,29 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
         if controller(for: window) != nil { return false }
         if EscapeKey.isRegistered(window) { return false }
         let size = window.frame.size
-        let defaultSquare = abs(size.width - 500) < 2 && abs(size.height - 500) < 2
+        let content = window.contentRect(forFrameRect: window.frame).size
+        let defaultSquare = near(size.width, 500) && near(size.height, 500)
+            || near(content.width, 500) && near(content.height, 500)
         let document = NSDocumentController.shared.document(for: window)
-        let untitled = document != nil && document?.fileURL == nil
+        let untitledDocument = document != nil && document?.fileURL == nil
+        let blankTitle = window.title.isEmpty || window.title == "Untitled"
         // A hidden window can still be key or main. It is not one the user is looking at.
+        // ⌘K used to leave a full-size invisible untitled window, not only the 500×500 one.
         if !window.isVisible {
-            return defaultSquare
+            if FolderOpening.keepsNewDocument { return false }
+            if defaultSquare || untitledDocument { return true }
+            if blankTitle, let screen = window.screen ?? NSScreen.main, window.frame.equalTo(screen.visibleFrame) {
+                return true
+            }
+            return false
         }
         if window.isKeyWindow || window.isMainWindow { return false }
-        guard includeVisible, defaultSquare, untitled else { return false }
+        guard includeVisible, defaultSquare, untitledDocument else { return false }
         return true
+    }
+
+    private static func near(_ value: CGFloat, _ target: CGFloat) -> Bool {
+        abs(value - target) < 2
     }
 
     /// The number of folder windows that actually opened.

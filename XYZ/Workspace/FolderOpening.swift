@@ -144,9 +144,19 @@ enum FolderOpening {
         didHookOpenDocument = true
     }
 
+    /// Set only while `newDocument:` is running, so File → New and ⌘N still work.
+    /// ⌘K is also a key event; it must not be treated as a request for an untitled window.
+    private static var allowUntitled = false
+    /// File → New stays hidden for a moment while it is filled to the screen. Don't close it then.
+    private static var keepUntitledUntil = Date.distantPast
+
+    static var keepsNewDocument: Bool {
+        allowUntitled || Date() < keepUntitledUntil
+    }
+
     /// DocumentGroup creates an untitled document on its own, some time after launch, because the
     /// folder windows are not documents. That window stays at SwiftUI's default 500×500 and is never
-    /// shown. File → New and ⌘N still go through, because they are a click or a key.
+    /// shown. Opening ⌘K can do the same at the full screen size. File → New still goes through.
     private static func hookAutomaticUntitled(on cls: AnyClass) {
         guard !didHookUntitled else { return }
         let untitled = NSSelectorFromString("openUntitledDocumentAndDisplay:error:")
@@ -208,18 +218,31 @@ enum FolderOpening {
             }
             return imp_implementationWithBlock(block)
         }
-        didHookUntitled = hookedUntitled || hookedReopen || hookedMake
+        let newDocument = NSSelectorFromString("newDocument:")
+        let hookedNew = hook(cls, newDocument) { original, selector in
+            let block: @convention(block) (AnyObject, AnyObject?) -> Void = { controller, sender in
+                allowUntitled = true
+                let call = unsafeBitCast(
+                    original,
+                    to: (@convention(c) (AnyObject, Selector, AnyObject?) -> Void).self
+                )
+                call(controller, selector, sender)
+                allowUntitled = false
+                keepUntitledUntil = Date().addingTimeInterval(1)
+            }
+            return imp_implementationWithBlock(block)
+        }
+        didHookUntitled = hookedUntitled || hookedReopen || hookedMake || hookedNew
     }
 
-    /// A menu click or ⌘N. A timer or scene restoration has no current event.
+    /// File → New, or ⌘N. Any other key, including ⌘K, is not a new document.
     private static func userAskedForUntitled() -> Bool {
+        if allowUntitled { return true }
         guard let event = NSApp.currentEvent else { return false }
-        switch event.type {
-        case .keyDown, .keyUp, .leftMouseUp, .leftMouseDown:
-            return true
-        default:
-            return false
-        }
+        guard event.type == .keyDown || event.type == .keyUp else { return false }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
+        return flags == .command && key == "n"
     }
 
     @discardableResult
