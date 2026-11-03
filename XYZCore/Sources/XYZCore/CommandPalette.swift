@@ -111,7 +111,7 @@ public struct PaletteCommand: Equatable, Sendable, Identifiable {
             id: "workspace.focusFilter",
             title: "Filter Files",
             shortcut: "⇧⌘F",
-            keywords: ["search", "filter"]
+            keywords: ["search", "filter", "grep", "contents"]
         ),
         PaletteCommand(id: "file.new", title: "New File", keywords: ["create"]),
         PaletteCommand(id: "folder.new", title: "New Folder", keywords: ["create"]),
@@ -123,6 +123,8 @@ public struct PaletteCommand: Equatable, Sendable, Identifiable {
         ),
         PaletteCommand(id: "file.reveal", title: "Reveal in Finder", keywords: ["finder", "show"]),
         PaletteCommand(id: "file.copyPath", title: "Copy Path", keywords: ["path", "clipboard"]),
+        PaletteCommand(id: "file.copyRelativePath", title: "Copy Relative Path", keywords: ["path", "relative", "clipboard"]),
+        PaletteCommand(id: "tab.close", title: "Close Tab", shortcut: "⌘W", keywords: ["close", "tab"]),
         PaletteCommand(id: "file.reload", title: "Reload", keywords: ["refresh", "disk"]),
         PaletteCommand(id: "app.about", title: "About XYZ", keywords: ["about"]),
     ]

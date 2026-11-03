@@ -39,6 +39,10 @@ public enum WorkspaceFileClassifier {
         sample: Data,
         fullFile: Data? = nil
     ) -> WorkspaceFileKind {
+        // Pictures, PDF, and media stay viewable past the text limit.
+        if FileFormats.isViewerExtension(name) {
+            return .binary
+        }
         if byteCount > editLimit {
             return .tooLarge
         }
@@ -78,10 +82,13 @@ public enum WorkspaceFileClassifier {
         if byteCount > editLimit {
             return .tooLarge
         }
+        let ext = URL(fileURLWithPath: name).pathExtension.lowercased()
         if sample.contains(0) {
+            if TextBytes.looksLikeUTF16(sample, allowHeuristic: FileFormats.isTextualName(name)) {
+                return kind(forExtension: ext)
+            }
             return .binary
         }
-        let ext = URL(fileURLWithPath: name).pathExtension.lowercased()
         let decision = utf8Sample(sample, byteCount: byteCount)
         switch decision {
         case .text:
@@ -90,6 +97,10 @@ public enum WorkspaceFileClassifier {
             // A prefix that fails UTF-8 is not enough to reject these names.
             // The editor still checks the whole file before showing it.
             if sample.count < byteCount && (markdownExtensions.contains(ext) || plainExtensions.contains(ext)) {
+                return kind(forExtension: ext)
+            }
+            // A known text name that is not Unicode is Windows-1252, kept on save.
+            if FileFormats.isTextualName(name), String(data: sample, encoding: .windowsCP1252) != nil {
                 return kind(forExtension: ext)
             }
             return .binary

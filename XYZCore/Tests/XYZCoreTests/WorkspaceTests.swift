@@ -409,7 +409,7 @@ final class WorkspaceFilePolicyTests: XCTestCase {
         )
     }
 
-    func testLatin1IsBinaryWhenTheFileIsComplete() {
+    func testLegacyTextOpensAndUnknownBytesStayBinary() {
         let latin1 = Data([0x48, 0x69, 0x20, 0xE9])
         XCTAssertNil(String(data: latin1, encoding: .utf8))
         XCTAssertEqual(
@@ -418,7 +418,7 @@ final class WorkspaceFilePolicyTests: XCTestCase {
         )
         XCTAssertEqual(
             WorkspaceFileClassifier.kind(name: "letter.txt", byteCount: latin1.count, sample: latin1),
-            .binary
+            .plainText
         )
         XCTAssertFalse(
             WorkspaceFileClassifier.needsFullRead(byteCount: latin1.count, sample: latin1)

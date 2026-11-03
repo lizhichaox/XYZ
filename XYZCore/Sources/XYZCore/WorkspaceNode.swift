@@ -20,6 +20,19 @@ public struct WorkspaceNode: Identifiable, Hashable, Sendable {
     }
 }
 
+public struct WorkspaceCrumb: Equatable, Sendable, Identifiable {
+    public var name: String
+    /// Empty for the workspace root.
+    public var relativePath: String
+
+    public var id: String { relativePath.isEmpty ? "." : relativePath }
+
+    public init(name: String, relativePath: String) {
+        self.name = name
+        self.relativePath = relativePath
+    }
+}
+
 public enum WorkspacePaths {
     public static func child(parent: String, name: String) -> String {
         parent.isEmpty ? name : parent + "/" + name
@@ -39,6 +52,28 @@ public enum WorkspacePaths {
             current = parent(of: current)
         }
         return chain.reversed()
+    }
+
+    /// Root, then each folder, then the file. `relativePath` is empty for the root.
+    public static func crumbs(rootName: String, relativePath: String) -> [WorkspaceCrumb] {
+        var items = [WorkspaceCrumb(name: rootName, relativePath: "")]
+        guard !relativePath.isEmpty else { return items }
+        var path = ""
+        for part in relativePath.split(separator: "/") {
+            let name = String(part)
+            path = path.isEmpty ? name : path + "/" + name
+            items.append(WorkspaceCrumb(name: name, relativePath: path))
+        }
+        return items
+    }
+
+    /// Rewrites `relativePath` when `old` is renamed to `new`, including descendants.
+    public static func replacing(_ relativePath: String, from old: String, to new: String) -> String {
+        if old.isEmpty || old == new { return relativePath }
+        if relativePath == old { return new }
+        let prefix = old + "/"
+        guard relativePath.hasPrefix(prefix) else { return relativePath }
+        return new + relativePath.dropFirst(old.count)
     }
 
     /// The folders a file sits in, from the workspace root down, for the window subtitle.
