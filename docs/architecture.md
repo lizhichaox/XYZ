@@ -1,6 +1,6 @@
 # Editor architecture
 
-Rollback that cloud CI accepted: `02dac3c84a34f0bd0680431557ba2cb11c630f59` (0.5.28, build 44). Installed build remains 0.5.27 `a0f85fa46f1d95ca40056c771e400e7236d3172c`. This note does not reset either commit.
+The version record is the 0.5.28 section of `CHANGELOG.md`. This file is the ownership detail for that section. Rollback that cloud CI accepted: `02dac3c84a34f0bd0680431557ba2cb11c630f59` (0.5.28, build 44). Installed build remains 0.5.27 `a0f85fa46f1d95ca40056c771e400e7236d3172c`. This note does not reset either commit.
 
 ## What owns what
 
@@ -26,4 +26,4 @@ A TextKit 2 rewrite of the text view. It is the change that left the gutter up a
 
 ## Still open
 
-Real IME composition is not covered here. Restyle and metric changes skip `hasMarkedText()`, but that is not a Chinese input-method session. iCloud is not exercised. Explorer clicks and divider drags are still not an accepted gesture run. Check windows stay open across cases, and a picture can still be taken before the open file is the visible content. Those are not given longer retries.
+Real IME composition is not covered here. Restyle and metric changes skip `hasMarkedText()`, but that is not a Chinese input-method session. iCloud is not exercised. Explorer clicks and divider drags are still not an accepted gesture run. Check windows stay open across cases. `2bcd032` already retries the long-note picture. That retry is not treated as the fix, and it was not extended.

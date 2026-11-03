@@ -2,10 +2,42 @@
 
 ## 0.5.28
 
-- Editing shows source line numbers beside the note, including line 1 when the note is empty. A wrapped continuation has no number, and the visible numbers stay a continuous run. Reading has no line numbers. A saved line-number preference does not hide Editing numbers or add a Reading gutter. The note stays in the real text view.
-- A slow open no longer replaces a buffer that is already showing that file. A disk sample that started before an edit or a save is dropped. A save that finishes after the text has moved writes again. The drawing path of the editor is unchanged.
-- The empty outline column keeps a usable width. Double-click fit still uses the measured names.
-- 0.5.27 remains the installed build that restored the note.
+Build 44. The version in this tree. It is not installed. 0.5.27 (build 43) `a0f85fa46f1d95ca40056c771e400e7236d3172c` is still the installed build, and a user test of it was not recorded. Deeper notes: `docs/architecture.md`.
+
+### What went wrong
+
+These are findings from the code and from cloud window pictures, not a guess treated as the cause.
+
+- 0.5.23's folder window showed the note and did not show a gutter. 0.5.24 and 0.5.25 said the editor stayed on TextKit 2 and that the note was visible with the gutter. The pictures after those changes showed the gutter and a blank page. Isolated pixel counts of a layer still passed. That claim is withdrawn here. The older sections are left as they were written.
+- Reading `layoutManager` on the text view installs TextKit 1. That is the drawing path whose titled window shows the note. TextKit 2 fragment views did not appear in that window picture. Putting the view back on TextKit 2 is the change that blanked the page, so it was not done again.
+- With that TextKit 1 path, noncontiguous layout estimated line positions. On a narrow wrapped note the gutter numbers skipped (`1, 2, 3, 13, 22, 23`). `02dac3c` remeasures only when the visible numbers skip, then restores the flag. The text storage is not rewritten.
+- Opening a file and sampling the disk did not keep a generation. Directory loads already did. Two overlapping reads of one path could install a second buffer. A disk sample that started while the buffer still matched the last save could finish after an edit or a save and reload the old bytes, because "editor equals last saved" means "take the disk."
+- New File chose a name from the tree listing only. A click before that listing arrives can target `Untitled.md` even when that file is already on disk.
+- A long-note window was pictured while it still said no file was open, after the session buffer had loaded. `2bcd032` waits and takes the picture again until the note is visible or the attempts run out. That does not explain the empty picture. No further wait was added. Check windows are still left open across cases.
+
+### What was chosen, and what was not
+
+The text view stays the native view that paints today. The gutter asks that same layout manager for source lines. Reading stays the web view, with no line-number setting and no reserved gutter. A slow open installs only when it is still the latest request and the path has no buffer yet (`WorkspaceFilePolicy.shouldInstallRead`). A disk sample applies only if the buffer has not been edited or saved since the sample started. A save that finishes after the text has moved schedules another save.
+
+Not done: a TextKit 2 rewrite, an Electron or web editor, a new document framework, or a new dependency. The session, the buffer, and `WorkspaceFilePolicy` already own those jobs. The build number was not increased just to record this.
+
+### What changed
+
+- `02dac3c` numbers each visible row from the source line, and only the first fragment of a wrapped line. An empty note is line 1. The production window passes numbers from the mode, not from the old preference keys.
+- `ee0b4bd` drops a stale open and a stale disk sample, and follows a save when the text moved during the write. The text view's drawing code was not edited.
+- `d834720` also looks at names already on disk before creating `Untitled.md` or `Untitled Folder`.
+- Header clicks and divider drags are attempted in the cloud check and printed. They do not decide the build. They have not passed. On `d834720` the script stopped because a click on `deep.md` did not open it.
+
+### Where this was checked
+
+Cloud only. No user Mac, no real input method, no iCloud.
+
+- Green on both cloud runs, `02dac3c84a34f0bd0680431557ba2cb11c630f59`: push https://github.com/lizhichaox/XYZ/actions/runs/42192386391 and pull request https://github.com/lizhichaox/XYZ/actions/runs/42192393433. The titled window showed the note and source lines 1–4, with the wrapped continuation blank, in light and dark, wrap on and off. Reading showed the rendered note and no gutter. Typing, the caret, undo, a long-note scroll, a plain-text switch, and a blank document passed. The empty outline kept a width.
+- Not a green result: every commit after `02dac3c` through this note. `d834720` failed the click script. `ee0b4bd` had not finished when this section was written.
+
+### Still open
+
+Explorer New File, New Folder, Refresh, and Collapse All are on the header. A real click path, including cancel and not replacing an existing file, is not an accepted run. Double-click and drag of the production dividers are not an accepted run. Font measurement of those widths is not that proof. Read-only bold weight was not measured on a green run after a mode switch. A real Chinese input method was not run. `hasMarkedText()` only skips restyle during a marked range. iCloud was not run. A cloud build does not show that a signed Mac syncs.
 
 ## 0.5.27
 
