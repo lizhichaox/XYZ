@@ -209,6 +209,7 @@ private struct WorkspaceDetail: View {
     @State private var caret = EditorCaret()
     @State private var surfaceDetail: String?
     @AppStorage(OutlineSetting.key) private var showsOutline = false
+    @AppStorage(XYZEditorStyle.readingLineNumbersKey) private var readingLineNumbers = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -244,18 +245,18 @@ private struct WorkspaceDetail: View {
         .safeAreaInset(edge: .bottom, spacing: 0) {
             if session.buffer != nil {
                 EditorStatusBar(
-                    caret: showsEditor || showsReading ? caret : nil,
+                    caret: showsText ? caret : nil,
                     encodingValue: showsText ? session.buffer?.encoding : nil,
                     lineEndingValue: showsText ? session.buffer?.lineEnding : nil,
                     mixedEndings: session.buffer?.mixedLineEndings == true,
-                    typeName: isReadOnly ? "Read-only" : format.label,
+                    typeName: statusMode,
                     words: format.isProse && !isReadOnly ? wordCount.stats : nil,
                     showsReadingTime: showsWordCount && format.isProse && !isReadOnly,
                     detail: isReadOnly && session.buffer?.previewTruncated == true
                         ? String(localized: "Preview truncated")
                         : (showsText ? nil : surfaceDetail),
-                    onEncoding: editableText ? { session.chooseEncoding($0) } : nil,
-                    onLineEnding: editableText ? { session.chooseLineEnding($0) } : nil
+                    onEncoding: isEditing ? { session.chooseEncoding($0) } : nil,
+                    onLineEnding: isEditing ? { session.chooseLineEnding($0) } : nil
                 )
             }
         }
@@ -286,6 +287,11 @@ private struct WorkspaceDetail: View {
         .onChange(of: showsOutline) { _, shown in
             if shown { refreshOutline(immediate: true) }
         }
+        .onChange(of: session.viewMode) { _, mode in
+            if mode == .reading {
+                find?.showsReplace = false
+            }
+        }
     }
 
     @ViewBuilder
@@ -296,7 +302,7 @@ private struct WorkspaceDetail: View {
             } description: {
                 Text("Choose a file in the sidebar.\n⌘P opens one. ⌘⇧F searches names and text.")
             }
-        } else if showsReading {
+        } else if showsPreview {
             reading
         } else if showsEditor {
             editor
@@ -339,30 +345,44 @@ private struct WorkspaceDetail: View {
 
     private var isReadOnly: Bool { session.buffer?.kind == .readOnly }
 
+    private var statusMode: String {
+        if fileAccess == .locked {
+            return isReadOnly ? "Read-only" : format.label
+        }
+        return isEditing ? "Editing" : "Read-only"
+    }
+
     private func countWords(immediate: Bool) {
         guard format.isProse, let text = session.buffer?.text else { return }
         wordCount.update(text, immediate: immediate)
     }
 
-    private var showsEditor: Bool { showsText && !showsReading }
+    private var fileAccess: EditorFileAccess {
+        guard let buffer = session.buffer else { return .locked }
+        return WorkspaceSession.access(of: buffer)
+    }
 
-    private var showsReading: Bool {
-        guard editableText, session.viewMode == .reading else { return false }
-        return format.reading != .none
+    private var showsEditor: Bool { showsText && !showsPreview }
+
+    private var showsPreview: Bool {
+        EditorModeChoice.showsRenderedPreview(mode: session.viewMode, access: fileAccess)
+    }
+
+    private var isEditing: Bool {
+        EditorModeChoice.isEditing(session.viewMode, access: fileAccess)
+    }
+
+    private var showsEditorLineNumbers: Bool {
+        EditorModeChoice.showsLineNumbers(
+            mode: session.viewMode,
+            access: fileAccess,
+            readingNumbers: readingLineNumbers
+        )
     }
 
     @ViewBuilder
     private var reading: some View {
-        switch format.reading {
-        case .markdown:
-            preview
-        case .json:
-            JSONReadingView(text: session.buffer?.text ?? "", scrollLink: session.scrollLink)
-        case .csv:
-            CSVReadingView(text: session.buffer?.text ?? "", scrollLink: session.scrollLink)
-        case .none:
-            editor
-        }
+        preview
     }
 
     private func placeholder(for buffer: WorkspaceFileBuffer) -> some View {
@@ -418,7 +438,7 @@ private struct WorkspaceDetail: View {
     private var editor: some View {
         XYZEditor(
             text: session.buffer?.text ?? "",
-            isEditable: showsEditor && editableText,
+            isEditable: isEditing,
             undoManager: undoManager,
             reloadToken: session.buffer?.editorToken ?? 0,
             scrollLink: session.scrollLink,
@@ -437,6 +457,7 @@ private struct WorkspaceDetail: View {
                     outline.update(text: newText, language: format.language)
                 }
             },
+            lineNumbersVisible: showsEditorLineNumbers,
             find: find
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -456,12 +477,31 @@ final class WorkspaceCommandBridge: ObservableObject, EditorCommandTarget {
         self.columnVisibility = columnVisibility
     }
 
-    var editorViewMode: EditorViewMode { session?.viewMode ?? .source }
+    var editorViewMode: EditorViewMode { session?.viewMode ?? .reading }
+    var editorCanToggle: Bool {
+        guard let buffer = session?.buffer else { return false }
+        return EditorModeChoice.canToggle(WorkspaceSession.access(of: buffer))
+    }
+    var editorIsEditing: Bool {
+        guard let session, let buffer = session.buffer else { return false }
+        return EditorModeChoice.isEditing(session.viewMode, access: WorkspaceSession.access(of: buffer))
+    }
+    var editorShowsRenderedReading: Bool {
+        guard let session, let buffer = session.buffer else { return false }
+        return EditorModeChoice.showsRenderedPreview(mode: session.viewMode, access: WorkspaceSession.access(of: buffer))
+    }
+
+    func beginEditing(source: String) -> Bool {
+        session?.beginEditing(source: source) ?? false
+    }
     var showsHiddenFiles: Bool { session?.showsHiddenFiles ?? true }
     var supportsWorkspaceFiles: Bool { session != nil }
 
     func editorSelect(_ mode: EditorViewMode, source: String) {
         session?.selectViewMode(mode, source: source)
+        if mode == .reading {
+            storedFind.showsReplace = false
+        }
     }
 
     func editorToggle(source: String) {

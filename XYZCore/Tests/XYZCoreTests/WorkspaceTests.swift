@@ -252,6 +252,25 @@ final class EditorViewModeTests: XCTestCase {
         XCTAssertEqual(EditorViewMode.reading.toggled().toggled(), .reading)
     }
 
+    func testFilesOpenInReadingAndOnlyTextCanEdit() {
+        XCTAssertEqual(EditorModeChoice.initial, .reading)
+        XCTAssertEqual(EditorModeChoice.access(kind: .markdown, markdown: true), .preview)
+        XCTAssertEqual(EditorModeChoice.access(kind: .plainText, markdown: false), .source)
+        XCTAssertEqual(EditorModeChoice.access(kind: .readOnly, markdown: false), .locked)
+        XCTAssertNil(EditorModeChoice.toggled(.reading, access: .locked))
+        XCTAssertEqual(EditorModeChoice.toggled(.reading, access: .source), .source)
+        XCTAssertEqual(EditorModeChoice.toggled(.source, access: .preview), .reading)
+        XCTAssertTrue(EditorModeChoice.showsRenderedPreview(mode: .reading, access: .preview))
+        XCTAssertFalse(EditorModeChoice.showsRenderedPreview(mode: .reading, access: .source))
+        XCTAssertFalse(EditorModeChoice.isEditing(.reading, access: .source))
+        XCTAssertTrue(EditorModeChoice.isEditing(.source, access: .source))
+        XCTAssertFalse(EditorModeChoice.isEditing(.source, access: .locked))
+        XCTAssertTrue(EditorModeChoice.showsLineNumbers(mode: .source, access: .source, readingNumbers: false))
+        XCTAssertFalse(EditorModeChoice.showsLineNumbers(mode: .reading, access: .source, readingNumbers: false))
+        XCTAssertTrue(EditorModeChoice.showsLineNumbers(mode: .reading, access: .source, readingNumbers: true))
+        XCTAssertFalse(EditorModeChoice.showsLineNumbers(mode: .reading, access: .locked, readingNumbers: false))
+    }
+
     func testDecodedPreviewBecomesSource() throws {
         let preview = try JSONDecoder().decode(EditorViewMode.self, from: Data("\"preview\"".utf8))
         let reading = try JSONDecoder().decode(EditorViewMode.self, from: Data("\"reading\"".utf8))

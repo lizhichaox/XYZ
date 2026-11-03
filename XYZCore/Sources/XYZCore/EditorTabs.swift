@@ -11,7 +11,7 @@ public struct EditorTab: Equatable, Sendable, Identifiable {
     /// Source or Reading for this tab. Each tab keeps its own mode.
     public var mode: EditorViewMode
 
-    public init(id: String, isPreview: Bool, isDirty: Bool = false, mode: EditorViewMode = .source) {
+    public init(id: String, isPreview: Bool, isDirty: Bool = false, mode: EditorViewMode = .reading) {
         self.id = id
         self.isPreview = isPreview
         self.isDirty = isDirty
@@ -37,7 +37,7 @@ public struct EditorTabStrip: Equatable, Sendable {
     /// A dirty preview is pinned instead of replaced. Returns the path of a preview that was removed.
     /// An existing tab keeps the mode it already has.
     @discardableResult
-    public mutating func open(_ id: String, pin: Bool, mode: EditorViewMode = .source) -> String? {
+    public mutating func open(_ id: String, pin: Bool, mode: EditorViewMode = .reading) -> String? {
         if let index = tabs.firstIndex(where: { $0.id == id }) {
             activeID = id
             if pin { tabs[index].isPreview = false }

@@ -59,6 +59,8 @@ struct XYZEditorStyle: Equatable {
     static let readableWidthKey = "xyz.text.readableWidth"
     /// Line numbers beside Source. On unless turned off.
     static let lineNumbersKey = "xyz.editor.lineNumbers"
+    /// Line numbers while reading. Off unless turned on. Editing always shows them.
+    static let readingLineNumbersKey = "xyz.editor.readingLineNumbers"
     /// Break long lines to the editor width. On unless turned off.
     static let wordWrapKey = "xyz.editor.wordWrap"
     static let defaultFontSize: Double = 16
@@ -178,6 +180,8 @@ struct XYZEditor: View {
     var onSelection: ((EditorCaret) -> Void)? = nil
     var onTextChange: (String) -> Void
     #if os(macOS)
+    /// When set, this wins over the Reading line-number setting. Editing passes true.
+    var lineNumbersVisible: Bool? = nil
     var find: EditorFindModel? = nil
     #endif
 
@@ -206,7 +210,7 @@ struct XYZEditor: View {
             markup: markup,
             spellCheck: spellCheck,
             syntax: syntax,
-            lineNumbers: lineNumbers,
+            lineNumbers: lineNumbersVisible ?? lineNumbers,
             find: find,
             onSelection: onSelection,
             onTextChange: onTextChange

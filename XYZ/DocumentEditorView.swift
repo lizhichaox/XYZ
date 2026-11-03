@@ -33,7 +33,7 @@ struct DocumentEditorView: View {
     @Environment(\.undoManager) private var undoManager
     #if os(iOS)
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var viewMode: EditorViewMode = .source
+    @State private var viewMode: EditorViewMode = .reading
     #endif
     @State private var bridge: PreviewBridge
     @State private var webHost: PreviewWebHost
@@ -41,6 +41,9 @@ struct DocumentEditorView: View {
     @StateObject private var commands: DocumentCommandBridge
     #endif
     @AppStorage(WordCountSetting.key) private var showsWordCount = false
+    #if os(macOS)
+    @AppStorage(XYZEditorStyle.readingLineNumbersKey) private var readingLineNumbers = false
+    #endif
     @StateObject private var wordCount = WordCountModel()
 
     init(document: MarkdownFileDocument, isEditable: Bool, fileURL: URL? = nil) {
@@ -123,7 +126,7 @@ struct DocumentEditorView: View {
     private var macEditor: some View {
         XYZEditor(
             text: document.text,
-            isEditable: isEditable,
+            isEditable: isEditable && viewMode == .source,
             undoManager: undoManager,
             reloadToken: 0,
             scrollLink: scrollLink,
@@ -133,6 +136,7 @@ struct DocumentEditorView: View {
             forcesMonospace: documentFormat.usesCodeFont,
             onSelection: nil,
             onTextChange: storeEditorText,
+            lineNumbersVisible: viewMode == .source || readingLineNumbers,
             find: commands.findModel
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -141,7 +145,7 @@ struct DocumentEditorView: View {
     private var iosEditor: some View {
         XYZEditor(
             text: document.text,
-            isEditable: isEditable,
+            isEditable: isEditable && viewMode == .source,
             undoManager: undoManager,
             reloadToken: 0,
             scrollLink: scrollLink,
@@ -181,9 +185,13 @@ struct DocumentEditorView: View {
         #endif
     }
 
+    private var showsMarkdownPreview: Bool {
+        viewMode == .reading && TextMarkup.allows(fileExtension: fileURL?.pathExtension)
+    }
+
     @ViewBuilder
     private var singleSurface: some View {
-        if viewMode == .reading {
+        if showsMarkdownPreview {
             preview
         } else {
             editor
@@ -239,13 +247,16 @@ struct DocumentEditorView: View {
 #if os(macOS)
 @MainActor
 final class DocumentCommandBridge: ObservableObject, EditorCommandTarget {
-    @Published private(set) var mode: EditorViewMode = .source
+    @Published private(set) var mode: EditorViewMode = .reading
     let scrollLink = EditorScrollLink()
     var fileURL: URL?
     /// The editor's text, for Go to Heading.
     var currentText: () -> String = { "" }
 
     var editorViewMode: EditorViewMode { mode }
+    var editorShowsRenderedReading: Bool {
+        mode == .reading && TextMarkup.allows(fileExtension: fileURL?.pathExtension)
+    }
     var showsHiddenFiles: Bool { true }
     var supportsWorkspaceFiles: Bool { false }
 
@@ -255,6 +266,9 @@ final class DocumentCommandBridge: ObservableObject, EditorCommandTarget {
             scrollLink.noteToggle(to: mode)
         }
         self.mode = mode
+        if mode == .reading {
+            findStore.showsReplace = false
+        }
         if previous != mode {
             ViewModeLog.changed(from: previous.rawValue, to: mode.rawValue, source: source)
         }

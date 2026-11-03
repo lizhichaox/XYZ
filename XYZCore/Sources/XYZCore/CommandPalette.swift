@@ -92,11 +92,11 @@ public struct PaletteCommand: Equatable, Sendable, Identifiable {
     }
 
     public static let builtIn: [PaletteCommand] = [
-        PaletteCommand(id: "view.source", title: "Source", keywords: ["mode", "edit", "coding"]),
+        PaletteCommand(id: "view.source", title: "Editing", keywords: ["mode", "edit", "coding", "source"]),
         PaletteCommand(id: "view.reading", title: "Reading", keywords: ["mode"]),
         PaletteCommand(
             id: "view.toggleSource",
-            title: "Toggle Source and Reading",
+            title: "Toggle Reading and Editing",
             shortcut: "⌘/",
             keywords: ["reading", "source", "coding", "edit"]
         ),

@@ -8,7 +8,7 @@ struct SettingsView: View {
     @AppStorage(XYZEditorStyle.monospacedKey) private var monospaced = false
     @AppStorage(XYZEditorStyle.fontSizeKey) private var fontSize = XYZEditorStyle.defaultFontSize
     @AppStorage(XYZEditorStyle.readableWidthKey) private var readableWidth = false
-    @AppStorage(XYZEditorStyle.lineNumbersKey) private var lineNumbers = true
+    @AppStorage(XYZEditorStyle.readingLineNumbersKey) private var readingLineNumbers = false
     @AppStorage(XYZEditorStyle.wordWrapKey) private var wordWrap = true
     @AppStorage(WordCountSetting.key) private var showsWordCount = false
     @AppStorage(HiddenFilesSetting.key) private var showsHiddenFiles = true
@@ -61,12 +61,12 @@ struct SettingsView: View {
 
                 Toggle(isOn: $readableWidth) {
                     Text("Limit line width")
-                    Text("Keeps lines at a comfortable length in wide windows, in Source and Reading.")
+                    Text("Keeps lines at a comfortable length in wide windows, in Editing and Reading.")
                 }
 
-                Toggle(isOn: $lineNumbers) {
-                    Text("Show line numbers")
-                    Text("Numbers each line of the file beside Source.")
+                Toggle(isOn: $readingLineNumbers) {
+                    Text("Show line numbers in Reading mode")
+                    Text("Editing always shows line numbers. Reading hides them unless this is on.")
                 }
 
                 Toggle(isOn: $wordWrap) {

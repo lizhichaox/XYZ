@@ -118,8 +118,7 @@ final class WorkspaceSession: ObservableObject {
         self.rootURL = rootURL
         self.bookmark = bookmark
         self.displayName = rootURL.lastPathComponent
-        let saved = UserDefaults.standard.string(forKey: Self.viewModeKey(for: rootURL))
-        self.viewMode = EditorViewMode.restored(saved)
+        self.viewMode = EditorModeChoice.initial
         self.recentPaths = UserDefaults.standard.stringArray(forKey: Self.recentsKey(for: rootURL)) ?? []
         if UserDefaults.standard.object(forKey: HiddenFilesSetting.key) != nil {
             self.showsHiddenFiles = UserDefaults.standard.bool(forKey: HiddenFilesSetting.key)
@@ -212,6 +211,10 @@ final class WorkspaceSession: ObservableObject {
     }
 
     func selectViewMode(_ mode: EditorViewMode, source: String) {
+        if mode == .source, let buffer, !EditorModeChoice.canToggle(Self.access(of: buffer)) {
+            NSSound.beep()
+            return
+        }
         let previous = viewMode
         if previous != mode {
             scrollLink.noteToggle(to: mode)
@@ -229,13 +232,25 @@ final class WorkspaceSession: ObservableObject {
     }
 
     func toggleViewMode(source: String) {
-        guard let buffer, Self.canRead(buffer) else { return }
-        selectViewMode(viewMode.toggled(), source: source)
+        guard let buffer, let next = EditorModeChoice.toggled(viewMode, access: Self.access(of: buffer)) else {
+            NSSound.beep()
+            return
+        }
+        selectViewMode(next, source: source)
     }
 
-    private static func canRead(_ buffer: WorkspaceFileBuffer) -> Bool {
-        guard buffer.kind == .markdown || buffer.kind == .plainText else { return false }
-        return FileFormats.format(for: buffer.relativePath).reading != .none
+    /// Replace and other edits need the editable source. Locked files stay as they are.
+    @discardableResult
+    func beginEditing(source: String) -> Bool {
+        guard let buffer, EditorModeChoice.canToggle(Self.access(of: buffer)) else { return false }
+        if viewMode != .source {
+            selectViewMode(.source, source: source)
+        }
+        return true
+    }
+
+    static func access(of buffer: WorkspaceFileBuffer) -> EditorFileAccess {
+        EditorModeChoice.access(kind: buffer.kind, markdown: buffer.kind == .markdown)
     }
 
     func focusSearch() {
@@ -371,7 +386,7 @@ final class WorkspaceSession: ObservableObject {
         _ node: WorkspaceNode,
         pin: Bool = false,
         line: Int? = nil,
-        mode: EditorViewMode = .source,
+        mode: EditorViewMode = .reading,
         adoptExisting: Bool = true
     ) {
         guard !node.isDirectory else { return }
@@ -506,7 +521,7 @@ final class WorkspaceSession: ObservableObject {
     func windowState() -> WorkspaceWindowState {
         WorkspaceWindowState(
             tabs: tabStrip.tabs.map {
-                WorkspaceTabState(path: $0.id, isPreview: $0.isPreview, mode: $0.mode)
+                WorkspaceTabState(path: $0.id, isPreview: $0.isPreview, mode: .reading)
             },
             activePath: tabStrip.activeID
         ).normalized()
@@ -540,7 +555,7 @@ final class WorkspaceSession: ObservableObject {
                 isHidden: WorkspacePaths.isHidden(name: name, resourceHidden: false)
             ),
             pin: true,
-            mode: tab.mode,
+            mode: .reading,
             adoptExisting: false
         )
     }
@@ -602,9 +617,8 @@ final class WorkspaceSession: ObservableObject {
 
     /// Moves the caret in Source. Reading switches to Source first so the line stays put.
     func revealPosition(line: Int, column: Int) {
-        guard let buffer, buffer.kind == .markdown || buffer.kind == .plainText else { return }
-        let reading = FileFormats.format(for: buffer.relativePath).reading != .none
-        if viewMode == .reading, reading {
+        guard let buffer, buffer.kind == .markdown || buffer.kind == .plainText || buffer.kind == .readOnly else { return }
+        if EditorModeChoice.showsRenderedPreview(mode: viewMode, access: Self.access(of: buffer)) {
             selectViewMode(.source, source: "goto")
             scrollLink.storeQueuedReveal(line, column: column, editorOnly: true)
         } else {
@@ -935,6 +949,7 @@ final class WorkspaceSession: ObservableObject {
     /// Replace every match in the folder. The alert confirms the count. Each file is its own undo.
     func replaceAllInFolder(undoManager: UndoManager?) {
         let query = contentQuery
+        _ = beginEditing(source: "replace")
         let replacement = folderReplacement
         let include = includeGlob
         let exclude = excludeGlob
@@ -1190,10 +1205,6 @@ final class WorkspaceSession: ObservableObject {
 
     private static func expansionKey(for url: URL) -> String {
         "xyz.workspace.expansion." + token(for: url)
-    }
-
-    private static func viewModeKey(for url: URL) -> String {
-        "xyz.workspace.viewMode." + token(for: url)
     }
 
     private static func recentsKey(for url: URL) -> String {

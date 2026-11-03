@@ -13,7 +13,7 @@ public enum EditorViewMode: String, CaseIterable, Sendable, Identifiable, Equata
 
     public var title: String {
         switch self {
-        case .source: return "Source"
+        case .source: return "Editing"
         case .reading: return "Reading"
         }
     }
@@ -25,6 +25,61 @@ public enum EditorViewMode: String, CaseIterable, Sendable, Identifiable, Equata
 
     public func toggled() -> EditorViewMode {
         self == .reading ? .source : .reading
+    }
+}
+
+/// Whether a file can leave Reading.
+///
+/// Markdown Reading is the rendered note. Other text Reading is the source, locked.
+/// Pictures, PDF, media, and the plain-text fallback stay locked.
+public enum EditorFileAccess: Equatable, Sendable {
+    case preview
+    case source
+    case locked
+}
+
+/// Reading is the mode a file opens in. The choice is not saved with the file.
+public enum EditorModeChoice {
+    public static let initial = EditorViewMode.reading
+
+    public static func access(kind: WorkspaceFileKind, markdown: Bool) -> EditorFileAccess {
+        switch kind {
+        case .markdown:
+            return .preview
+        case .plainText:
+            return markdown ? .preview : .source
+        case .readOnly, .binary, .tooLarge:
+            return .locked
+        }
+    }
+
+    public static func canToggle(_ access: EditorFileAccess) -> Bool {
+        access != .locked
+    }
+
+    /// Nil when ⌘/ should do nothing.
+    public static func toggled(_ mode: EditorViewMode, access: EditorFileAccess) -> EditorViewMode? {
+        guard canToggle(access) else { return nil }
+        return mode.toggled()
+    }
+
+    public static func showsRenderedPreview(mode: EditorViewMode, access: EditorFileAccess) -> Bool {
+        mode == .reading && access == .preview
+    }
+
+    public static func isEditing(_ mode: EditorViewMode, access: EditorFileAccess) -> Bool {
+        mode == .source && access != .locked
+    }
+
+    /// Editing always shows numbers. Reading shows them only when the setting is on.
+    public static func showsLineNumbers(
+        mode: EditorViewMode,
+        access: EditorFileAccess,
+        readingNumbers: Bool
+    ) -> Bool {
+        if access == .locked { return readingNumbers }
+        if mode == .source { return true }
+        return readingNumbers
     }
 }
 

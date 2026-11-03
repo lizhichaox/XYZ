@@ -35,6 +35,10 @@ enum PaletteLog {
 @MainActor
 protocol EditorCommandTarget: AnyObject {
     var editorViewMode: EditorViewMode { get }
+    var editorIsEditing: Bool { get }
+    var editorCanToggle: Bool { get }
+    var editorShowsRenderedReading: Bool { get }
+    func beginEditing(source: String) -> Bool
     var showsHiddenFiles: Bool { get }
     var supportsWorkspaceFiles: Bool { get }
     func editorSelect(_ mode: EditorViewMode, source: String)
@@ -68,6 +72,14 @@ protocol EditorCommandTarget: AnyObject {
 
 @MainActor
 extension EditorCommandTarget {
+    var editorIsEditing: Bool { editorViewMode == .source }
+    var editorCanToggle: Bool { true }
+    var editorShowsRenderedReading: Bool { false }
+    func beginEditing(source: String) -> Bool {
+        guard editorViewMode != .source else { return true }
+        editorSelect(.source, source: source)
+        return true
+    }
     var showsHiddenFiles: Bool { true }
     var supportsWorkspaceFiles: Bool { false }
     func toggleSidebar() {}
@@ -184,31 +196,41 @@ final class EditorCommands: NSObject {
             toggleSidebarVisibility(nil)
             return true
         }
+        if flags == .command && key.lowercased() == "s" {
+            guard target?.editorIsEditing == true else {
+                NSSound.beep()
+                return target != nil
+            }
+            return false
+        }
         if flags == .command && key.lowercased() == "f" {
-            if target?.editorViewMode == .reading { return false }
+            if target?.editorShowsRenderedReading == true { return false }
             target?.findModel?.show(replace: false)
             return target?.findModel != nil
         }
         if flags == [.command, .option] && key.lowercased() == "f" {
-            if target?.editorViewMode == .reading, target?.findModel?.visible != true { return false }
+            guard target?.beginEditing(source: "replace") == true else {
+                NSSound.beep()
+                return target != nil
+            }
             target?.findModel?.show(replace: true)
             return target?.findModel != nil
         }
         if flags == .command && key.lowercased() == "g" {
-            if target?.editorViewMode == .reading, target?.findModel?.visible != true { return false }
+            if target?.editorShowsRenderedReading == true, target?.findModel?.visible != true { return false }
             target?.findModel?.perform?(.next)
             return target?.findModel != nil
         }
         if flags == [.command, .shift] && key.lowercased() == "g" {
-            if target?.editorViewMode == .reading, target?.findModel?.visible != true { return false }
+            if target?.editorShowsRenderedReading == true, target?.findModel?.visible != true { return false }
             target?.findModel?.perform?(.previous)
             return target?.findModel != nil
         }
-        if flags == .command && key.lowercased() == "d", editorIsFirstResponder {
+        if flags == .command && key.lowercased() == "d", editorIsFirstResponder, target?.editorIsEditing == true {
             target?.findModel?.perform?(.selectNextOccurrence)
             return true
         }
-        if editorIsFirstResponder, handleLineEdit(flags: flags, key: key, event: event) {
+        if editorIsFirstResponder, target?.editorIsEditing == true, handleLineEdit(flags: flags, key: key, event: event) {
             return true
         }
         if flags == [.command, .shift] && key.lowercased() == "n" {
@@ -402,12 +424,12 @@ final class EditorCommands: NSObject {
 
     @objc func toggleLineNumbers(_ sender: Any?) {
         let defaults = UserDefaults.standard
-        defaults.set(!Self.showsLineNumbers, forKey: XYZEditorStyle.lineNumbersKey)
+        defaults.set(!Self.showsReadingLineNumbers, forKey: XYZEditorStyle.readingLineNumbersKey)
     }
 
-    /// On unless turned off, so an unset key reads as on.
-    private static var showsLineNumbers: Bool {
-        UserDefaults.standard.object(forKey: XYZEditorStyle.lineNumbersKey) as? Bool ?? true
+    /// Off unless turned on. Editing always shows numbers.
+    private static var showsReadingLineNumbers: Bool {
+        UserDefaults.standard.bool(forKey: XYZEditorStyle.readingLineNumbersKey)
     }
 
     @objc func toggleWordCount(_ sender: Any?) {
@@ -450,14 +472,16 @@ final class EditorCommands: NSObject {
         switch menuItem.identifier?.rawValue {
         case "xyz.mode.source":
             menuItem.state = target?.editorViewMode == .source ? .on : .off
-            return target != nil
+            return target?.editorCanToggle == true
         case "xyz.mode.reading":
             menuItem.state = target?.editorViewMode == .reading ? .on : .off
             return target != nil
-        case "xyz.mode.toggleSource", "xyz.goToHeading":
+        case "xyz.mode.toggleSource":
+            return target?.editorCanToggle == true
+        case "xyz.goToHeading":
             return target != nil
         case "xyz.lineNumbers":
-            menuItem.state = Self.showsLineNumbers ? .on : .off
+            menuItem.state = Self.showsReadingLineNumbers ? .on : .off
             return true
         case "xyz.wordWrap":
             let wrapped = UserDefaults.standard.object(forKey: XYZEditorStyle.wordWrapKey) as? Bool ?? true
@@ -504,9 +528,9 @@ enum PaletteTitles {
 
     private static func title(for id: String) -> String? {
         switch id {
-        case "view.source": return String(localized: "Source")
+        case "view.source": return String(localized: "Editing")
         case "view.reading": return String(localized: "Reading")
-        case "view.toggleSource": return String(localized: "Toggle Source and Reading")
+        case "view.toggleSource": return String(localized: "Toggle Reading and Editing")
         case "view.goToHeading": return String(localized: "Go to Heading")
         case "view.outline": return String(localized: "Show Outline")
         case "workspace.toggleSidebar": return String(localized: "Toggle Sidebar")
@@ -686,13 +710,13 @@ enum EditorMenuSupport {
             ("xyz.commandPalette", String(localized: "Command Palette…"), "p", .command, #selector(EditorCommands.showPalette(_:))),
             ("xyz.goToHeading", String(localized: "Go to Heading…"), "r", .command, #selector(EditorCommands.goToHeading(_:))),
             ("xyz.goToLine", String(localized: "Go to Line…"), "g", .control, #selector(EditorCommands.goToLine(_:))),
-            ("xyz.mode.source", String(localized: "Source"), "", [], #selector(EditorCommands.selectSource(_:))),
+            ("xyz.mode.source", String(localized: "Editing"), "", [], #selector(EditorCommands.selectSource(_:))),
             ("xyz.mode.reading", String(localized: "Reading"), "", [], #selector(EditorCommands.selectReading(_:))),
-            ("xyz.mode.toggleSource", String(localized: "Source Code Mode"), "/", .command, #selector(EditorCommands.toggleSource(_:))),
+            ("xyz.mode.toggleSource", String(localized: "Toggle Reading and Editing"), "/", .command, #selector(EditorCommands.toggleSource(_:))),
             ("xyz.zoomIn", String(localized: "Zoom In"), "+", .command, #selector(EditorCommands.zoomIn(_:))),
             ("xyz.zoomOut", String(localized: "Zoom Out"), "-", .command, #selector(EditorCommands.zoomOut(_:))),
             ("xyz.actualSize", String(localized: "Actual Size"), "0", .command, #selector(EditorCommands.actualSize(_:))),
-            ("xyz.lineNumbers", String(localized: "Show Line Numbers"), "", [], #selector(EditorCommands.toggleLineNumbers(_:))),
+            ("xyz.lineNumbers", String(localized: "Show Line Numbers in Reading"), "", [], #selector(EditorCommands.toggleLineNumbers(_:))),
             ("xyz.wordWrap", String(localized: "Wrap Lines"), "", [], #selector(EditorCommands.toggleWordWrap(_:))),
             ("xyz.workspace.sidebar", String(localized: "Toggle Sidebar"), "s", [.command, .control], #selector(EditorCommands.toggleSidebarVisibility(_:))),
             ("xyz.wordCount", String(localized: "Show Word Count"), "", [], #selector(EditorCommands.toggleWordCount(_:))),

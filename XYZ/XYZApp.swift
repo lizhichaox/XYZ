@@ -50,10 +50,10 @@ struct ViewModeCommands: Commands {
 
     var body: some Commands {
         CommandGroup(after: .sidebar) {
-            modeToggle("Source", .source)
+            modeToggle("Editing", .source)
             modeToggle("Reading", .reading)
             Divider()
-            Button("Source Code Mode") {
+            Button("Toggle Reading and Editing") {
                 actions?.toggle()
             }
             .keyboardShortcut("/", modifiers: .command)
