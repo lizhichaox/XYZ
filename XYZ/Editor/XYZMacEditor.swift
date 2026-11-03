@@ -793,8 +793,8 @@ final class EditorPane: NSView {
     }
 
     func noteTextLayout() {
+        // Display only. Marking the pane dirty from the text view's layout never finishes.
         gutter.needsDisplay = true
-        needsLayout = true
     }
 
     override func layout() {
