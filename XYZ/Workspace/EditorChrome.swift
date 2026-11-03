@@ -439,6 +439,7 @@ struct EditorStatusBar: View {
         .frame(height: 22)
         .frame(maxWidth: .infinity)
         .background(Color.sidebarBackground)
+        .background(StatusBarMarker())
         .overlay(alignment: .top) {
             Rectangle().fill(Color.primary.opacity(0.12)).frame(height: 1)
         }
@@ -600,6 +601,17 @@ struct OutlinePane: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.sidebarBackground)
     }
+}
+
+/// Marks the status bar so the editor pane can stop at its top.
+private struct StatusBarMarker: NSViewRepresentable {
+    func makeNSView(context: Context) -> NSView {
+        let view = NSView(frame: .zero)
+        view.identifier = NSUserInterfaceItemIdentifier("xyz.statusBar")
+        return view
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
 /// Values the status bar draws. The bar itself spans the window, under the sidebar and the editor.

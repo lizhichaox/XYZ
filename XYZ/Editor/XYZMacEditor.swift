@@ -14,35 +14,28 @@ final class XYZMacTextView: NSTextView {
     var style = XYZEditorStyle() {
         didSet {
             if showsLineNumbers, style != oldValue {
-                gutter.needsDisplay = true
+                editorPane?.gutter.needsDisplay = true
             }
         }
     }
-    /// Settings → Show line numbers. The left padding grows to fit them.
+    /// Settings → Show line numbers. The gutter is a sibling of the scroll view, not a subview of it.
     var showsLineNumbers = false {
         didSet {
             guard showsLineNumbers != oldValue else { return }
-            if showsLineNumbers {
-                gutter.invalidateLines()
-                installGutter()
-            } else {
-                gutter.removeFromSuperview()
-                gutter.isHidden = true
-            }
+            editorPane?.gutter.invalidateLines()
+            editorPane?.needsLayout = true
             needsLayout = true
         }
     }
+    /// The pane that owns this text view and its gutter. Set when the pane attaches the document.
+    weak var editorPane: EditorPane?
     /// The live gutter, for the offscreen snapshot. Nil until line numbers are turned on.
     var lineNumberGutter: LineNumberGutter? {
-        showsLineNumbers && gutter.superview != nil && !gutter.isHidden ? gutter : nil
+        guard showsLineNumbers, let gutter = editorPane?.gutter, gutter.superview != nil, !gutter.isHidden else {
+            return nil
+        }
+        return gutter
     }
-    private lazy var gutter: LineNumberGutter = {
-        let view = LineNumberGutter()
-        view.textView = self
-        view.isHidden = true
-        return view
-    }()
-    private var gutterScrollObserver: NSObjectProtocol?
     /// Restored once, after the view is in a window and the inset matches the pane.
     private var pendingAnchor: EditorScrollAnchor?
     private var isAligning = false
@@ -463,9 +456,7 @@ private struct FindScan {
             needsLayout = true
             return
         }
-        if showsLineNumbers {
-            installGutter()
-        }
+        editorPane?.noteTextLayout()
         clampToClip()
         alignIfReady()
     }
@@ -488,7 +479,8 @@ private struct FindScan {
             showsLineNumbers = show
             showViewport()
         } else if show {
-            installGutter()
+            editorPane?.needsLayout = true
+            editorPane?.gutter.needsDisplay = true
         }
     }
 
@@ -499,56 +491,22 @@ private struct FindScan {
         enclosingScrollView?.needsDisplay = true
     }
 
-    /// The side padding from Settings, widened when line numbers need more room.
+    /// The side padding from Settings. Line numbers live in the sibling gutter, not in this inset.
     private func expectedInset(for paneWidth: CGFloat) -> NSSize {
-        var side = style.sideInset(for: paneWidth)
-        if showsLineNumbers {
-            side = max(side, gutter.numberWidth(fontSize: style.fontSize) + LineNumberGutter.gap + 12)
-        }
-        return NSSize(width: side, height: style.verticalInset)
+        NSSize(width: style.sideInset(for: paneWidth), height: style.verticalInset)
     }
 
-    /// Hosts the gutter on the scroll view, above the clip view, so TextKit 2 fragment views cannot cover it.
-    private func installGutter() {
-        gutter.isHidden = false
-        let width = max(textContainerInset.width, 36)
-        if let scroll = enclosingScrollView {
-            gutter.place(on: scroll, width: width)
-            watchGutterScroll(of: scroll)
-        } else if gutter.superview !== self {
-            addSubview(gutter)
-        }
-        gutter.needsDisplay = true
-    }
-
-    private func watchGutterScroll(of scrollView: NSScrollView) {
-        let clip = scrollView.contentView
-        clip.postsBoundsChangedNotifications = true
-        guard gutterScrollObserver == nil else { return }
-        gutterScrollObserver = NotificationCenter.default.addObserver(
-            forName: NSView.boundsDidChangeNotification,
-            object: clip,
-            queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { () -> Void in
-                guard let self, self.showsLineNumbers else { return }
-                self.installGutter()
-            }
-        }
-    }
-
-    /// The text changed: renumber, and widen the padding when the count gains a digit.
+    /// The text changed: renumber. A wider number asks the pane to grow the gutter.
     func lineNumbersChanged() {
         guard showsLineNumbers else { return }
-        if gutter.invalidateLines() {
-            needsLayout = true
-        }
+        editorPane?.gutter.invalidateLines()
+        editorPane?.needsLayout = true
     }
 
     /// The caret's number is darker, and Editing draws a band behind that line.
     func caretMoved() {
         if showsLineNumbers {
-            gutter.setNeedsDisplay(gutter.bounds.intersection(visibleRect))
+            editorPane?.gutter.needsDisplay = true
         }
         guard isEditable else { return }
         guard let band = currentLineBand() else { return }
@@ -782,28 +740,104 @@ private struct FindScan {
     }
 }
 
-/// The editor scroller. Its frame stays inside the window, above the status bar.
-final class EditorScrollView: NSScrollView {
+/// The editor scroller. Line numbers are not a subview of this view: `NSScrollView` would cover them.
+final class EditorScrollView: NSScrollView {}
+
+/// Gutter and scroller, side by side. The pair stops at the top of the status bar.
+final class EditorPane: NSView {
+    let gutter = LineNumberGutter()
+    let scrollView = EditorScrollView()
     private var clamping = false
+    private var scrollObserver: NSObjectProtocol?
+
+    override var isFlipped: Bool { true }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        gutter.translatesAutoresizingMaskIntoConstraints = true
+        scrollView.translatesAutoresizingMaskIntoConstraints = true
+        addSubview(gutter)
+        addSubview(scrollView)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    deinit {
+        if let scrollObserver {
+            NotificationCenter.default.removeObserver(scrollObserver)
+        }
+    }
+
+    func attach(_ textView: XYZMacTextView) {
+        textView.editorPane = self
+        gutter.textView = textView
+        scrollView.documentView = textView
+        let clip = scrollView.contentView
+        clip.postsBoundsChangedNotifications = true
+        if let scrollObserver {
+            NotificationCenter.default.removeObserver(scrollObserver)
+        }
+        scrollObserver = NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification,
+            object: clip,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { () -> Void in
+                self?.gutter.needsDisplay = true
+            }
+        }
+        needsLayout = true
+    }
+
+    func noteTextLayout() {
+        gutter.needsDisplay = true
+        needsLayout = true
+    }
 
     override func layout() {
         super.layout()
         guard !clamping else { return }
         clamping = true
-        clampToWindow()
+        clampAboveStatusBar()
         clamping = false
+        let show = gutter.textView?.showsLineNumbers == true
+        gutter.isHidden = !show
+        let width: CGFloat
+        if show, let textView = gutter.textView {
+            width = max(36, gutter.numberWidth(fontSize: textView.style.fontSize) + 16)
+        } else {
+            width = 0
+        }
+        gutter.frame = NSRect(x: 0, y: 0, width: width, height: bounds.height)
+        scrollView.frame = NSRect(x: width, y: 0, width: max(1, bounds.width - width), height: bounds.height)
+        gutter.needsDisplay = true
     }
 
-    /// SwiftUI sometimes gives this view a frame that continues past the window bottom.
-    private func clampToWindow() {
-        guard let window, let content = window.contentView, let parent = superview else { return }
-        let mine = convert(bounds, to: content)
-        let clipped = mine.intersection(content.bounds)
-        guard !clipped.isNull, clipped.height > 1 else { return }
-        guard abs(clipped.height - mine.height) > 0.5 || abs(clipped.minY - mine.minY) > 0.5 else { return }
-        let next = content.convert(clipped, to: parent)
-        guard next.width > 1, next.height > 1, next != frame else { return }
+    /// The hosting view includes the status bar. Keep this pane above that bar.
+    private func clampAboveStatusBar() {
+        guard let content = window?.contentView, let parent = superview else { return }
+        guard let bar = Self.statusBar(in: content) else { return }
+        let barBox = bar.convert(bar.bounds, to: content)
+        var mine = convert(bounds, to: content)
+        // The window content view is not flipped: smaller y is lower on screen.
+        let overlap = barBox.maxY - mine.minY
+        guard overlap > 0.5, mine.height - overlap > 1 else { return }
+        mine.origin.y += overlap
+        mine.size.height -= overlap
+        let next = content.convert(mine, to: parent)
+        guard next.height > 1, next != frame else { return }
         frame = next
+    }
+
+    private static func statusBar(in root: NSView) -> NSView? {
+        if root.identifier?.rawValue == "xyz.statusBar" { return root }
+        for child in root.subviews {
+            if let found = statusBar(in: child) { return found }
+        }
+        return nil
     }
 }
 
@@ -822,7 +856,7 @@ struct XYZMacEditor: NSViewRepresentable {
     var onSelection: ((EditorCaret) -> Void)?
     var onTextChange: (String) -> Void
 
-    func makeNSView(context: Context) -> NSScrollView {
+    func makeNSView(context: Context) -> EditorPane {
         let textView = XYZMacTextView(usingTextLayoutManager: true)
         textView.isRichText = true
         textView.importsGraphics = false
@@ -831,7 +865,6 @@ struct XYZMacEditor: NSViewRepresentable {
         textView.isEditable = isEditable
         textView.isSelectable = true
         textView.allowsUndo = true
-        textView.usesAdaptiveColorMappingForDarkAppearance = true
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticDataDetectionEnabled = false
@@ -861,14 +894,14 @@ struct XYZMacEditor: NSViewRepresentable {
         context.coordinator.style = style
         context.coordinator.syntax = syntax
         textView.allowsMarkup = markup
-        textView.syncLineNumbers(lineNumbers)
         textView.delegate = context.coordinator
         textView.documentUndoManager = undoManager
         textView.onAppearanceChange = { [weak coordinator = context.coordinator] in
             coordinator?.restyle(edited: nil)
         }
 
-        let scrollView = EditorScrollView()
+        let pane = EditorPane()
+        let scrollView = pane.scrollView
         scrollView.drawsBackground = true
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
@@ -886,7 +919,8 @@ struct XYZMacEditor: NSViewRepresentable {
         scrollView.clipsToBounds = true
         scrollView.contentView.clipsToBounds = true
         scrollView.contentView.drawsBackground = false
-        scrollView.documentView = textView
+        pane.attach(textView)
+        textView.syncLineNumbers(lineNumbers)
         applyChrome(textView: textView, scrollView: scrollView, style: style)
         textView.string = text
         textView.warmLineIndex()
@@ -895,10 +929,11 @@ struct XYZMacEditor: NSViewRepresentable {
         applyWrap(textView: textView, scrollView: scrollView, wraps: style.wraps)
         textView.layoutManager?.allowsNonContiguousLayout = true
         assert(textView.textLayoutManager != nil, "XYZEditor requires TextKit 2")
-        return scrollView
+        return pane
     }
 
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+    func updateNSView(_ pane: EditorPane, context: Context) {
+        let scrollView = pane.scrollView
         guard let textView = scrollView.documentView as? XYZMacTextView else { return }
         context.coordinator.onTextChange = onTextChange
         context.coordinator.onSelection = onSelection
@@ -1001,7 +1036,7 @@ struct XYZMacEditor: NSViewRepresentable {
         Coordinator()
     }
 
-    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context: Context) -> CGSize? {
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: EditorPane, context: Context) -> CGSize? {
         let width = proposal.width.flatMap { $0.isFinite && $0 > 1 ? $0 : nil } ?? 640
         let offered = proposal.height ?? nsView.bounds.height
         let height = offered.isFinite && offered > 1 ? offered : 480

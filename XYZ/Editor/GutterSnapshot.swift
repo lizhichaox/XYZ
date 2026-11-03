@@ -7,7 +7,7 @@ enum GutterSnapshotCheck {
 
     static func finishIfRequested() {
         guard ProcessInfo.processInfo.arguments.contains(argument) else { return }
-        let failure = renderEditingGutter()
+        let failure = renderEditingGutter() ?? SearchTypingCheck.run()
         if let failure {
             print("GUTTER_MISSING \(failure)")
         } else {
@@ -30,7 +30,8 @@ enum GutterSnapshotCheck {
         let appearance = NSAppearance(named: name) ?? NSAppearance(named: .aqua)!
         let mode = editing ? "editing" : "reading"
         let label = "\(name.rawValue) \(mode)"
-        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 420, height: 280))
+        let pane = EditorPane(frame: NSRect(x: 0, y: 0, width: 420, height: 280))
+        let scroll = pane.scrollView
         scroll.hasVerticalScroller = true
         scroll.drawsBackground = true
         scroll.borderType = .noBorder
@@ -50,7 +51,7 @@ enum GutterSnapshotCheck {
         textView.textContainer?.widthTracksTextView = true
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        scroll.documentView = textView
+        pane.attach(textView)
         textView.font = .systemFont(ofSize: 16)
         textView.textColor = .labelColor
         textView.textContainerInset = NSSize(width: 48, height: 8)
@@ -70,7 +71,7 @@ enum GutterSnapshotCheck {
         window.appearance = appearance
         scroll.appearance = appearance
         textView.appearance = appearance
-        window.contentView = scroll
+        window.contentView = pane
         // Same view, flag flipped after creation: Editing on a tab that is already open.
         textView.syncLineNumbers(false)
         if editing {
@@ -78,13 +79,17 @@ enum GutterSnapshotCheck {
             textView.isEditable = true
         }
         window.layoutIfNeeded()
+        pane.layoutSubtreeIfNeeded()
         scroll.layoutSubtreeIfNeeded()
         textView.layoutSubtreeIfNeeded()
         textView.showViewport()
         if editing {
             textView.syncLineNumbers(true)
         }
-        scroll.displayIfNeeded()
+        pane.layoutSubtreeIfNeeded()
+        pane.gutter.needsDisplay = true
+        window.displayIfNeeded()
+        pane.displayIfNeeded()
 
         guard textView.textLayoutManager != nil else {
             return "\(label): text view is not TextKit 2"
@@ -92,7 +97,7 @@ enum GutterSnapshotCheck {
         if scroll.contentView.drawsBackground {
             return "\(label): clip view draws over the text"
         }
-        let bounds = scroll.bounds
+        let bounds = pane.bounds
         guard textView.frame.height > 8, textView.frame.width > 8 else {
             return "\(label): text view frame is \(NSStringFromRect(textView.frame))"
         }
@@ -105,11 +110,11 @@ enum GutterSnapshotCheck {
             guard gutter.frame.width > 8, gutter.frame.height > 8 else {
                 return "\(label): gutter frame is \(NSStringFromRect(gutter.frame))"
             }
+            guard gutter.superview === pane, gutter.superview !== scroll else {
+                return "\(label): gutter must sit beside the scroll view, not inside it"
+            }
             guard gutter.frame.maxX + 16 < bounds.width else {
                 return "\(label): gutter covers the text \(NSStringFromRect(gutter.frame))"
-            }
-            guard gutter.superview === scroll else {
-                return "\(label): gutter is not above the clip view"
             }
             textSample.origin.x = gutter.frame.maxX + 4
             textSample.size.width = bounds.width - textSample.origin.x - 8
@@ -137,12 +142,10 @@ enum GutterSnapshotCheck {
             return "\(label): text area has \(textInk) glyph pixels in \(NSStringFromRect(textSample))"
         }
         appearance.performAsCurrentDrawingAppearance {
-            scroll.cacheDisplay(in: bounds, to: rep)
+            pane.cacheDisplay(in: bounds, to: rep)
         }
         if editing, let gutter = textView.lineNumberGutter {
-            var sample = gutter.convert(gutter.bounds, to: scroll)
-            sample.origin.y = 0
-            sample.size.height = bounds.height
+            let sample = gutter.convert(gutter.bounds, to: pane)
             let ink = nonBackgroundPixels(in: rep, rect: sample, background: background)
             if ink < 40 {
                 return "\(label): gutter region has \(ink) non-background pixels in \(NSStringFromRect(sample))"

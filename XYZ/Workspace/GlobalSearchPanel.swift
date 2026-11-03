@@ -213,8 +213,9 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isReleasedWhenClosed = false
         panel.isExcludedFromWindowsMenu = true
+        panel.isRestorable = false
 
-        let search = NSSearchField()
+        let search = QueryField()
         search.placeholderString = String(localized: "Search files and text")
         search.delegate = self
         search.controlSize = .large
@@ -356,6 +357,15 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
         }
     }
 
+    /// The field editor is the query. A table reload must not put an older string back.
+    private func restoreField() {
+        guard let editor = search?.currentEditor() as? NSTextView else { return }
+        guard editor.string != typedQuery else { return }
+        editor.string = typedQuery
+        let end = (typedQuery as NSString).length
+        editor.setSelectedRange(NSRange(location: end, length: 0))
+    }
+
     private func showRecents() {
         task?.cancel()
         generation += 1
@@ -408,6 +418,7 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
             }
         }
         resize()
+        restoreField()
     }
 
     private func resize() {
@@ -641,6 +652,22 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
     }
 }
 
+/// Keeps the character that `NSSearchField` otherwise drops when it rewrites `stringValue`.
+final class QueryField: NSSearchField {
+    private var restoring = false
+
+    override func textDidChange(_ notification: Notification) {
+        let editor = (notification.userInfo?["NSFieldEditor"] as? NSTextView) ?? (currentEditor() as? NSTextView)
+        let live = editor?.string ?? ""
+        super.textDidChange(notification)
+        guard !restoring, let editor = currentEditor() as? NSTextView, editor.string != live else { return }
+        restoring = true
+        editor.string = live
+        editor.setSelectedRange(NSRange(location: (live as NSString).length, length: 0))
+        restoring = false
+    }
+}
+
 private final class SearchPanel: NSPanel {
     weak var controller: GlobalSearchController?
 
@@ -739,6 +766,79 @@ private final class SearchCell: NSTableCellView {
             self.detail.stringValue = ""
             self.detail.isHidden = true
         }
+    }
+}
+
+/// Types into Find in Files with real key-down events. The field must keep every character.
+enum SearchTypingCheck {
+    static func run() -> String? {
+        MainActor.assumeIsolated { () -> String? in
+            typeValue()
+        }
+    }
+
+    @MainActor
+    private static func typeValue() -> String? {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("xyz-search-keys", isDirectory: true)
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let session = WorkspaceSession(rootURL: root, bookmark: nil)
+        let controller = GlobalSearchController()
+        controller.show(session: session)
+        let title = String(localized: "Find in Files")
+        guard let panel = NSApp.windows.first(where: { $0.title == title }) else {
+            return "search panel did not open"
+        }
+        guard let field = findField(in: panel.contentView) else {
+            controller.closeIfOpen()
+            return "search field is missing"
+        }
+        panel.makeKeyAndOrderFront(nil)
+        panel.makeFirstResponder(field)
+        let typed = "value1"
+        for character in typed {
+            let text = String(character)
+            guard let down = NSEvent.keyEvent(
+                with: .keyDown,
+                location: .zero,
+                modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: panel.windowNumber,
+                context: nil,
+                characters: text,
+                charactersIgnoringModifiers: text,
+                isARepeat: false,
+                keyCode: 0
+            ) else {
+                controller.closeIfOpen()
+                return "could not make a key event"
+            }
+            if let editor = field.currentEditor() {
+                editor.keyDown(with: down)
+            } else {
+                panel.sendEvent(down)
+            }
+        }
+        let shown = (field.currentEditor() as? NSTextView)?.string ?? ""
+        if shown != typed {
+            controller.closeIfOpen()
+            return "search field shows \(shown) after typing \(typed)"
+        }
+        RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        let after = (field.currentEditor() as? NSTextView)?.string ?? field.stringValue
+        controller.closeIfOpen()
+        if after != typed {
+            return "search field shows \(after) after the search update"
+        }
+        return nil
+    }
+
+    private static func findField(in view: NSView?) -> NSSearchField? {
+        guard let view else { return nil }
+        if let field = view as? NSSearchField { return field }
+        for child in view.subviews {
+            if let found = findField(in: child) { return found }
+        }
+        return nil
     }
 }
 

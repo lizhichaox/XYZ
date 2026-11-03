@@ -345,21 +345,22 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
 
     private static func isPhantom(_ window: NSWindow, includeVisible: Bool) -> Bool {
         if window.isMiniaturized { return false }
-        if window is NSPanel { return false }
         if controller(for: window) != nil { return false }
-        if EscapeKey.isRegistered(window) { return false }
+        if isAuxiliary(window) { return false }
         let size = window.frame.size
         let content = window.contentRect(forFrameRect: window.frame).size
         let defaultSquare = near(size.width, 500) && near(size.height, 500)
             || near(content.width, 500) && near(content.height, 500)
+        // SwiftUI's default document window stays 500×500, ordered in but off the desktop.
+        // It can be key or main, and it can be a panel. It is never a window the user opened.
+        if defaultSquare && !FolderOpening.keepsNewDocument { return true }
+        if window is NSPanel { return false }
         let document = NSDocumentController.shared.document(for: window)
         let untitledDocument = document != nil && document?.fileURL == nil
         let blankTitle = window.title.isEmpty || window.title == "Untitled"
-        // A hidden window can still be key or main. It is not one the user is looking at.
-        // ⌘K used to leave a full-size invisible untitled window, not only the 500×500 one.
         if !window.isVisible {
             if FolderOpening.keepsNewDocument { return false }
-            if defaultSquare || untitledDocument { return true }
+            if untitledDocument { return true }
             if blankTitle, let screen = window.screen ?? NSScreen.main, window.frame.equalTo(screen.visibleFrame) {
                 return true
             }
@@ -368,6 +369,16 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
         if window.isKeyWindow || window.isMainWindow { return false }
         guard includeVisible, defaultSquare, untitledDocument else { return false }
         return true
+    }
+
+    /// Find in Files and the command palette are reused panels. They are not documents.
+    private static func isAuxiliary(_ window: NSWindow) -> Bool {
+        if EscapeKey.isRegistered(window) { return true }
+        let title = window.title
+        if title == String(localized: "Find in Files") || title == String(localized: "Command Palette") {
+            return true
+        }
+        return false
     }
 
     private static func near(_ value: CGFloat, _ target: CGFloat) -> Bool {

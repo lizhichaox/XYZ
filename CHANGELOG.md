@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.10
+
+- Editing shows line numbers again. They sit beside the text, not inside the scroll view, in light and dark, and the current line is marked.
+- ⌘K keeps the last character of a real keystroke. The field is the query.
+- The hidden 500×500 window is closed even when it is still ordered in. Find in Files and the command palette stay ordered out, and they are not documents.
+- The editor’s frame stops at the top of the status bar.
+
 ## 0.5.9
 
 - A hidden untitled window is closed: the 500×500 one after launch, and the full-size one ⌘K used to leave behind. ⌘K is not treated as File → New.

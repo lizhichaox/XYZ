@@ -1459,6 +1459,7 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isReleasedWhenClosed = false
         panel.isExcludedFromWindowsMenu = true
+        panel.isRestorable = false
 
         let search = NSSearchField()
         search.placeholderString = String(localized: "Go to file, > for commands, @ for headings, : for a line")
