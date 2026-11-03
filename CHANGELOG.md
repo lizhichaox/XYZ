@@ -1,6 +1,17 @@
 # Changelog
 
-## Unreleased
+## 0.1.0
+
+- A folder window keeps open files in a tab bar. A single click is a preview tab; editing or a double click pins it. A dirty file shows a dot. ⌘W closes the tab, and ⌘1–⌘8 select a tab, with ⌘9 selecting the last.
+- The path sits under the tabs. The status bar shows the caret, the selection, the encoding, the line ending, the file type, and, for prose, the word count.
+- Text files keep the encoding and line endings they were saved with: UTF-8, UTF-8 with a byte-order mark, UTF-16, and Windows-1252 for names that are already text. The editor works in Unicode and writes the original form back.
+- Source colors comments, strings, numbers, and keywords in common languages. There is no completion, diagnostics, or language server.
+- JSON Reading is pretty-printed. CSV and TSV Reading is a table. Markdown Reading is unchanged.
+- Pictures, PDF, and audio or video open in a viewer. Other files that are not text use Quick Look. Text over 5 MB still stays out of the editor.
+- The sidebar can copy a relative path. ⌘⇧F still filters names and searches inside files; choosing a match opens that line.
+- Code uses a fixed-width face. Prose still follows Settings.
+
+## 0.0.3
 
 - Format menu: bold, italic, strikethrough, inline code, link, headings, quote, bulleted, numbered and task lists, code block, and table, with Typora-style shortcuts (headings on ⌥⌘0 to ⌥⌘6).
 - Go to Heading (⌘R), and `@` in the command palette, list the note's headings and jump to one in Source or Reading.
@@ -13,8 +24,6 @@
 - A folder window's subtitle shows the path from the workspace root to the open file, such as `LIZHICHAO › DT`.
 - Files that are not Markdown show as plain text in the editor, without heading sizes or tinted `#`. Spell checking is on for Markdown and `.txt` only.
 - The `_xyz` icon is redrawn: the underscore is as heavy as the letters and stands a little apart from the x, the word is larger, and up to 64 pixels it is set heavier so it stays legible in Finder and menus. The Mac icon's rounded edge no longer shows a dark rim at small sizes. `tools/make_icons.py` draws it.
-
-## 0.0.3
 
 - ⌘/ keeps the same source line at the top of Source and Reading. Ten switches stay on that line, with one scroll and no second jump.
 - Reading blocks carry the source line (`data-line`). The toggle uses that line, not a height ratio.

@@ -48,6 +48,9 @@ protocol EditorCommandTarget: AnyObject {
     func newFolder()
     func reveal()
     func copyPath()
+    func copyRelativePath()
+    func closeActiveTab() -> Bool
+    func selectTab(number: Int) -> Bool
     func reloadFile()
     func paletteHeadings() -> [OutlineHeading]
     func revealHeading(line: Int)
@@ -65,6 +68,9 @@ extension EditorCommandTarget {
     func newFolder() {}
     func reveal() {}
     func copyPath() {}
+    func copyRelativePath() {}
+    func closeActiveTab() -> Bool { false }
+    func selectTab(number: Int) -> Bool { false }
     func reloadFile() {}
     func paletteHeadings() -> [OutlineHeading] { [] }
     func revealHeading(line: Int) {}
@@ -77,11 +83,31 @@ final class EditorCommands: NSObject {
     static let shared = EditorCommands()
 
     weak var target: EditorCommandTarget?
+    weak var hostWindow: NSWindow?
     private let palette = CommandPaletteController()
+    private var keyMonitor: Any?
 
-    func handleKeyEquivalent(_ event: NSEvent) -> Bool {
+    func installKeyMonitor() {
+        guard keyMonitor == nil else { return }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            let handled = MainActor.assumeIsolated {
+                EditorCommands.shared.handleKeyEquivalent(event, requireHost: true)
+            }
+            return handled ? nil : event
+        }
+    }
+
+    func handleKeyEquivalent(_ event: NSEvent, requireHost: Bool = false) -> Bool {
+        if requireHost, hostWindow !== NSApp.keyWindow { return false }
         let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
         let key = event.charactersIgnoringModifiers ?? ""
+        if flags == .command, let digit = key.unicodeScalars.first, digit.value >= 49, digit.value <= 57 {
+            let number = Int(digit.value - 48)
+            return target?.selectTab(number: number) == true
+        }
+        if flags == .command && key.lowercased() == "w" {
+            return target?.closeActiveTab() == true
+        }
         if flags == .command && key == "/" {
             guard target != nil else { return false }
             toggleSource(nil)
@@ -147,6 +173,10 @@ final class EditorCommands: NSObject {
             target?.reveal()
         case "file.copyPath":
             target?.copyPath()
+        case "file.copyRelativePath":
+            target?.copyRelativePath()
+        case "tab.close":
+            _ = target?.closeActiveTab()
         case "file.reload":
             target?.reloadFile()
         case "view.goToHeading":
@@ -274,6 +304,8 @@ enum PaletteTitles {
         case "folder.open": return String(localized: "Open Folder")
         case "file.reveal": return String(localized: "Reveal in Finder")
         case "file.copyPath": return String(localized: "Copy Path")
+        case "file.copyRelativePath": return String(localized: "Copy Relative Path")
+        case "tab.close": return String(localized: "Close Tab")
         case "file.reload": return String(localized: "Reload")
         case "app.about": return String(localized: "About XYZ")
         default: return nil
@@ -288,6 +320,7 @@ enum EditorMenuSupport {
     private static var observers: [NSObjectProtocol] = []
 
     static func install() {
+        EditorCommands.shared.installKeyMonitor()
         if !observing {
             observing = true
             let center = NotificationCenter.default
@@ -575,6 +608,7 @@ final class EditorAnchorView: NSView {
     func sync() {
         guard let target, window?.isKeyWindow == true else { return }
         EditorCommands.shared.target = target
+        EditorCommands.shared.hostWindow = window
     }
 }
 

@@ -428,6 +428,9 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate, WKScriptMessa
         }
         guard isReady else { return }
         push(to: webView)
+        if let line = scrollLink.takeQueuedReveal() {
+            evaluate(webView, "xyzRevealLine(\(max(1, line)));")
+        }
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -435,6 +438,9 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate, WKScriptMessa
         PreviewWebChrome.apply(to: webView)
         PreviewLog.logger.notice("navigation finished")
         push(to: webView)
+        if let line = scrollLink?.takeQueuedReveal() {
+            evaluate(webView, "xyzRevealLine(\(max(1, line)));")
+        }
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {

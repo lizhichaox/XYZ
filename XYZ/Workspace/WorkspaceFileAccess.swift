@@ -95,10 +95,13 @@ enum WorkspaceFileCoordination {
     }
 
     /// Read the current bytes and maybe replace them, inside one coordinated write.
+    /// The editor text uses `\n`. `encoding` and `lineEnding` are what the file had.
     static func updateText(
         at url: URL,
         editor: String,
         lastSaved: String,
+        encoding: TextEncoding,
+        lineEnding: LineEnding,
         force: Bool
     ) throws -> (WorkspaceWriteDecision, String?) {
         var decision = WorkspaceWriteDecision.upToDate
@@ -115,11 +118,11 @@ enum WorkspaceFileCoordination {
                 let disk: String?
                 if exists {
                     let data = try Data(contentsOf: url)
-                    guard let text = String(data: data, encoding: .utf8), !data.contains(0) else {
+                    guard let decoded = TextBytes.decode(data, allowLegacy: true) else {
                         decision = .conflict
                         return
                     }
-                    disk = text
+                    disk = decoded.text
                 } else {
                     disk = nil
                 }
@@ -131,7 +134,10 @@ enum WorkspaceFileCoordination {
                     force: force
                 )
                 if decision == .write {
-                    try Data(editor.utf8).write(to: url, options: .atomic)
+                    guard let bytes = TextBytes.encode(editor, encoding: encoding, lineEnding: lineEnding) else {
+                        throw TextBytes.EncodingError.unrepresentable
+                    }
+                    try bytes.write(to: url, options: .atomic)
                 }
             } catch {
                 inner = error

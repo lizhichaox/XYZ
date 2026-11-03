@@ -319,7 +319,9 @@ struct XYZMacEditor: NSViewRepresentable {
     var scrollLink: EditorScrollLink
     var markup: Bool
     var spellCheck: Bool
+    var syntax: SyntaxLanguage
     var lineNumbers: Bool
+    var onSelection: ((EditorCaret) -> Void)?
     var onTextChange: (String) -> Void
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -357,7 +359,9 @@ struct XYZMacEditor: NSViewRepresentable {
 
         context.coordinator.textView = textView
         context.coordinator.onTextChange = onTextChange
+        context.coordinator.onSelection = onSelection
         context.coordinator.style = style
+        context.coordinator.syntax = syntax
         textView.allowsMarkup = markup
         textView.showsLineNumbers = lineNumbers
         textView.delegate = context.coordinator
@@ -395,6 +399,7 @@ struct XYZMacEditor: NSViewRepresentable {
     func updateNSView(_ scrollView: NSScrollView, context: Context) {
         guard let textView = scrollView.documentView as? XYZMacTextView else { return }
         context.coordinator.onTextChange = onTextChange
+        context.coordinator.onSelection = onSelection
         context.coordinator.scrollLink = scrollLink
         textView.isEditable = isEditable
         let markupChanged = textView.allowsMarkup != markup
@@ -410,7 +415,8 @@ struct XYZMacEditor: NSViewRepresentable {
         scrollLink.revealLine = { [weak textView] line in
             textView?.jump(toLine: line)
         }
-        let styleChanged = context.coordinator.style != style || markupChanged
+        let styleChanged = context.coordinator.style != style || markupChanged || context.coordinator.syntax != syntax
+        context.coordinator.syntax = syntax
         if context.coordinator.style != style {
             context.coordinator.style = style
             applyChrome(textView: textView, scrollView: scrollView, style: style)
@@ -427,6 +433,9 @@ struct XYZMacEditor: NSViewRepresentable {
         }
         if let anchor = scrollLink.take(for: .source) {
             textView.reveal(anchor)
+        }
+        if let line = scrollLink.takeQueuedReveal() {
+            textView.jump(toLine: line)
         }
     }
 
@@ -461,9 +470,11 @@ struct XYZMacEditor: NSViewRepresentable {
     final class Coordinator: NSObject, NSTextViewDelegate, XYZTextEditing {
         var textView: XYZMacTextView?
         var onTextChange: (String) -> Void = { _ in }
+        var onSelection: ((EditorCaret) -> Void)?
         var scrollLink: EditorScrollLink?
         var reloadToken = 0
         var style = XYZEditorStyle()
+        var syntax = SyntaxLanguage.plain
         private var isApplyingExternalText = false
         private var isRestyling = false
         private var editedRange: NSRange?
@@ -487,6 +498,7 @@ struct XYZMacEditor: NSViewRepresentable {
                 restyle(edited: nil)
                 isApplyingExternalText = false
                 onTextChange(replacement)
+                reportSelection(textView)
             }
         }
 
@@ -501,7 +513,18 @@ struct XYZMacEditor: NSViewRepresentable {
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
-            (notification.object as? XYZMacTextView)?.caretMoved()
+            guard let textView = notification.object as? XYZMacTextView else { return }
+            textView.caretMoved()
+            reportSelection(textView)
+        }
+
+        private func reportSelection(_ textView: NSTextView) {
+            let range = textView.selectedRange()
+            onSelection?(EditorCaret.measure(
+                text: textView.string,
+                utf16Location: range.location,
+                utf16Length: range.length
+            ))
         }
 
         func textDidChange(_ notification: Notification) {
@@ -529,7 +552,13 @@ struct XYZMacEditor: NSViewRepresentable {
             guard let textView, !isRestyling, !textView.hasMarkedText() else { return }
             isRestyling = true
             defer { isRestyling = false }
-            EditorTypography.apply(to: textView, style: style, markup: textView.allowsMarkup, edited: edited)
+            EditorTypography.apply(
+                to: textView,
+                style: style,
+                markup: textView.allowsMarkup,
+                language: syntax,
+                edited: edited
+            )
             textView.lineNumbersChanged()
         }
     }
@@ -589,7 +618,13 @@ enum EditorTypography {
     }
 
     /// Base font and line height everywhere; heading sizes and tinted markers only when `markup` is on.
-    static func apply(to textView: NSTextView, style: XYZEditorStyle, markup: Bool, edited: NSRange?) {
+    static func apply(
+        to textView: NSTextView,
+        style: XYZEditorStyle,
+        markup: Bool,
+        language: SyntaxLanguage = .plain,
+        edited: NSRange?
+    ) {
         guard let storage = textView.textStorage else { return }
         let font = baseFont(style)
         let paragraph = style.paragraphStyle(naturalLineHeight: naturalLineHeight(font))
@@ -606,6 +641,8 @@ enum EditorTypography {
             ], range: span)
             if markup, full.length <= stylingLimit {
                 styleMarkup(storage, style: style, within: span)
+            } else if !markup, language != .plain, language != .markdown, full.length <= stylingLimit {
+                styleSyntax(storage, style: style, language: language, within: span)
             }
         }
         storage.endEditing()
@@ -628,6 +665,35 @@ enum EditorTypography {
         let start = ns.lineRange(for: NSRange(location: startLoc, length: 0))
         let end = ns.lineRange(for: NSRange(location: endLoc, length: 0))
         return NSUnionRange(start, end)
+    }
+
+    private static func styleSyntax(
+        _ storage: NSTextStorage,
+        style: XYZEditorStyle,
+        language: SyntaxLanguage,
+        within span: NSRange
+    ) {
+        let ns = storage.string as NSString
+        guard span.length > 0, NSMaxRange(span) <= ns.length else { return }
+        let range = span.location..<(span.location + span.length)
+        let spans = SyntaxColoring.spans(in: storage.string, language: language, within: range)
+        let comment = NSColor.tertiaryLabelColor
+        let literal = NSColor.secondaryLabelColor
+        let keyword = style.monospaced
+            ? NSFont.monospacedSystemFont(ofSize: style.fontSize, weight: .semibold)
+            : proportional(size: style.fontSize, weight: .semibold)
+        for item in spans {
+            let colored = NSRange(location: item.location, length: item.length)
+            guard colored.location >= 0, NSMaxRange(colored) <= ns.length, colored.length > 0 else { continue }
+            switch item.kind {
+            case .comment:
+                storage.addAttribute(.foregroundColor, value: comment, range: colored)
+            case .string, .number:
+                storage.addAttribute(.foregroundColor, value: literal, range: colored)
+            case .keyword:
+                storage.addAttribute(.font, value: keyword, range: colored)
+            }
+        }
     }
 
     private static func styleMarkup(_ storage: NSTextStorage, style: XYZEditorStyle, within span: NSRange) {

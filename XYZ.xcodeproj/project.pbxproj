@@ -34,6 +34,8 @@
 		8C0000000000000000000020 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000020 /* Localizable.xcstrings */; };
 		8C0000000000000000000021 /* EscapeKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000021 /* EscapeKey.swift */; };
 		8C0000000000000000000022 /* LineNumberGutter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000022 /* LineNumberGutter.swift */; };
+		8C0000000000000000000023 /* EditorChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000023 /* EditorChrome.swift */; };
+		8C0000000000000000000024 /* FileSurfaces.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000024 /* FileSurfaces.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -70,6 +72,8 @@
 		8B0000000000000000000020 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		8B0000000000000000000021 /* EscapeKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EscapeKey.swift; sourceTree = "<group>"; };
 		8B0000000000000000000022 /* LineNumberGutter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineNumberGutter.swift; sourceTree = "<group>"; };
+		8B0000000000000000000023 /* EditorChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorChrome.swift; sourceTree = "<group>"; };
+		8B0000000000000000000024 /* FileSurfaces.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSurfaces.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -163,6 +167,8 @@
 				8B0000000000000000000016 /* WorkspaceLog.swift */,
 				8B0000000000000000000019 /* EditorCommands.swift */,
 				8B0000000000000000000021 /* EscapeKey.swift */,
+				8B0000000000000000000023 /* EditorChrome.swift */,
+				8B0000000000000000000024 /* FileSurfaces.swift */,
 			);
 			path = Workspace;
 			sourceTree = "<group>";
@@ -288,6 +294,8 @@
 				8C000000000000000000001E /* WordCountBar.swift in Sources */,
 				8C0000000000000000000021 /* EscapeKey.swift in Sources */,
 				8C0000000000000000000022 /* LineNumberGutter.swift in Sources */,
+				8C0000000000000000000023 /* EditorChrome.swift in Sources */,
+				8C0000000000000000000024 /* FileSurfaces.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

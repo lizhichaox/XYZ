@@ -122,6 +122,8 @@ struct WorkspaceSidebar: NSViewRepresentable {
             session.focusSearchHandler = { [weak self] in
                 self?.focusSearch()
             }
+            outline.target = self
+            outline.doubleAction = #selector(pinClickedRow(_:))
         }
 
         func reloadIfNeeded(force: Bool) {
@@ -172,10 +174,10 @@ struct WorkspaceSidebar: NSViewRepresentable {
                         outline.expandItem(node)
                     }
                 } else {
-                    session.openFile(node.model)
+                    session.openFile(node.model, pin: true)
                 }
             } else if let hit = item as? SidebarHit {
-                session.openRelative(hit.relativePath)
+                session.openRelative(hit.relativePath, pin: true, line: hit.hit.lineNumber)
             }
         }
 
@@ -242,7 +244,7 @@ struct WorkspaceSidebar: NSViewRepresentable {
             if let node = item as? SidebarNode, !node.isDirectory {
                 session.openFile(node.model)
             } else if let hit = item as? SidebarHit {
-                session.openRelative(hit.relativePath)
+                session.openRelative(hit.relativePath, pin: false, line: hit.hit.lineNumber)
             }
         }
 
@@ -298,11 +300,13 @@ struct WorkspaceSidebar: NSViewRepresentable {
                 }
                 menu.addItem(menuItem(String(localized: "Reveal in Finder"), #selector(reveal(_:)), node.relativePath))
                 menu.addItem(menuItem(String(localized: "Copy Path"), #selector(copyPath(_:)), node.relativePath))
+                menu.addItem(menuItem(String(localized: "Copy Relative Path"), #selector(copyRelativePath(_:)), node.relativePath))
                 menu.addItem(.separator())
                 menu.addItem(menuItem(String(localized: "Move to Trash"), #selector(trashItem(_:)), node.relativePath))
             } else if let hit = item as? SidebarHit {
                 menu.addItem(menuItem(String(localized: "Reveal in Finder"), #selector(reveal(_:)), hit.relativePath))
                 menu.addItem(menuItem(String(localized: "Copy Path"), #selector(copyPath(_:)), hit.relativePath))
+                menu.addItem(menuItem(String(localized: "Copy Relative Path"), #selector(copyRelativePath(_:)), hit.relativePath))
             }
         }
 
@@ -339,11 +343,27 @@ struct WorkspaceSidebar: NSViewRepresentable {
             NSWorkspace.shared.activateFileViewerSelecting([session.url(for: path)])
         }
 
+        @objc private func pinClickedRow(_ sender: Any?) {
+            guard let session, let outline else { return }
+            let row = outline.clickedRow >= 0 ? outline.clickedRow : outline.selectedRow
+            guard row >= 0, let item = outline.item(atRow: row) else { return }
+            if let node = item as? SidebarNode, !node.isDirectory {
+                session.openFile(node.model, pin: true)
+            } else if let hit = item as? SidebarHit {
+                session.openRelative(hit.relativePath, pin: true, line: hit.hit.lineNumber)
+            }
+        }
+
         @objc private func copyPath(_ sender: NSMenuItem) {
             guard let session, let path = sender.representedObject as? String else { return }
             let board = NSPasteboard.general
             board.clearContents()
             board.setString(session.url(for: path).path, forType: .string)
+        }
+
+        @objc private func copyRelativePath(_ sender: NSMenuItem) {
+            guard let session, let path = sender.representedObject as? String else { return }
+            session.copyRelativePath(of: path)
         }
 
         @objc private func trashItem(_ sender: NSMenuItem) {

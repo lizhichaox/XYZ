@@ -104,6 +104,23 @@ final class EditorScrollLink {
     var revealLine: (Int) -> Void = { _ in }
     private var pending: (anchor: EditorScrollAnchor, destination: EditorViewMode)?
 
+    private var queuedReveal: Int?
+
+    /// Remember a source line to show once the editor for that file is on screen.
+    func storeQueuedReveal(_ line: Int) {
+        queuedReveal = line
+    }
+
+    func takeQueuedReveal() -> Int? {
+        let line = queuedReveal
+        queuedReveal = nil
+        return line
+    }
+
+    func clearQueuedReveal() {
+        queuedReveal = nil
+    }
+
     func noteToggle(to destination: EditorViewMode) {
         pending = (capture(), destination)
     }
@@ -132,6 +149,11 @@ struct XYZEditor: View {
     var markup: Bool = true
     /// Continuous spell checking, for prose rather than config files and code.
     var spellCheck: Bool = true
+    /// Plain coloring for code and structured text. Markdown keeps `markup`.
+    var syntax: SyntaxLanguage = .plain
+    /// Code uses a fixed-width face even when the prose setting is proportional.
+    var forcesMonospace: Bool = false
+    var onSelection: ((EditorCaret) -> Void)? = nil
     var onTextChange: (String) -> Void
 
     @AppStorage(XYZEditorStyle.monospacedKey) private var monospaced = false
@@ -148,13 +170,15 @@ struct XYZEditor: View {
             reloadToken: reloadToken,
             style: XYZEditorStyle(
                 fontSize: CGFloat(XYZEditorStyle.clampedFontSize(fontSize)),
-                monospaced: monospaced,
+                monospaced: monospaced || forcesMonospace,
                 readableWidth: readableWidth
             ),
             scrollLink: scrollLink,
             markup: markup,
             spellCheck: spellCheck,
+            syntax: syntax,
             lineNumbers: lineNumbers,
+            onSelection: onSelection,
             onTextChange: onTextChange
         )
         #else
@@ -163,7 +187,7 @@ struct XYZEditor: View {
             isEditable: isEditable,
             undoManager: undoManager,
             reloadToken: reloadToken,
-            monospaced: monospaced,
+            monospaced: monospaced || forcesMonospace,
             scrollLink: scrollLink,
             markup: markup,
             onTextChange: onTextChange

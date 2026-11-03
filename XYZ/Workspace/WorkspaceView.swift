@@ -185,9 +185,18 @@ private struct WorkspaceDetail: View {
     @Environment(\.undoManager) private var undoManager
     @AppStorage(WordCountSetting.key) private var showsWordCount = false
     @StateObject private var wordCount = WordCountModel()
+    @State private var caret = EditorCaret()
 
     var body: some View {
         VStack(spacing: 0) {
+            if !session.tabStrip.tabs.isEmpty {
+                EditorTabBar(session: session)
+                if let path = activePath {
+                    EditorBreadcrumb(rootName: session.displayName, relativePath: path) { crumb in
+                        session.revealCrumb(crumb)
+                    }
+                }
+            }
             if let status = banner {
                 bannerView(status)
             }
@@ -196,22 +205,34 @@ private struct WorkspaceDetail: View {
                     ContentUnavailableView {
                         Label("No File Open", systemImage: "doc.text")
                     } description: {
-                        Text("Choose a file in the sidebar.\n⌘P opens one. ⌘⇧F filters the list.")
+                        Text("Choose a file in the sidebar.\n⌘P opens one. ⌘⇧F searches names and text.")
                     }
                 } else if showsReading {
-                    preview
+                    reading
                 } else if showsEditor {
                     editor
-                } else if let buffer = session.buffer {
+                } else if let buffer = session.buffer, buffer.kind == .tooLarge {
                     placeholder(for: buffer)
+                        .background(Color.editorBackground)
+                } else if let buffer = session.buffer {
+                    FileSurface(url: buffer.url, viewer: format.viewer)
+                        .id(buffer.editorToken)
                         .background(Color.editorBackground)
                 }
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .safeAreaInset(edge: .bottom, spacing: 0) {
-            if showsWordCount && (showsEditor || showsReading) {
-                WordCountBar(stats: wordCount.stats)
+            if session.buffer != nil {
+                EditorStatusBar(
+                    caret: showsEditor || showsReading ? caret : nil,
+                    encoding: showsText ? session.buffer?.encoding.label : nil,
+                    lineEnding: showsText ? session.buffer?.lineEnding.label : nil,
+                    mixedEndings: session.buffer?.mixedLineEndings == true,
+                    typeName: format.label,
+                    words: format.isProse ? wordCount.stats : nil,
+                    showsReadingTime: showsWordCount && format.isProse
+                )
             }
         }
         .background(Color.editorBackground)
@@ -220,6 +241,7 @@ private struct WorkspaceDetail: View {
         }
         .onChange(of: session.buffer?.editorToken) { _, _ in
             session.previewBridge.send(session.buffer?.text ?? "")
+            caret = EditorCaret()
             countWords(immediate: true)
         }
         .onChange(of: showsWordCount) { _, _ in
@@ -227,26 +249,50 @@ private struct WorkspaceDetail: View {
         }
     }
 
-    private func countWords(immediate: Bool) {
-        guard showsWordCount, let text = session.buffer?.text else { return }
-        wordCount.update(text, immediate: immediate)
+    private var activePath: String? {
+        session.buffer?.relativePath ?? session.tabStrip.activeID
     }
 
-    private var showsEditor: Bool {
+    private var format: FileFormat {
+        FileFormats.format(for: session.buffer?.relativePath ?? activePath ?? "")
+    }
+
+    private var showsText: Bool {
         guard let kind = session.buffer?.kind else { return false }
         return kind == .markdown || kind == .plainText
     }
 
+    private func countWords(immediate: Bool) {
+        guard format.isProse, let text = session.buffer?.text else { return }
+        wordCount.update(text, immediate: immediate)
+    }
+
+    private var showsEditor: Bool { showsText && !showsReading }
+
     private var showsReading: Bool {
-        session.buffer?.kind == .markdown && session.viewMode == .reading
+        guard showsText, session.viewMode == .reading else { return false }
+        return format.reading != .none
+    }
+
+    @ViewBuilder
+    private var reading: some View {
+        switch format.reading {
+        case .markdown:
+            preview
+        case .json:
+            JSONReadingView(text: session.buffer?.text ?? "", scrollLink: session.scrollLink)
+        case .csv:
+            CSVReadingView(text: session.buffer?.text ?? "", scrollLink: session.scrollLink)
+        case .none:
+            editor
+        }
     }
 
     private func placeholder(for buffer: WorkspaceFileBuffer) -> some View {
-        let tooLarge = buffer.kind == .tooLarge
-        return ContentUnavailableView {
-            Label(tooLarge ? LocalizedStringKey("File Too Large") : LocalizedStringKey("Can't Edit This File"), systemImage: "doc")
+        ContentUnavailableView {
+            Label("File Too Large", systemImage: "doc")
         } description: {
-            Text(tooLarge ? LocalizedStringKey("This file is too large to edit in XYZ.") : LocalizedStringKey("XYZ doesn't edit this file."))
+            Text("This file is too large to edit in XYZ.")
         } actions: {
             Button("Open with Default App") {
                 NSWorkspace.shared.open(buffer.url)
@@ -299,12 +345,15 @@ private struct WorkspaceDetail: View {
             undoManager: undoManager,
             reloadToken: session.buffer?.editorToken ?? 0,
             scrollLink: session.scrollLink,
-            markup: session.buffer?.kind == .markdown,
-            spellCheck: TextMarkup.isProse(fileExtension: session.buffer?.url.pathExtension),
+            markup: format.language == .markdown,
+            spellCheck: format.isProse,
+            syntax: format.language,
+            forcesMonospace: format.usesCodeFont,
+            onSelection: { caret = $0 },
             onTextChange: { newText in
                 session.buffer?.userEdited(newText)
                 session.previewBridge.send(newText)
-                if showsWordCount {
+                if format.isProse {
                     wordCount.update(newText)
                 }
             }
@@ -375,6 +424,18 @@ final class WorkspaceCommandBridge: ObservableObject, EditorCommandTarget {
 
     func copyPath() {
         session?.copyOpenPath()
+    }
+
+    func copyRelativePath() {
+        session?.copyRelativePath()
+    }
+
+    func closeActiveTab() -> Bool {
+        session?.closeActiveTab() ?? false
+    }
+
+    func selectTab(number: Int) -> Bool {
+        session?.selectTab(number: number) ?? false
     }
 
     func reloadFile() {

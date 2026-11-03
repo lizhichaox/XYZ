@@ -103,6 +103,13 @@ struct DocumentEditorView: View {
         #endif
     }
 
+    private var documentFormat: FileFormat {
+        if let name = fileURL?.lastPathComponent {
+            return FileFormats.format(for: name)
+        }
+        return FileFormats.format(for: "Untitled.md")
+    }
+
     private var editor: some View {
         XYZEditor(
             text: document.text,
@@ -111,6 +118,8 @@ struct DocumentEditorView: View {
             scrollLink: scrollLink,
             markup: TextMarkup.allows(fileExtension: fileURL?.pathExtension),
             spellCheck: TextMarkup.isProse(fileExtension: fileURL?.pathExtension),
+            syntax: documentFormat.language,
+            forcesMonospace: documentFormat.usesCodeFont,
             onTextChange: { newText in
                 document.storeEditorText(newText)
                 bridge.send(newText)

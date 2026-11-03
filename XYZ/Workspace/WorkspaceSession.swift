@@ -18,6 +18,7 @@ final class WorkspaceSession: ObservableObject {
     @Published private(set) var loadErrors: [String: String] = [:]
     @Published var selectedPath: String?
     @Published private(set) var buffer: WorkspaceFileBuffer?
+    @Published private(set) var tabStrip = EditorTabStrip()
     @Published var rootError: String?
     @Published var actionMessage: String?
     @Published var nameQuery = "" {
@@ -42,7 +43,8 @@ final class WorkspaceSession: ObservableObject {
     private let monitor = DirectoryMonitor()
     private var accessStarted = false
     private var didStart = false
-    private var fileWatchKey: String?
+    private var buffers: [String: WorkspaceFileBuffer] = [:]
+    private var pendingRevealLine: Int?
     private var reloadTasks: [String: Task<Void, Never>] = [:]
     private var loadGeneration: [String: Int] = [:]
     private var indexTask: Task<Void, Never>?
@@ -84,7 +86,9 @@ final class WorkspaceSession: ObservableObject {
     }
 
     func shutdown() {
-        buffer?.flush()
+        for open in buffers.values {
+            open.flush()
+        }
         monitor.stop()
         reloadTasks.values.forEach { $0.cancel() }
         indexTask?.cancel()
@@ -154,8 +158,13 @@ final class WorkspaceSession: ObservableObject {
     }
 
     func toggleViewMode(source: String) {
-        guard buffer == nil || buffer?.kind == .markdown else { return }
+        guard let buffer, Self.canRead(buffer) else { return }
         selectViewMode(viewMode.toggled(), source: source)
+    }
+
+    private static func canRead(_ buffer: WorkspaceFileBuffer) -> Bool {
+        guard buffer.kind == .markdown || buffer.kind == .plainText else { return false }
+        return FileFormats.format(for: buffer.relativePath).reading != .none
     }
 
     func focusSearch() {
@@ -173,9 +182,9 @@ final class WorkspaceSession: ObservableObject {
         openRelative(String(path.dropFirst(root.count + 1)))
     }
 
-    func openRelative(_ relativePath: String) {
+    func openRelative(_ relativePath: String, pin: Bool = true, line: Int? = nil) {
         if let node = node(at: relativePath) {
-            openFile(node)
+            openFile(node, pin: pin, line: line)
             return
         }
         let name = (relativePath as NSString).lastPathComponent
@@ -184,7 +193,7 @@ final class WorkspaceSession: ObservableObject {
             relativePath: relativePath,
             isDirectory: false,
             isHidden: WorkspacePaths.isHidden(name: name, resourceHidden: false)
-        ))
+        ), pin: pin, line: line)
     }
 
     func createItem(directory: Bool, in parent: String) {
@@ -221,7 +230,7 @@ final class WorkspaceSession: ObservableObject {
                         relativePath: relative,
                         isDirectory: false,
                         isHidden: name.hasPrefix(".")
-                    ))
+                    ), pin: true)
                 }
                 self.scheduleReload(parent)
                 self.scheduleIndex()
@@ -245,28 +254,16 @@ final class WorkspaceSession: ObservableObject {
         } catch {
             return String(localized: "Couldn't rename this item.")
         }
-        retarget(from: relativePath, to: destination)
-        if buffer?.relativePath == relativePath {
-            buffer?.flush()
-            openFile(WorkspaceNode(
-                name: name,
-                relativePath: destination,
-                isDirectory: false,
-                isHidden: name.hasPrefix(".")
-            ))
-        } else if let selected = selectedPath, selected == relativePath || selected.hasPrefix(relativePath + "/") {
-            selectedPath = destination + selected.dropFirst(relativePath.count)
-        }
+        retargetOpenFiles(from: relativePath, to: destination)
         scheduleReload(parent)
         scheduleIndex()
         return nil
     }
 
     func trash(relativePath: String) throws {
-        if let open = buffer?.relativePath, open == relativePath || open.hasPrefix(relativePath + "/") {
-            buffer?.flush()
-            buffer = nil
-            selectedPath = nil
+        let open = buffers.keys.filter { $0 == relativePath || $0.hasPrefix(relativePath + "/") }
+        for path in open {
+            _ = closeTab(path, force: true)
         }
         try FileManager.default.trashItem(at: url(for: relativePath), resultingItemURL: nil)
         expanded = Set(expanded.filter { $0 != relativePath && !$0.hasPrefix(relativePath + "/") })
@@ -288,16 +285,7 @@ final class WorkspaceSession: ObservableObject {
         } catch {
             return String(localized: "Couldn't move this item.")
         }
-        retarget(from: relativePath, to: destination)
-        if buffer?.relativePath == relativePath {
-            buffer?.flush()
-            openFile(WorkspaceNode(
-                name: unique,
-                relativePath: destination,
-                isDirectory: false,
-                isHidden: unique.hasPrefix(".")
-            ))
-        }
+        retargetOpenFiles(from: relativePath, to: destination)
         scheduleReload(WorkspacePaths.parent(of: relativePath))
         scheduleReload(parent)
         scheduleIndex()
@@ -308,23 +296,39 @@ final class WorkspaceSession: ObservableObject {
         nameQuery = ""
     }
 
-    func openFile(_ node: WorkspaceNode) {
+    func openFile(_ node: WorkspaceNode, pin: Bool = false, line: Int? = nil) {
         guard !node.isDirectory else { return }
         revealAncestors(of: node.relativePath)
-        guard buffer?.relativePath != node.relativePath else {
-            selectedPath = node.relativePath
+        let path = node.relativePath
+        if let line {
+            pendingRevealLine = line
+        } else {
+            pendingRevealLine = nil
+            scrollLink.clearQueuedReveal()
+        }
+        var strip = tabStrip
+        let replaced = strip.open(path, pin: pin)
+        tabStrip = strip
+        if let replaced {
+            release(replaced, save: true)
+        }
+        selectedPath = path
+        if let existing = buffers[path] {
+            show(existing)
             return
         }
-        selectedPath = node.relativePath
-        buffer?.flush()
-        let path = node.relativePath
         let url = url(for: path)
         Task { [weak self] in
             let loaded = await Self.readForEditing(url: url, name: node.name)
             await MainActor.run {
-                guard let self, self.selectedPath == path else { return }
-                self.install(loaded, relativePath: path, url: url)
+                guard let self, self.tabStrip.contains(path) else { return }
+                let open = self.makeBuffer(loaded, relativePath: path, url: url)
+                self.buffers[path] = open
+                self.watchFile(open)
                 self.noteRecent(path)
+                if self.tabStrip.activeID == path {
+                    self.show(open)
+                }
             }
         }
     }
@@ -350,10 +354,165 @@ final class WorkspaceSession: ObservableObject {
     }
 
     func copyOpenPath() {
-        let path = buffer?.url.path ?? rootURL.path
+        copyString(buffer?.url.path ?? rootURL.path)
+    }
+
+    func copyRelativePath(of relativePath: String? = nil) {
+        let path = relativePath ?? buffer?.relativePath ?? ""
+        copyString(path.isEmpty ? "." : path)
+    }
+
+    func closeActiveTab() -> Bool {
+        guard let id = tabStrip.activeID else { return false }
+        closeTab(id)
+        return true
+    }
+
+    /// Closes a tab. A tab with unsaved edits that could not be written stays open.
+    @discardableResult
+    func closeTab(_ id: String, force: Bool = false) -> Bool {
+        if let open = buffers[id] {
+            open.flush()
+            if !force, open.isDirty || open.conflictText != nil {
+                show(open)
+                return false
+            }
+        }
+        release(id, save: false)
+        var strip = tabStrip
+        let next = strip.close(id: id)
+        tabStrip = strip
+        if let next, let open = buffers[next] {
+            show(open)
+        } else if next == nil {
+            buffer = nil
+            selectedPath = nil
+            previewBridge.send("")
+        }
+        return true
+    }
+
+    @discardableResult
+    func selectTab(id: String) -> Bool {
+        guard tabStrip.contains(id) else { return false }
+        var strip = tabStrip
+        _ = strip.open(id, pin: false)
+        tabStrip = strip
+        selectedPath = id
+        revealAncestors(of: id)
+        if let open = buffers[id] {
+            show(open)
+        }
+        return true
+    }
+
+    @discardableResult
+    func selectTab(number: Int) -> Bool {
+        var strip = tabStrip
+        guard let id = strip.select(shortcut: number) else { return false }
+        tabStrip = strip
+        return selectTab(id: id)
+    }
+
+    func revealCrumb(_ relativePath: String) {
+        guard !relativePath.isEmpty else { return }
+        revealAncestors(of: relativePath)
+        guard let node = node(at: relativePath) else { return }
+        if node.isDirectory {
+            setExpanded(node, true)
+            selectedPath = relativePath
+        } else {
+            openFile(node, pin: true)
+        }
+    }
+
+    private func copyString(_ value: String) {
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        pasteboard.setString(path, forType: .string)
+        pasteboard.setString(value, forType: .string)
+    }
+
+    private func show(_ open: WorkspaceFileBuffer) {
+        let same = buffer === open
+        buffer = open
+        selectedPath = open.relativePath
+        previewBridge.send(open.text)
+        guard let line = pendingRevealLine else { return }
+        pendingRevealLine = nil
+        if same {
+            scrollLink.revealLine(line)
+        } else {
+            scrollLink.storeQueuedReveal(line)
+        }
+    }
+
+    private func release(_ path: String, save: Bool) {
+        if save {
+            buffers[path]?.flush()
+        }
+        unwatchFile(path)
+        buffers[path] = nil
+        if buffer?.relativePath == path {
+            buffer = nil
+        }
+    }
+
+    private func makeBuffer(_ loaded: LoadedFile, relativePath: String, url: URL) -> WorkspaceFileBuffer {
+        let open = WorkspaceFileBuffer(
+            url: url,
+            relativePath: relativePath,
+            kind: loaded.kind,
+            text: loaded.text,
+            encoding: loaded.encoding,
+            lineEnding: loaded.lineEnding,
+            mixedLineEndings: loaded.mixedLineEndings
+        )
+        open.onEditorState = { [weak self] buffer in
+            guard let self else { return }
+            var strip = self.tabStrip
+            guard strip.setDirty(id: buffer.relativePath, buffer.isDirty) else { return }
+            self.tabStrip = strip
+        }
+        return open
+    }
+
+    private func watchFile(_ open: WorkspaceFileBuffer) {
+        let path = open.relativePath
+        let key = "file:" + path
+        monitor.watch(url: open.url, key: key) { [weak open] in
+            Task { @MainActor in
+                open?.noteExternalChange()
+            }
+        }
+    }
+
+    private func unwatchFile(_ path: String) {
+        let key = "file:" + path
+        monitor.unwatch(key: key)
+    }
+
+    private func retargetOpenFiles(from old: String, to new: String) {
+        guard old != new else { return }
+        retarget(from: old, to: new)
+        var next: [String: WorkspaceFileBuffer] = [:]
+        for (path, open) in buffers {
+            let mapped = WorkspacePaths.replacing(path, from: old, to: new)
+            if mapped != path {
+                unwatchFile(path)
+                open.retarget(relativePath: mapped, url: url(for: mapped))
+                watchFile(open)
+            }
+            next[mapped] = open
+        }
+        buffers = next
+        var strip = tabStrip
+        strip.retarget(from: old, to: new)
+        tabStrip = strip
+        if let selectedPath {
+            self.selectedPath = WorkspacePaths.replacing(selectedPath, from: old, to: new)
+        }
+        recentPaths = recentPaths.map { WorkspacePaths.replacing($0, from: old, to: new) }
+        UserDefaults.standard.set(recentPaths, forKey: Self.recentsKey(for: rootURL))
     }
 
     func openInDocumentWindow(relativePath: String) {
@@ -509,10 +668,10 @@ final class WorkspaceSession: ObservableObject {
                     continue
                 }
                 guard let data = try? WorkspaceFileCoordination.readData(at: url),
-                      let text = String(data: data, encoding: .utf8) else { continue }
+                      let decoded = TextBytes.decode(data, allowLegacy: FileFormats.isTextualName(entry.name)) else { continue }
                 let room = min(3, WorkspaceContentSearch.hitLimit - found.count)
                 found.append(contentsOf: WorkspaceContentSearch.hits(
-                    in: text,
+                    in: decoded.text,
                     relativePath: entry.relativePath,
                     query: query,
                     limit: room
@@ -594,30 +753,9 @@ final class WorkspaceSession: ObservableObject {
     }
 
     private func noteOpenFileStillPresent(parent: String, nodes: [WorkspaceNode]) {
-        guard let path = buffer?.relativePath, WorkspacePaths.parent(of: path) == parent else { return }
-        if !nodes.contains(where: { $0.relativePath == path }) {
-            buffer?.noteMissing()
-        }
-    }
-
-    private func install(_ loaded: LoadedFile, relativePath: String, url: URL) {
-        let buffer = WorkspaceFileBuffer(
-            url: url,
-            relativePath: relativePath,
-            kind: loaded.kind,
-            text: loaded.text
-        )
-        self.buffer = buffer
-        previewBridge.send(loaded.text)
-        if let fileWatchKey {
-            monitor.unwatch(key: fileWatchKey)
-        }
-        guard loaded.kind == .markdown || loaded.kind == .plainText else { return }
-        let key = "file:" + relativePath
-        fileWatchKey = key
-        monitor.watch(url: url, key: key) { [weak buffer] in
-            Task { @MainActor in
-                buffer?.noteExternalChange()
+        for open in buffers.values where WorkspacePaths.parent(of: open.relativePath) == parent {
+            if !nodes.contains(where: { $0.relativePath == open.relativePath }) {
+                open.noteMissing()
             }
         }
     }
@@ -625,10 +763,14 @@ final class WorkspaceSession: ObservableObject {
     private struct LoadedFile: Sendable {
         var kind: WorkspaceFileKind
         var text: String
+        var encoding: TextEncoding
+        var lineEnding: LineEnding
+        var mixedLineEndings: Bool
     }
 
     private static func readForEditing(url: URL, name: String) async -> LoadedFile {
         await Task.detached {
+            let empty = LoadedFile(kind: .binary, text: "", encoding: .utf8, lineEnding: .lf, mixedLineEndings: false)
             let size = WorkspaceFileCoordination.fileSize(at: url)
             var sample = (try? WorkspaceFileCoordination.readSample(at: url, limit: WorkspaceFileClassifier.sampleLimit)) ?? Data()
             var fullFile: Data?
@@ -644,14 +786,19 @@ final class WorkspaceSession: ObservableObject {
                 fullFile: fullFile
             )
             guard kind == .markdown || kind == .plainText else {
-                return LoadedFile(kind: kind, text: "")
+                return LoadedFile(kind: kind, text: "", encoding: .utf8, lineEnding: .lf, mixedLineEndings: false)
             }
             let data = (fullFile?.count == size ? fullFile : nil) ?? (try? WorkspaceFileCoordination.readData(at: url))
-            guard let data, !data.contains(0), let text = String(data: data, encoding: .utf8) else {
-                kind = .binary
-                return LoadedFile(kind: kind, text: "")
+            guard let data, let decoded = TextBytes.decode(data, allowLegacy: true) else {
+                return empty
             }
-            return LoadedFile(kind: kind, text: text)
+            return LoadedFile(
+                kind: kind,
+                text: decoded.text,
+                encoding: decoded.encoding,
+                lineEnding: decoded.lineEnding,
+                mixedLineEndings: decoded.mixedLineEndings
+            )
         }.value
     }
 }
@@ -659,25 +806,47 @@ final class WorkspaceSession: ObservableObject {
 /// Text for one workspace file. Keystrokes stay here and are written with a coordinated save.
 @MainActor
 final class WorkspaceFileBuffer: ObservableObject {
-    let url: URL
-    let relativePath: String
+    private(set) var url: URL
+    private(set) var relativePath: String
     @Published private(set) var kind: WorkspaceFileKind
     @Published private(set) var reloadToken = 0
     @Published private(set) var conflictText: String?
     @Published private(set) var isMissing = false
     @Published private(set) var status: String?
     private(set) var text: String
+    private(set) var encoding: TextEncoding
+    private(set) var lineEnding: LineEnding
+    private(set) var mixedLineEndings: Bool
+    var onEditorState: ((WorkspaceFileBuffer) -> Void)?
     private var lastSaved: String
     private var saveTask: Task<Void, Never>?
 
-    fileprivate init(url: URL, relativePath: String, kind: WorkspaceFileKind, text: String) {
+    var isDirty: Bool { text != lastSaved }
+
+    fileprivate init(
+        url: URL,
+        relativePath: String,
+        kind: WorkspaceFileKind,
+        text: String,
+        encoding: TextEncoding,
+        lineEnding: LineEnding,
+        mixedLineEndings: Bool
+    ) {
         self.url = url
         self.relativePath = relativePath
         self.kind = kind
         self.text = text
+        self.encoding = encoding
+        self.lineEnding = lineEnding
+        self.mixedLineEndings = mixedLineEndings
         self.lastSaved = text
         Self.nextGeneration += 1
         generation = Self.nextGeneration
+    }
+
+    func retarget(relativePath: String, url: URL) {
+        self.relativePath = relativePath
+        self.url = url
     }
 
     /// Changes when the file is opened or reloaded, so one text view can swap documents.
@@ -688,6 +857,7 @@ final class WorkspaceFileBuffer: ObservableObject {
 
     func userEdited(_ newText: String) {
         text = newText
+        onEditorState?(self)
         if conflictText != nil || isMissing {
             saveTask?.cancel()
             return
@@ -716,6 +886,10 @@ final class WorkspaceFileBuffer: ObservableObject {
     }
 
     func noteExternalChange() {
+        if kind != .markdown && kind != .plainText {
+            reloadToken += 1
+            return
+        }
         let url = url
         Task { [weak self] in
             let data = try? await Task.detached {
@@ -727,22 +901,27 @@ final class WorkspaceFileBuffer: ObservableObject {
                     self.noteMissing()
                     return
                 }
-                guard !data.contains(0), let disk = String(data: data, encoding: .utf8) else {
+                guard let decoded = TextBytes.decode(data, allowLegacy: true) else {
                     self.kind = .binary
                     self.conflictText = nil
+                    self.reloadToken += 1
                     return
                 }
+                self.encoding = decoded.encoding
+                self.lineEnding = decoded.lineEnding
+                self.mixedLineEndings = decoded.mixedLineEndings
                 self.isMissing = false
-                switch WorkspaceFilePolicy.interpretChange(editor: self.text, lastSaved: self.lastSaved, disk: disk) {
+                switch WorkspaceFilePolicy.interpretChange(editor: self.text, lastSaved: self.lastSaved, disk: decoded.text) {
                 case .ignore:
-                    if self.text == disk {
-                        self.lastSaved = disk
+                    if self.text == decoded.text {
+                        self.lastSaved = decoded.text
                     }
                 case .reload:
-                    self.apply(text: disk)
+                    self.apply(text: decoded.text)
                 case .conflict:
-                    self.conflictText = disk
+                    self.conflictText = decoded.text
                 }
+                self.onEditorState?(self)
             }
         }
     }
@@ -762,6 +941,7 @@ final class WorkspaceFileBuffer: ObservableObject {
         isMissing = false
         status = nil
         reloadToken += 1
+        onEditorState?(self)
     }
 
     private func scheduleSave() {
@@ -783,6 +963,8 @@ final class WorkspaceFileBuffer: ObservableObject {
                 at: url,
                 editor: editor,
                 lastSaved: saved,
+                encoding: encoding,
+                lineEnding: lineEnding,
                 force: force
             )
             switch decision {
@@ -791,14 +973,18 @@ final class WorkspaceFileBuffer: ObservableObject {
                 conflictText = nil
                 isMissing = false
                 status = nil
+                onEditorState?(self)
             case .upToDate:
                 if let disk, disk == text {
                     lastSaved = disk
+                    onEditorState?(self)
                 }
             case .conflict:
                 conflictText = disk
                 status = disk == nil ? String(localized: "This file was removed.") : String(localized: "This file changed on disk.")
             }
+        } catch TextBytes.EncodingError.unrepresentable {
+            status = String(localized: "Couldn't save this file in its original encoding.")
         } catch {
             status = String(localized: "Couldn't save this file.")
         }
