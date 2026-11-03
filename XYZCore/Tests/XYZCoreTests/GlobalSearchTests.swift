@@ -59,9 +59,9 @@ final class GlobalSearchTests: XCTestCase {
     }
 
     func testLevelZeroDisclosureStaysOnScreen() {
-        XCTAssertEqual(OutlineDisclosure.originX(-16), 8)
+        XCTAssertEqual(OutlineDisclosure.originX(-16), 8 as CGFloat)
         XCTAssertGreaterThanOrEqual(OutlineDisclosure.originX(-13), OutlineDisclosure.minimumX)
-        XCTAssertEqual(OutlineDisclosure.originX(16), 36)
+        XCTAssertEqual(OutlineDisclosure.originX(16), 36 as CGFloat)
         XCTAssertEqual(OutlineDisclosure.shift(proposedX: 16), OutlineDisclosure.inset)
     }
 
