@@ -75,21 +75,20 @@ enum GutterSnapshotCheck {
                 onTextChange: { _ in }
             )
         }
+        print("GUTTER_PROD stage=host wrap=\(wraps ? 1 : 0)")
+        fflush(stdout)
         let host = NSHostingView(rootView: editor)
         let width: CGFloat = wraps ? 240 : 520
         host.frame = NSRect(x: 0, y: 0, width: width, height: 480)
         let window = NSWindow(
             contentRect: host.frame,
-            styleMask: [.titled, .resizable],
+            styleMask: [.borderless],
             backing: .buffered,
             defer: false
         )
         window.contentView = host
-        window.makeKeyAndOrderFront(nil)
-        let start = Date()
-        while Date().timeIntervalSince(start) < 0.8 {
-            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
-        }
+        print("GUTTER_PROD stage=layout wrap=\(wraps ? 1 : 0)")
+        fflush(stdout)
         host.layoutSubtreeIfNeeded()
         window.displayIfNeeded()
         guard let pane = findPane(in: host) else {
