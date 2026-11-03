@@ -141,8 +141,7 @@ final class LineNumberGutter: NSView {
         manager.enumerateTextLayoutFragments(from: start, options: []) { fragment in
             seen += 1
             if seen > 400 { return false }
-            let elementStart = fragment.rangeInElement.location
-            let base = content.offset(from: documentStart, to: elementStart)
+            let base = content.offset(from: documentStart, to: fragment.rangeInElement.location)
             let lineFragments = fragment.textLineFragments
             if lineFragments.isEmpty {
                 let line = lines.line(at: max(0, base))
@@ -158,8 +157,7 @@ final class LineNumberGutter: NSView {
                 return true
             }
             for lineFragment in lineFragments {
-                let local = lineFragment.characterRange.location - elementStart
-                let offset = base + max(0, local)
+                let offset = base + lineFragment.characterRange.location
                 let line = lines.line(at: max(0, offset))
                 let shows = previousLine != line
                 previousLine = line

@@ -426,10 +426,9 @@ final class XYZMacTextView: NSTextView {
         }
         guard let fragment = manager.textLayoutFragment(for: start) else { return nil }
         var frame = fragment.layoutFragmentFrame
-        let elementStart = fragment.rangeInElement.location
+        let base = content.offset(from: document.location, to: fragment.rangeInElement.location)
         if let lineFragment = fragment.textLineFragments.first(where: {
-            let local = $0.characterRange.location - elementStart
-            let doc = content.offset(from: document.location, to: elementStart) + max(0, local)
+            let doc = base + $0.characterRange.location
             return doc <= startOffset && startOffset < doc + max($0.characterRange.length, 1)
         }) {
             let bounds = lineFragment.typographicBounds
