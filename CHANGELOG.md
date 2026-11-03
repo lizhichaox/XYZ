@@ -22,6 +22,8 @@ The text view stays the native view that paints today. The gutter asks that same
 
 Not done: a TextKit 2 rewrite, an Electron or web editor, a new document framework, or a new dependency. The session, the buffer, and `WorkspaceFilePolicy` already own those jobs. The build number was not increased just to record this.
 
+One XCUI click was tried and is not a path on this runner. Apple documents `XCUIElement.click()`, `doubleClick()`, `click(forDuration:thenDragTo:)`, `waitForExistence(timeout:)`, and `isHittable` for macOS ([XCUIElement](https://developer.apple.com/documentation/xcuiautomation/xcuielement), [isHittable](https://developer.apple.com/documentation/xcuiautomation/xcuielement/ishittable)). That documents the API. It does not document this image. `4785e4c` added one test, `testEditMenuClick`, and ran it on the existing GitHub macOS runner with the same ad-hoc sign already used for the window check (`CODE_SIGN_IDENTITY=-`, signing required off). No SIP change and no TCC edit. The test bundle and `XYZUISmoke-Runner` compiled. The app never launched: `Could not launch “XYZ”. Runningboard has returned error 5. … Launchd job spawn failed.` Push https://github.com/lizhichaox/XYZ/actions/runs/42206480078, Xcode 26.6, MacOSX 26.5 SDK, destination “My Mac”. The click was not performed. The smoke target was removed so that launch failure does not skip the window checks. CircleCI’s SIP-off and TCC-injection recipe was not used.
+
 ### What changed
 
 - `02dac3c` numbers each visible row from the source line, and only the first fragment of a wrapped line. An empty note is line 1. The production window passes numbers from the mode, not from the old preference keys.
@@ -35,10 +37,11 @@ Cloud only. No user Mac, no real input method, no iCloud.
 
 - Green on both cloud runs, `02dac3c84a34f0bd0680431557ba2cb11c630f59`: push https://github.com/lizhichaox/XYZ/actions/runs/42192386391 and pull request https://github.com/lizhichaox/XYZ/actions/runs/42192393433. The titled window showed the note and source lines 1–4, with the wrapped continuation blank, in light and dark, wrap on and off. Reading showed the rendered note and no gutter. Typing, the caret, undo, a long-note scroll, a plain-text switch, and a blank document passed. The empty outline kept a width.
 - Not a green result: every commit after `02dac3c` through this note. `d834720` failed the click script. `ee0b4bd` had not finished when this section was written.
+- `da9730d` ran the eight acceptance cases on their own fixtures (push https://github.com/lizhichaox/XYZ/actions/runs/42205589416). Pass: create-file, create-folder, refresh. Fail: nested-file (`selected=none buffer=nil`), collapse-header (`Collapse All left descendants open`), dividers (`left double-click was not idempotent`), mode-labels and empty-line-prefs (`the View menu target was not attached`). `ACCEPTANCE_FAIL 5`. The same push also failed the body step: the switch picture still showed the previous note. Those failures stay failures. Direct handlers and font metrics are not a pass.
 
 ### Still open
 
-Explorer New File, New Folder, Refresh, and Collapse All are on the header. A real click path, including cancel and not replacing an existing file, is not an accepted run. Double-click and drag of the production dividers are not an accepted run. Font measurement of those widths is not that proof. Read-only bold weight was not measured on a green run after a mode switch. A real Chinese input method was not run. `hasMarkedText()` only skips restyle during a marked range. iCloud was not run. A cloud build does not show that a signed Mac syncs.
+Explorer New File, New Folder, Refresh, and Collapse All are on the header. Create-file, create-folder, and refresh passed once on `da9730d`. Nested-file, Collapse All, divider double-click, mode-label weight, and the empty-line preference check did not. XCUI did not supply a click: the runner failed at launch. A real Chinese input method was not run. `hasMarkedText()` only skips restyle during a marked range. iCloud was not run. A cloud build does not show that a signed Mac syncs. 0.5.28 is not installed and is not a release.
 
 ## 0.5.27
 

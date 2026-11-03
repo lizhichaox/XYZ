@@ -26,4 +26,4 @@ A TextKit 2 rewrite of the text view. It is the change that left the gutter up a
 
 ## Still open
 
-Real IME composition is not covered here. Restyle and metric changes skip `hasMarkedText()`, but that is not a Chinese input-method session. iCloud is not exercised. Explorer clicks and divider drags are still not an accepted gesture run. Check windows stay open across cases. `2bcd032` already retries the long-note picture. That retry is not treated as the fix, and it was not extended.
+Real IME composition is not covered here. Restyle and metric changes skip `hasMarkedText()`, but that is not a Chinese input-method session. iCloud is not exercised. Explorer clicks and divider drags are still not an accepted gesture run. One XCUI Edit-menu click was compiled on the GitHub macOS runner and did not launch the app (`Runningboard` error 5, launchd spawn failed, run 42206480078). That is an environment limit, not a product click result. Check windows stay open across cases. `2bcd032` already retries the long-note picture. That retry is not treated as the fix, and it was not extended.
