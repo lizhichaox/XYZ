@@ -31,7 +31,12 @@ enum GutterSnapshotCheck {
         }
         let sidebar = SidebarColumnFitCheck.run()
         let gestures = runAcceptanceGestures()
-        let failure = rendered ?? wrapped ?? reading ?? aligned ?? production ?? windowed ?? SearchTypingCheck.run() ?? EscapeCrashCheck.run() ?? sidebar ?? gestures
+        if let gestures {
+            print("GUTTER_GESTURE_FAIL \(gestures)")
+            fflush(stdout)
+        }
+        let parts = [rendered, wrapped, reading, aligned, production, windowed, SearchTypingCheck.run(), EscapeCrashCheck.run(), sidebar, gestures].compactMap { $0 }
+        let failure = parts.isEmpty ? nil : parts.joined(separator: " | ")
         stage("done")
         if let failure {
             print("GUTTER_MISSING \(failure)")
@@ -833,6 +838,7 @@ enum GutterSnapshotCheck {
         defer { try? FileManager.default.removeItem(at: root) }
         return MainActor.assumeIsolated { () -> String? in
             let session = WorkspaceSession(rootURL: root, bookmark: nil)
+            defer { session.shutdown() }
             let controller = WorkspaceWindowController(session: session)
             guard let window = controller.window, let host = window.contentView else {
                 return "window long: the document window was not created"
@@ -843,28 +849,39 @@ enum GutterSnapshotCheck {
                 return "window long: the file did not load"
             }
             session.selectViewMode(.source, source: "check")
-            pump(0.5)
-            host.layoutSubtreeIfNeeded()
-            window.displayIfNeeded()
-            guard let pane = findPane(in: host), let textView = pane.scrollView.documentView as? XYZMacTextView else {
+            guard let pane = waitForPane(in: host, window: window) else {
+                return "window long: Editing did not mount the text view"
+            }
+            guard let textView = pane.scrollView.documentView as? XYZMacTextView else {
                 return "window long: Editing did not mount the text view"
             }
             if let failure = exerciseScroll(textView) {
                 return "window long: \(failure)"
             }
-            guard let image = shownImage(of: window, content: host) else {
-                return "window long: the window picture is missing"
+            var words = ""
+            var saved = false
+            for _ in 0..<6 {
+                pump(0.25)
+                host.layoutSubtreeIfNeeded()
+                window.displayIfNeeded()
+                guard let image = shownImage(of: window, content: host) else { continue }
+                if !saved {
+                    saveShot(image, name: "window-long-scroll.png")
+                    saved = true
+                }
+                let heard = recognizedText(in: image)
+                let crop = cropWindowImage(image, view: textView, window: window)
+                let cropWords = crop.map { recognizedText(in: $0, languages: ["en-US"]) } ?? ""
+                words = heard
+                if contains(heard, "Longline") || contains(cropWords, "Longline") {
+                    saveShot(image, name: "window-long-scroll.png")
+                    if textView.string != fixture {
+                        return "window long: scrolling changed the note"
+                    }
+                    return nil
+                }
             }
-            saveShot(image, name: "window-long-scroll.png")
-            let words = recognizedText(in: image)
-            if !contains(words, "Longline") {
-                return "window long: the scrolled note was not in the window picture words=\(String(words.prefix(60)))"
-            }
-            if textView.string != fixture {
-                return "window long: scrolling changed the note"
-            }
-            session.shutdown()
-            return nil
+            return "window long: the scrolled note was not in the window picture words=\(String(words.prefix(60)))"
         }
     }
 
@@ -1153,6 +1170,23 @@ enum GutterSnapshotCheck {
             if let found = findPane(in: child) { return found }
         }
         return nil
+    }
+
+    /// The editor is mounted only after the open file reaches the window. A picture taken earlier shows the empty state.
+    private static func waitForPane(in host: NSView, window: NSWindow) -> EditorPane? {
+        let start = Date()
+        while Date().timeIntervalSince(start) < 4 {
+            host.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            if let pane = findPane(in: host),
+               let textView = pane.scrollView.documentView as? XYZMacTextView,
+               textView.string.contains("Longline"),
+               pane.frame.width > 40, pane.frame.height > 40 {
+                return pane
+            }
+            pump(0.1)
+        }
+        return findPane(in: host)
     }
 
     private static func bitmap(of view: NSView) -> NSBitmapImageRep? {
@@ -2041,8 +2075,8 @@ enum GutterSnapshotCheck {
         guard let down = mouseEvent(.leftMouseDown, at: start, window: window, clickCount: 1, eventNumber: 61),
               let moved = mouseEvent(.leftMouseDragged, at: end, window: window, clickCount: 1, eventNumber: 62),
               let up = mouseEvent(.leftMouseUp, at: end, window: window, clickCount: 1, eventNumber: 63) else { return false }
-        NSApp.postEvent(moved, atStart: false)
-        NSApp.postEvent(up, atStart: false)
+        NSApp.postEvent(up, atStart: true)
+        NSApp.postEvent(moved, atStart: true)
         window.sendEvent(down)
         return true
     }
@@ -2050,7 +2084,7 @@ enum GutterSnapshotCheck {
     private static func postUpThenDown(window: NSWindow, point: NSPoint, clickCount: Int) -> Bool {
         guard let down = mouseEvent(.leftMouseDown, at: point, window: window, clickCount: clickCount, eventNumber: 21),
               let up = mouseEvent(.leftMouseUp, at: point, window: window, clickCount: clickCount, eventNumber: 22) else { return false }
-        NSApp.postEvent(up, atStart: false)
+        NSApp.postEvent(up, atStart: true)
         window.sendEvent(down)
         return true
     }
