@@ -137,7 +137,7 @@ enum FolderOpening {
         if Thread.isMainThread {
             open()
         } else {
-            DispatchQueue.main.async(execute: open)
+            DispatchQueue.main.async { _ = open() }
         }
     }
 

@@ -388,19 +388,19 @@ struct WorkspaceSidebar: NSViewRepresentable {
             }
         }
 
-        @objc private func toggleMatchCase(_ sender: NSButton) {
+        @objc func toggleMatchCase(_ sender: NSButton) {
             session?.contentMatchCase = sender.state == .on
         }
 
-        @objc private func toggleWholeWord(_ sender: NSButton) {
+        @objc func toggleWholeWord(_ sender: NSButton) {
             session?.contentWholeWord = sender.state == .on
         }
 
-        @objc private func toggleRegex(_ sender: NSButton) {
+        @objc func toggleRegex(_ sender: NSButton) {
             session?.contentRegex = sender.state == .on
         }
 
-        @objc private func replaceAllInFolder(_ sender: Any?) {
+        @objc func replaceAllInFolder(_ sender: Any?) {
             let manager = undoManager ?? outline?.window?.undoManager
             session?.replaceAllInFolder(undoManager: manager)
         }

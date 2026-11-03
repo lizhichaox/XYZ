@@ -413,7 +413,6 @@ private struct WorkspaceDetail: View {
             undoManager: undoManager,
             reloadToken: session.buffer?.editorToken ?? 0,
             scrollLink: session.scrollLink,
-            find: find,
             markup: format.language == .markdown,
             spellCheck: format.isProse,
             syntax: format.language,
@@ -428,7 +427,8 @@ private struct WorkspaceDetail: View {
                 if showsOutline {
                     outline.update(text: newText, language: format.language)
                 }
-            }
+            },
+            find: find
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

@@ -204,15 +204,15 @@ final class XYZMacTextView: NSTextView {
         _ = applySourceEdit(TextTransforms.transformCase(in: string, selection: sourceSelection(), style: .title))
     }
 
-    override func performFindPanelAction(_ sender: Any?) -> Bool {
+    override func performFindPanelAction(_ sender: Any?) {
         let tag = (sender as? NSMenuItem)?.tag ?? 0
         let useSelection = tag == NSTextFinder.Action.setSearchString.rawValue
             || tag == Int(NSFindPanelAction.setFindString.rawValue)
         if useSelection {
             findAction?(.useSelection)
-            return true
+            return
         }
-        return super.performFindPanelAction(sender)
+        super.performFindPanelAction(sender)
     }
 
     override func mouseDown(with event: NSEvent) {

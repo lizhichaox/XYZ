@@ -125,13 +125,15 @@ struct DocumentEditorView: View {
             text: document.text,
             isEditable: isEditable,
             undoManager: undoManager,
+            reloadToken: 0,
             scrollLink: scrollLink,
-            find: commands.findModel,
             markup: TextMarkup.allows(fileExtension: fileURL?.pathExtension),
             spellCheck: TextMarkup.isProse(fileExtension: fileURL?.pathExtension),
             syntax: documentFormat.language,
             forcesMonospace: documentFormat.usesCodeFont,
-            onTextChange: storeEditorText
+            onSelection: nil,
+            onTextChange: storeEditorText,
+            find: commands.findModel
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -141,11 +143,13 @@ struct DocumentEditorView: View {
             text: document.text,
             isEditable: isEditable,
             undoManager: undoManager,
+            reloadToken: 0,
             scrollLink: scrollLink,
             markup: TextMarkup.allows(fileExtension: fileURL?.pathExtension),
             spellCheck: TextMarkup.isProse(fileExtension: fileURL?.pathExtension),
             syntax: documentFormat.language,
             forcesMonospace: documentFormat.usesCodeFont,
+            onSelection: nil,
             onTextChange: storeEditorText
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
