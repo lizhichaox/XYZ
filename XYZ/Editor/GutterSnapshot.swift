@@ -922,13 +922,16 @@ enum GutterSnapshotCheck {
                 return "window switch: the plain file did not load storage=\((session.buffer?.text as NSString?)?.length ?? -1)"
             }
             let editorShowsPlain = waitUntil(2) {
+                guard window.title.contains("plain.txt") else { return false }
                 guard let pane = findPane(in: host),
+                      pane.frame.width > 40,
                       let textView = pane.scrollView.documentView as? XYZMacTextView else { return false }
                 return textView.string == second
             }
             guard editorShowsPlain else {
-                return "window switch: the text view still showed the previous note"
+                return "window switch: the window did not show the plain note title=\(window.title)"
             }
+            pump(0.35)
             host.layoutSubtreeIfNeeded()
             window.displayIfNeeded()
             guard let image = shownImage(of: window, content: host) else {
