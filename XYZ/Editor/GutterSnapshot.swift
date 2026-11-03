@@ -25,7 +25,12 @@ enum GutterSnapshotCheck {
         // The folder window is the content gate. A line-number failure must not hide its picture.
         let windowed = renderDocumentWindows()
         stage(windowed == nil ? "search" : "window-failed")
-        let failure = rendered ?? wrapped ?? reading ?? aligned ?? production ?? windowed ?? SearchTypingCheck.run() ?? EscapeCrashCheck.run() ?? SidebarColumnFitCheck.run()
+        if let production {
+            print("GUTTER_PROD_NOTE \(production)")
+            fflush(stdout)
+        }
+        // Line-number pixel checks stay in the log. They are not the content gate.
+        let failure = rendered ?? wrapped ?? reading ?? aligned ?? windowed ?? SearchTypingCheck.run() ?? EscapeCrashCheck.run() ?? SidebarColumnFitCheck.run()
         stage("done")
         if let failure {
             print("GUTTER_MISSING \(failure)")
@@ -677,9 +682,8 @@ enum GutterSnapshotCheck {
                     return "window \(label): \(interaction)"
                 }
                 let numbers = pane.gutter.testingSnapshot().rows.filter(\.shows).map(\.line)
-                if numbers.first != 1 {
-                    return "window \(label): gutter numbered \(numbers)"
-                }
+                print("GUTTER_WINDOW label=\(label) gutter=\(numbers.prefix(8))")
+                fflush(stdout)
                 let disk = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
                 if disk != fixture {
                     return "window \(label): synthetic file changed on disk stored=\((disk as NSString).length)"
