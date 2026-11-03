@@ -52,11 +52,6 @@ final class XYZMacTextView: NSTextView {
 
     override func changeColor(_ sender: Any?) {}
 
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        embedBodyInWindowLayer()
-    }
-
     /// TextKit 2 draws the body into fragment subviews. A layer-backed document window
     /// composites this view's layer and leaves those subviews out, so the gutter shows
     /// and the page stays blank. Flattening the fragments into this layer is what the
@@ -816,6 +811,7 @@ private struct FindScan {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        embedBodyInWindowLayer()
         guard window != nil else { return }
         layoutSubtreeIfNeeded()
         alignIfReady()
