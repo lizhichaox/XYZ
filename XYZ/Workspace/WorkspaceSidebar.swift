@@ -1206,7 +1206,7 @@ fileprivate final class SidebarRowCell: NSTableCellView {
             )
             icon.image = Self.image(symbol)
             let base: NSColor = node.isHidden ? .secondaryLabelColor : .labelColor
-            icon.contentTintColor = node.isHidden ? .secondaryLabelColor : .secondaryLabelColor
+            icon.contentTintColor = .secondaryLabelColor
             label.attributedStringValue = Self.nameText(
                 node.name,
                 base: base,
