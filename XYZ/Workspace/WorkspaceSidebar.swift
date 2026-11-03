@@ -39,8 +39,8 @@ struct WorkspaceSidebar: NSViewRepresentable {
         tableColumn.title = ""
         tableColumn.resizingMask = .autoresizingMask
         tableColumn.width = 220
-        tableColumn.minWidth = 120
-        tableColumn.maxWidth = 420
+        tableColumn.minWidth = 80
+        tableColumn.maxWidth = 8_000
         outline.addTableColumn(tableColumn)
         outline.outlineTableColumn = tableColumn
 
@@ -646,6 +646,58 @@ struct WorkspaceSidebar: NSViewRepresentable {
     }
 }
 
+/// Chooses the outline column width. The clip view is a few dozen points until the scroll view lays out, and that stub must not win over a sidebar that is already hundreds of points wide.
+enum SidebarColumnWidth {
+    static func resolve(clip: CGFloat, scroll: CGFloat, view: CGFloat) -> (width: CGFloat, source: String)? {
+        if clip > 1, scroll > 1, clip >= scroll - 24 {
+            return (clip, "clip")
+        }
+        if scroll > 1 {
+            return (scroll, "scroll")
+        }
+        if view > 1 {
+            return (view, "view")
+        }
+        return nil
+    }
+}
+
+/// CI check that a 34 point pre-layout clip cannot pin the outline column to its 80 point minimum.
+enum SidebarColumnFitCheck {
+    static func run() -> String? {
+        let stub = SidebarColumnWidth.resolve(clip: 34, scroll: 437, view: 437)
+        if stub?.source != "scroll" || abs((stub?.width ?? 0) - 437) > 0.5 {
+            return "sidebar column used the pre-layout clip"
+        }
+        let early = SidebarColumnWidth.resolve(clip: 34, scroll: 0, view: 437)
+        if early?.source != "view" || abs((early?.width ?? 0) - 437) > 0.5 {
+            return "sidebar column used the pre-layout clip before the scroll view existed"
+        }
+        let laidOut = SidebarColumnWidth.resolve(clip: 437, scroll: 437, view: 437)
+        if laidOut?.source != "clip" || abs((laidOut?.width ?? 0) - 437) > 0.5 {
+            return "sidebar column ignored the laid-out clip"
+        }
+        let view = SidebarColumnView(frame: NSRect(x: 0, y: 0, width: 437, height: 500))
+        let tableColumn = NSTableColumn(identifier: SidebarCell.columnID)
+        tableColumn.resizingMask = .autoresizingMask
+        tableColumn.width = 220
+        tableColumn.minWidth = 120
+        tableColumn.maxWidth = 420
+        view.outline.autoresizesOutlineColumn = false
+        view.outline.addTableColumn(tableColumn)
+        view.outline.outlineTableColumn = tableColumn
+        print("GUTTER_STAGE sidebar")
+        fflush(stdout)
+        view.needsLayout = true
+        view.layoutSubtreeIfNeeded()
+        let width = view.outline.tableColumns.first?.width ?? 0
+        if width < 400 {
+            return "sidebar column \(width) in a 437pt sidebar"
+        }
+        return nil
+    }
+}
+
 fileprivate final class SidebarColumnView: NSView {
     let header = SidebarRootHeader()
     let scroll = NSScrollView()
@@ -674,6 +726,7 @@ fileprivate final class SidebarColumnView: NSView {
         scroll.borderType = .noBorder
         scroll.automaticallyAdjustsContentInsets = true
         scroll.documentView = outline
+        observeClip()
 
         addSubview(explorer)
         addSubview(header)
@@ -692,12 +745,15 @@ fileprivate final class SidebarColumnView: NSView {
             scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
             scroll.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+        didFinishInit = true
     }
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         needsLayout = true
         applySidebarTint()
+        guard didFinishInit else { return }
+        fitRowsToSidebar(reason: "window")
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -713,48 +769,114 @@ fileprivate final class SidebarColumnView: NSView {
     }
 
     override func viewWillDraw() {
-        fitRowsToSidebar()
+        if didFinishInit {
+            fitRowsToSidebar(reason: "draw")
+        }
         super.viewWillDraw()
     }
 
     override func layout() {
         super.layout()
-        fitRowsToSidebar()
+        guard didFinishInit else { return }
+        fitRowsToSidebar(reason: "layout")
     }
 
     override func setFrameSize(_ newSize: NSSize) {
         super.setFrameSize(newSize)
-        fitRowsToSidebar()
+        guard didFinishInit else { return }
+        fitRowsToSidebar(reason: "frame")
     }
 
-    /// The outline's own fitting width is wider than the clip until the editor lays out.
-    /// Pin the column to the sidebar before the first paint, including when no file is open.
-    private func fitRowsToSidebar() {
-        let clip = scroll.contentView.bounds.width
-        let visible = clip > 1 ? clip : bounds.width
-        guard visible > 1, let column = outline.tableColumns.first else { return }
-        column.minWidth = 80
-        column.maxWidth = 8_000
-        let changed = abs(column.width - visible) > 0.5
-        if changed {
-            column.width = visible
-        }
-        if abs(outline.frame.width - visible) > 0.5 {
-            var frame = outline.frame
-            frame.size.width = visible
-            outline.frame = frame
-        }
-        outline.enumerateAvailableRowViews { row, _ in
-            guard abs(row.frame.width - visible) > 0.5 else { return }
-            var frame = row.frame
-            frame.size.width = visible
-            row.frame = frame
-            row.needsLayout = true
-        }
-        if changed {
-            XYZDiagnostics.note(String(format: "sidebar column=%.1f view=%.1f clip=%.1f", column.width, bounds.width, clip))
-        }
+    override func viewDidEndLiveResize() {
+        super.viewDidEndLiveResize()
+        guard didFinishInit else { return }
+        fitRowsToSidebar(reason: "liveResize")
     }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    /// The clip view posts frame and bounds changes. Its width is a stub until the scroll view tiles, so the fitter also runs from layout.
+    private func observeClip() {
+        let clip = scroll.contentView
+        clip.postsFrameChangedNotifications = true
+        clip.postsBoundsChangedNotifications = true
+        let center = NotificationCenter.default
+        center.addObserver(self, selector: #selector(clipGeometryChanged(_:)), name: NSView.frameDidChangeNotification, object: clip)
+        center.addObserver(self, selector: #selector(clipGeometryChanged(_:)), name: NSView.boundsDidChangeNotification, object: clip)
+    }
+
+    @objc private func clipGeometryChanged(_ notification: Notification) {
+        guard didFinishInit else { return }
+        let clip = scroll.contentView
+        let width = max(clip.frame.width, clip.bounds.width)
+        guard abs(width - lastClipWidth) > 0.5 else { return }
+        lastClipWidth = width
+        let reason = notification.name == NSView.frameDidChangeNotification ? "clipFrame" : "clipBounds"
+        fitRowsToSidebar(reason: reason)
+    }
+
+    /// Pin the outline column to the width the sidebar actually has, including the first layout and every later clip change.
+    private func fitRowsToSidebar(reason: String) {
+        guard !fitting, let column = outline.tableColumns.first else { return }
+        let clipBounds = scroll.contentView.bounds.width
+        let clipFrame = scroll.contentView.frame.width
+        let scrollWidth = scroll.bounds.width
+        let viewWidth = bounds.width
+        guard let decision = SidebarColumnWidth.resolve(clip: clipFrame, scroll: scrollWidth, view: viewWidth) else { return }
+        let width = decision.width
+        let needsApply = abs(width - appliedWidth) > 0.5
+            || abs(column.width - width) > 0.5
+            || abs(outline.frame.width - width) > 0.5
+        let clipChanged = abs(clipFrame - lastLoggedClip) > 0.5 || decision.source != lastLoggedSource
+        guard needsApply || clipChanged else { return }
+        if needsApply {
+            if abs(width - fitBudgetWidth) > 0.5 {
+                fitBudgetWidth = width
+                fitBudget = 0
+            }
+            fitBudget += 1
+            // A layout that keeps resetting the document must not run forever.
+            guard fitBudget <= 4 else { return }
+            fitting = true
+            defer { fitting = false }
+            appliedWidth = width
+            column.minWidth = min(80, width)
+            column.maxWidth = max(8_000, width)
+            column.width = width
+            if abs(outline.frame.width - width) > 0.5 {
+                var frame = outline.frame
+                frame.size.width = width
+                outline.frame = frame
+            }
+            if abs(column.width - width) > 0.5 {
+                column.width = width
+            }
+            outline.enumerateAvailableRowViews { row, _ in
+                guard abs(row.frame.width - width) > 0.5 else { return }
+                var frame = row.frame
+                frame.size.width = width
+                row.frame = frame
+                row.needsLayout = true
+            }
+        }
+        lastLoggedClip = clipFrame
+        lastLoggedSource = decision.source
+        XYZDiagnostics.note(String(
+            format: "sidebar column=%.1f view=%.1f scroll=%.1f clip=%.1f clipFrame=%.1f source=%@ reason=%@",
+            column.width, viewWidth, scrollWidth, clipBounds, clipFrame, decision.source, reason
+        ))
+    }
+
+    private var didFinishInit = false
+    private var fitting = false
+    private var appliedWidth = CGFloat(-1)
+    private var lastClipWidth = CGFloat(-1)
+    private var lastLoggedClip = CGFloat(-1)
+    private var lastLoggedSource = ""
+    private var fitBudget = 0
+    private var fitBudgetWidth = CGFloat(-1)
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {

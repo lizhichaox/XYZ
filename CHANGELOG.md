@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.12
+
+- Sidebar file names use the width of the sidebar. The outline column follows the clip view after it has laid out, including the first layout and every later resize, instead of a 34 point width measured before layout and then held at 80.
+- Diagnostics also turn on with the environment variable `XYZDiagnostics=1` (`YES` and `true` count too). Lines are public in the unified log: `log stream --predicate 'subsystem == "com.lizhichao.XYZ" AND category == "diag"'`. A shell `defaults write` does not reach the sandboxed container, and `xyz-diag.log` inside that container is not readable from the shell.
+
 ## 0.5.11
 
 - Line numbers are drawn from the editor's line box when TextKit 2 does not return visible fragments, so the gutter is no longer an empty strip.

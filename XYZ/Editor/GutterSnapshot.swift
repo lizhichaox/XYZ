@@ -10,7 +10,7 @@ enum GutterSnapshotCheck {
         stage("render")
         let rendered = renderEditingGutter()
         stage(rendered == nil ? "search" : "render-failed")
-        let failure = rendered ?? SearchTypingCheck.run() ?? EscapeCrashCheck.run()
+        let failure = rendered ?? SearchTypingCheck.run() ?? EscapeCrashCheck.run() ?? SidebarColumnFitCheck.run()
         stage("done")
         if let failure {
             print("GUTTER_MISSING \(failure)")

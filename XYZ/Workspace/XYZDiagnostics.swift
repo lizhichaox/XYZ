@@ -2,34 +2,49 @@
 import AppKit
 import os
 
-/// Opt-in trace for the gutter, ⌘K, and stray windows.
+/// Opt-in trace for the gutter, ⌘K, stray windows, and the sidebar column.
 ///
-/// Turn it on with `defaults write com.lizhichao.XYZ XYZDiagnostics -bool YES` and relaunch,
-/// or pass `-XYZDiagnostics`. Lines go to the unified log (subsystem `com.lizhichao.XYZ`,
-/// category `diag`) and to `xyz-diag.log` in `FileManager.temporaryDirectory`. For this
-/// sandboxed app that directory is
-/// `~/Library/Containers/com.lizhichao.XYZ/Data/tmp/`.
+/// Turn it on with the launch argument `-XYZDiagnostics`, the environment variable
+/// `XYZDiagnostics=1` (`YES` and `true` count too), or
+/// `defaults write com.lizhichao.XYZ XYZDiagnostics -bool YES` from a context that can
+/// write the sandboxed container. A shell `defaults write` does not. Every line is
+/// public in the unified log (subsystem `com.lizhichao.XYZ`, category `diag`):
+/// `log stream --predicate 'subsystem == "com.lizhichao.XYZ" AND category == "diag"'`.
+/// A copy is also appended to `xyz-diag.log` in `FileManager.temporaryDirectory`, which
+/// for this sandboxed app is `~/Library/Containers/com.lizhichao.XYZ/Data/tmp/` and is
+/// not readable from a shell outside the container.
 enum XYZDiagnostics {
     static let argument = "-XYZDiagnostics"
     static let defaultsKey = "XYZDiagnostics"
+    static let environmentKey = "XYZDiagnostics"
 
     private static let log = Logger(subsystem: "com.lizhichao.XYZ", category: "diag")
     private static var decided = false
     private static var on = false
+    private static var trigger = ""
     private static var drawLogs = 0
 
     static var enabled: Bool {
         if decided { return on }
         decided = true
-        on = ProcessInfo.processInfo.arguments.contains(argument)
-            || UserDefaults.standard.bool(forKey: defaultsKey)
+        let env = ProcessInfo.processInfo.environment[environmentKey] ?? ""
+        if ProcessInfo.processInfo.arguments.contains(argument) {
+            on = true
+            trigger = "arg"
+        } else if envFlag(env) {
+            on = true
+            trigger = "env"
+        } else if UserDefaults.standard.bool(forKey: defaultsKey) {
+            on = true
+            trigger = "defaults"
+        }
         return on
     }
 
     static func start() {
         guard enabled else { return }
         let path = fileURL().path
-        note("diagnostics on")
+        note("diagnostics on via \(trigger)")
         note("log file \(path)")
         dump(reason: "launch")
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
@@ -122,6 +137,15 @@ enum XYZDiagnostics {
             for child in view.subviews {
                 walk(child, indent: indent + 1, into: &lines)
             }
+        }
+    }
+
+    private static func envFlag(_ raw: String) -> Bool {
+        switch raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "1", "yes", "true":
+            return true
+        default:
+            return false
         }
     }
 
