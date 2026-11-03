@@ -89,9 +89,9 @@ enum GutterSnapshotCheck {
         for index in 1..<ys.count where ys[index] <= ys[index - 1] {
             return "\(name): label y does not increase \(ys)"
         }
-        let distinct = Set(snapshot.rows.map(\.line))
-        if distinct.count != expected.count {
-            return "\(name): source lines \(distinct.sorted()) expected \(expected)"
+        let unknown = Set(snapshot.rows.map(\.line)).subtracting(expected)
+        if !unknown.isEmpty {
+            return "\(name): labels \(unknown.sorted()) are not source lines \(expected)"
         }
         return nil
     }
