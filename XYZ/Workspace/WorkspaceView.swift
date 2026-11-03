@@ -517,15 +517,15 @@ enum SidebarContentMeasure {
         MainActor.assumeIsolated {
             var widest = header(session.displayName)
             guard session.rootExpanded else { return widest }
-            func walk(_ parent: String, depth: Int) {
-                for node in session.visibleChildren(of: parent) {
-                    widest = max(widest, explorerRow(node.name, depth: depth))
+            var pending = [(parent: "", depth: 0)]
+            while let next = pending.popLast() {
+                for node in session.visibleChildren(of: next.parent) {
+                    widest = max(widest, explorerRow(node.name, depth: next.depth))
                     if node.isDirectory, session.isExpanded(node.relativePath) {
-                        walk(node.relativePath, depth: depth + 1)
+                        pending.append((node.relativePath, next.depth + 1))
                     }
                 }
             }
-            walk("", depth: 0)
             return widest
         }
     }
