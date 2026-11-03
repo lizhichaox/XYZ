@@ -617,21 +617,30 @@ private struct FindScan {
         enclosingScrollView?.needsDisplay = true
     }
 
-    /// Gives the gutter a real wrap width and a viewport. Does not read `layoutManager`:
-    /// that TextKit 1 property replaces `textLayoutManager`, and a wrapped gutter then draws nothing.
+    /// Gives the gutter a real wrap width and a viewport. The clip width is the wrap measure.
+    /// `contentSize` is the laid-out text, which is already one long row before wrapping is applied.
+    /// Does not read `layoutManager`: that TextKit 1 property replaces `textLayoutManager`.
     func prepareLineNumberLayout() {
         guard showsLineNumbers, let manager = textLayoutManager else { return }
-        let widthReady = max(bounds.width, enclosingScrollView?.bounds.width ?? 0)
-        guard widthReady > 1 else { return }
-        if style.wraps, let width = enclosingScrollView?.contentSize.width, width > 1 {
+        guard let scroll = enclosingScrollView else { return }
+        let clip = max(scroll.contentView.bounds.width, scroll.bounds.width)
+        guard clip > 1 else { return }
+        var widthChanged = false
+        if style.wraps {
             textContainer?.widthTracksTextView = true
-            let next = NSSize(width: max(1, width - 1), height: CGFloat.greatestFiniteMagnitude)
-            if textContainer?.containerSize.width != next.width {
-                textContainer?.containerSize = next
+            isHorizontallyResizable = false
+            if abs(frame.width - clip) > 0.5 {
+                setFrameSize(NSSize(width: clip, height: max(frame.height, 1)))
+                widthChanged = true
+            }
+            let next = max(1, clip - 1)
+            if abs((textContainer?.containerSize.width ?? 0) - next) > 0.5 {
+                textContainer?.containerSize = NSSize(width: next, height: CGFloat.greatestFiniteMagnitude)
+                widthChanged = true
             }
         }
         let viewport = manager.textViewportLayoutController
-        if viewport.viewportRange == nil {
+        if widthChanged || viewport.viewportRange == nil {
             viewport.layoutViewport()
         }
     }
