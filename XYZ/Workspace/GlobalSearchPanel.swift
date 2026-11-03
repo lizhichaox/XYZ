@@ -823,7 +823,10 @@ enum SearchTypingCheck {
             controller.closeIfOpen()
             return "search field shows \(shown) after typing \(typed)"
         }
-        RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        let deadline = Date().addingTimeInterval(0.3)
+        while Date() < deadline {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+        }
         let after = (field.currentEditor() as? NSTextView)?.string ?? field.stringValue
         controller.closeIfOpen()
         if after != typed {

@@ -457,19 +457,7 @@ private struct FindScan {
             return
         }
         editorPane?.noteTextLayout()
-        clampToClip()
         alignIfReady()
-    }
-
-    /// A short note is stretched to the clip. The insets were added again, so the text view
-    /// stuck about 18 points past the window. Long notes stay taller than the clip and scroll.
-    private func clampToClip() {
-        guard let scroll = enclosingScrollView else { return }
-        let clip = scroll.contentView.bounds.height
-        guard clip > 1, bounds.height > clip else { return }
-        let extra = bounds.height - clip
-        guard extra <= textContainerInset.height * 2 + 6 else { return }
-        setFrameSize(NSSize(width: bounds.width, height: clip))
     }
 
     /// Turns numbers on or off on this view. Called from SwiftUI updates, including a mode
@@ -811,8 +799,10 @@ final class EditorPane: NSView {
         } else {
             width = 0
         }
-        gutter.frame = NSRect(x: 0, y: 0, width: width, height: bounds.height)
-        scrollView.frame = NSRect(x: width, y: 0, width: max(1, bounds.width - width), height: bounds.height)
+        let gutterFrame = NSRect(x: 0, y: 0, width: width, height: bounds.height)
+        let scrollFrame = NSRect(x: width, y: 0, width: max(1, bounds.width - width), height: bounds.height)
+        if gutter.frame != gutterFrame { gutter.frame = gutterFrame }
+        if scrollView.frame != scrollFrame { scrollView.frame = scrollFrame }
         gutter.needsDisplay = true
     }
 

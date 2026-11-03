@@ -7,7 +7,11 @@ enum GutterSnapshotCheck {
 
     static func finishIfRequested() {
         guard ProcessInfo.processInfo.arguments.contains(argument) else { return }
-        let failure = renderEditingGutter() ?? SearchTypingCheck.run()
+        stage("render")
+        let rendered = renderEditingGutter()
+        stage(rendered == nil ? "search" : "render-failed")
+        let failure = rendered ?? SearchTypingCheck.run()
+        stage("done")
         if let failure {
             print("GUTTER_MISSING \(failure)")
         } else {
@@ -15,6 +19,11 @@ enum GutterSnapshotCheck {
         }
         fflush(stdout)
         exit(failure == nil ? 0 : 1)
+    }
+
+    private static func stage(_ name: String) {
+        print("GUTTER_STAGE \(name)")
+        fflush(stdout)
     }
 
     /// Renders Reading and Editing in light and dark. Nil means glyphs and, in Editing, gutter digits painted.
