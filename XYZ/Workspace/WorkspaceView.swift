@@ -53,9 +53,6 @@ struct WorkspaceView: View {
                     .layoutPriority(1)
                     .background(Color.editorBackground)
             }
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .safeAreaInset(edge: .bottom, spacing: 0) {
             if session.buffer != nil {
                 EditorStatusBar(
                     caret: showsStatusText ? session.caret : nil,
@@ -71,6 +68,7 @@ struct WorkspaceView: View {
                 )
             }
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .clipped()
         .frame(minWidth: 880, minHeight: 520)
         .background(Color.editorBackground)

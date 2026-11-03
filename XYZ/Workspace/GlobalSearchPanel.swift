@@ -80,12 +80,13 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
     }
 
     func controlTextDidChange(_ notification: Notification) {
-        // `stringValue` during this callback is one character behind and writing it back drops that character.
+        // Read the field editor. Do not write `stringValue` or the editor while it is active.
         if let editor = notification.userInfo?["NSFieldEditor"] as? NSTextView {
             typedQuery = editor.string
         } else if let editor = search?.currentEditor() as? NSTextView {
             typedQuery = editor.string
         }
+        XYZDiagnostics.textDidChange(length: typedQuery.count)
         schedule()
     }
 
@@ -358,15 +359,6 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
         }
     }
 
-    /// The field editor is the query. A table reload must not put an older string back.
-    private func restoreField() {
-        guard let editor = search?.currentEditor() as? NSTextView else { return }
-        guard editor.string != typedQuery else { return }
-        editor.string = typedQuery
-        let end = (typedQuery as NSString).length
-        editor.setSelectedRange(NSRange(location: end, length: 0))
-    }
-
     private func showRecents() {
         task?.cancel()
         generation += 1
@@ -419,7 +411,6 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
             }
         }
         resize()
-        restoreField()
     }
 
     private func resize() {
@@ -653,19 +644,23 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
     }
 }
 
-/// Keeps the character that `NSSearchField` otherwise drops when it rewrites `stringValue`.
+/// Search field. While the field editor is active, assignments to `stringValue` are ignored.
 final class QueryField: NSSearchField {
-    private var restoring = false
+    override var stringValue: String {
+        get { super.stringValue }
+        set {
+            let editing = currentEditor() != nil
+            XYZDiagnostics.stringAssignment(old: super.stringValue.count, new: newValue.count, applied: !editing)
+            if editing { return }
+            super.stringValue = newValue
+        }
+    }
 
-    override func textDidChange(_ notification: Notification) {
-        let editor = (notification.userInfo?["NSFieldEditor"] as? NSTextView) ?? (currentEditor() as? NSTextView)
-        let live = editor?.string ?? ""
-        super.textDidChange(notification)
-        guard !restoring, let editor = currentEditor() as? NSTextView, editor.string != live else { return }
-        restoring = true
-        editor.string = live
-        editor.setSelectedRange(NSRange(location: (live as NSString).length, length: 0))
-        restoring = false
+    override func keyDown(with event: NSEvent) {
+        let before = (currentEditor() as? NSTextView)?.string.count ?? super.stringValue.count
+        super.keyDown(with: event)
+        let after = (currentEditor() as? NSTextView)?.string.count ?? super.stringValue.count
+        XYZDiagnostics.keyDown(code: event.keyCode, before: before, after: after)
     }
 }
 

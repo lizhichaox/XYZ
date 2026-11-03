@@ -318,10 +318,11 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
                 }
             })
         }
-        for delay in [0.4, 1.5, 4.0] {
+        for delay in [0.4, 1.5, 4.0, 8.0, 15.0, 30.0] {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                 MainActor.assumeIsolated { () -> Void in
                     closePhantomWindows(includeVisible: true)
+                    XYZDiagnostics.dump(reason: "phantom+\(delay)s")
                 }
             }
         }
@@ -335,40 +336,54 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
         defer { closingPhantoms = false }
         for window in NSApp.windows where isPhantom(window, includeVisible: includeVisible) {
             window.isRestorable = false
+            window.alphaValue = 0
+            window.orderOut(nil)
             if let document = NSDocumentController.shared.document(for: window), document.fileURL == nil {
+                document.updateChangeCount(.changeCleared)
                 document.close()
             } else {
                 window.close()
             }
+            let still = NSApp.windows.contains { $0 === window }
+            XYZDiagnostics.note("closed phantom class=\(String(describing: type(of: window))) title=\(window.title) stillListed=\(still)")
         }
     }
 
+    static func phantomReason(_ window: NSWindow) -> String {
+        classify(window, includeVisible: true).reason
+    }
+
     private static func isPhantom(_ window: NSWindow, includeVisible: Bool) -> Bool {
-        if window.isMiniaturized { return false }
-        if controller(for: window) != nil { return false }
-        if isAuxiliary(window) { return false }
+        classify(window, includeVisible: includeVisible).close
+    }
+
+    private static func classify(_ window: NSWindow, includeVisible: Bool) -> (close: Bool, reason: String) {
+        if window.isMiniaturized { return (false, "miniaturized") }
+        if controller(for: window) != nil { return (false, "workspace") }
+        if isAuxiliary(window) { return (false, "auxiliary") }
         let size = window.frame.size
         let content = window.contentRect(forFrameRect: window.frame).size
         let defaultSquare = near(size.width, 500) && near(size.height, 500)
             || near(content.width, 500) && near(content.height, 500)
-        // SwiftUI's default document window stays 500×500, ordered in but off the desktop.
-        // It can be key or main, and it can be a panel. It is never a window the user opened.
-        if defaultSquare && !FolderOpening.keepsNewDocument { return true }
-        if window is NSPanel { return false }
+        if defaultSquare {
+            if FolderOpening.keepsNewDocument { return (false, "500 square during File → New") }
+            return (true, "500 square")
+        }
+        if window is NSPanel { return (false, "panel") }
         let document = NSDocumentController.shared.document(for: window)
         let untitledDocument = document != nil && document?.fileURL == nil
         let blankTitle = window.title.isEmpty || window.title == "Untitled"
         if !window.isVisible {
-            if FolderOpening.keepsNewDocument { return false }
-            if untitledDocument { return true }
+            if FolderOpening.keepsNewDocument { return (false, "hidden during File → New") }
+            if untitledDocument { return (true, "hidden untitled document") }
             if blankTitle, let screen = window.screen ?? NSScreen.main, window.frame.equalTo(screen.visibleFrame) {
-                return true
+                return (true, "hidden full-screen untitled")
             }
-            return false
+            return (false, "hidden other")
         }
-        if window.isKeyWindow || window.isMainWindow { return false }
-        guard includeVisible, defaultSquare, untitledDocument else { return false }
-        return true
+        if window.isKeyWindow || window.isMainWindow { return (false, "key or main") }
+        if includeVisible && untitledDocument { return (false, "visible untitled kept") }
+        return (false, "visible other")
     }
 
     /// Find in Files and the command palette are reused panels. They are not documents.
@@ -382,7 +397,7 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private static func near(_ value: CGFloat, _ target: CGFloat) -> Bool {
-        abs(value - target) < 2
+        abs(value - target) < 8
     }
 
     /// The number of folder windows that actually opened.
@@ -487,6 +502,7 @@ final class XYZAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         GutterSnapshotCheck.finishIfRequested()
         FolderOpening.installLate()
+        XYZDiagnostics.start()
         FileMenuSupport.install()
         MainActor.assumeIsolated {
             EditorMenuSupport.install()

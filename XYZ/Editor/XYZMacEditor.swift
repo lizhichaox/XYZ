@@ -811,12 +811,18 @@ final class EditorPane: NSView {
         guard let content = window?.contentView, let parent = superview else { return }
         guard let bar = Self.statusBar(in: content) else { return }
         let barBox = bar.convert(bar.bounds, to: content)
+        guard barBox.height > 8, barBox.height < 48 else { return }
         var mine = convert(bounds, to: content)
-        // The window content view is not flipped: smaller y is lower on screen.
-        let overlap = barBox.maxY - mine.minY
-        guard overlap > 0.5, mine.height - overlap > 1 else { return }
-        mine.origin.y += overlap
-        mine.size.height -= overlap
+        if content.isFlipped {
+            let overlap = mine.maxY - barBox.minY
+            guard overlap > 0.5, mine.height - overlap > 1 else { return }
+            mine.size.height -= overlap
+        } else {
+            let overlap = barBox.maxY - mine.minY
+            guard overlap > 0.5, mine.height - overlap > 1 else { return }
+            mine.origin.y += overlap
+            mine.size.height -= overlap
+        }
         let next = content.convert(mine, to: parent)
         guard next.height > 1, next != frame else { return }
         frame = next
