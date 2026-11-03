@@ -203,6 +203,8 @@ final class XYZMacTextView: NSTextView {
             findAction?(.useSelection)
             return
         }
+        let sel = #selector(NSTextView.performFindPanelAction(_:))
+        guard let superclass = XYZMacTextView.superclass(), superclass.instancesRespond(to: sel) else { return }
         super.performFindPanelAction(sender)
     }
 

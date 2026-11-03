@@ -33,6 +33,10 @@ final class WorkspaceSession: ObservableObject {
     @Published var actionMessage: String?
     /// The sidebar folder header. Collapsed hides the tree and leaves the header in place.
     @Published var rootExpanded = true
+    /// Right-hand Markdown outline for this folder window. On until the user hides it.
+    @Published var outlineVisible = true
+    /// Width of that outline. Not published: the split view already has the live width.
+    var outlineWidth: CGFloat = 220
     @Published var nameQuery = "" {
         didSet {
             guard nameQuery != oldValue else { return }
@@ -128,6 +132,14 @@ final class WorkspaceSession: ObservableObject {
         if UserDefaults.standard.object(forKey: HiddenFilesSetting.key) != nil {
             self.showsHiddenFiles = UserDefaults.standard.bool(forKey: HiddenFilesSetting.key)
         }
+        let outlineKey = Self.outlineVisibleKey(for: rootURL)
+        if UserDefaults.standard.object(forKey: outlineKey) != nil {
+            outlineVisible = UserDefaults.standard.bool(forKey: outlineKey)
+        }
+        let storedOutlineWidth = UserDefaults.standard.double(forKey: Self.outlineWidthKey(for: rootURL))
+        if storedOutlineWidth >= 160 {
+            outlineWidth = CGFloat(storedOutlineWidth)
+        }
         scrollLink.onViewportLine = { [weak self] line in
             self?.noteViewportLine(line)
         }
@@ -142,6 +154,26 @@ final class WorkspaceSession: ObservableObject {
     func clearViewportLine() {
         guard viewportLine != 0 else { return }
         viewportLine = 0
+    }
+
+    func toggleOutlinePane() {
+        outlineVisible.toggle()
+        UserDefaults.standard.set(outlineVisible, forKey: Self.outlineVisibleKey(for: rootURL))
+    }
+
+    func rememberOutlineWidth(_ width: CGFloat) {
+        let next = min(420, max(160, width))
+        guard abs(outlineWidth - next) > 0.5 else { return }
+        outlineWidth = next
+        UserDefaults.standard.set(Double(next), forKey: Self.outlineWidthKey(for: rootURL))
+    }
+
+    private static func outlineVisibleKey(for url: URL) -> String {
+        "xyz.workspace.outline." + token(for: url)
+    }
+
+    private static func outlineWidthKey(for url: URL) -> String {
+        "xyz.workspace.outline.width." + token(for: url)
     }
 
     func activate() {

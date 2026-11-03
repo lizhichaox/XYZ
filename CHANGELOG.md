@@ -8,6 +8,8 @@
 - The editor frame stops at the status bar, including when that bar's coordinates are flipped.
 - The line and column are shown only while Editing. Reading hides them, and Go to Line goes with them.
 - The sidebar divider is wide enough to grab and shows the resize cursor. File names, the folder header, and outline rows use the new width while you drag.
+- Markdown headings are a sidebar on the right. ⌥⌘B shows or hides it. The width is remembered for that folder. Other files do not show the pane.
+- Esc in Reading, with nothing else open, no longer crashes. The window controller does not forward `cancelOperation:` to a superclass that does not implement it.
 - Optional diagnostics: `defaults write com.lizhichao.XYZ XYZDiagnostics -bool YES`, or launch with `-XYZDiagnostics`. Lines go to Console under subsystem `com.lizhichao.XYZ` category `diag`, and to `xyz-diag.log` in the app's temporary directory (`~/Library/Containers/com.lizhichao.XYZ/Data/tmp/` when sandboxed).
 
 ## 0.5.10

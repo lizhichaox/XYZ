@@ -10,7 +10,7 @@ enum GutterSnapshotCheck {
         stage("render")
         let rendered = renderEditingGutter()
         stage(rendered == nil ? "search" : "render-failed")
-        let failure = rendered ?? SearchTypingCheck.run()
+        let failure = rendered ?? SearchTypingCheck.run() ?? EscapeCrashCheck.run()
         stage("done")
         if let failure {
             print("GUTTER_MISSING \(failure)")
@@ -238,6 +238,32 @@ enum GutterSnapshotCheck {
             }
         }
         return count
+    }
+}
+
+/// Esc in Reading reaches the window controller. `NSWindowController` does not implement `cancelOperation:`.
+enum EscapeCrashCheck {
+    static func run() -> String? {
+        MainActor.assumeIsolated { () -> String? in
+            sendCancel()
+        }
+    }
+
+    @MainActor
+    private static func sendCancel() -> String? {
+        let sel = #selector(NSResponder.cancelOperation(_:))
+        guard let superclass = WorkspaceWindowController.superclass() else {
+            return "WorkspaceWindowController has no superclass"
+        }
+        // Nothing is open. The superclass does not implement this selector; the override must not forward it.
+        _ = superclass.instancesRespond(to: sel)
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("xyz-esc-check", isDirectory: true)
+        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let session = WorkspaceSession(rootURL: root, bookmark: nil)
+        let controller = WorkspaceWindowController(session: session)
+        controller.cancelOperation(nil)
+        controller.perform(sel, with: nil)
+        return nil
     }
 }
 #endif

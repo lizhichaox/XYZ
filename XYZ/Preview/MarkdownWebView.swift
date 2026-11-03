@@ -123,19 +123,26 @@ final class XYZPreviewWebView: WKWebView {
         return super.performKeyEquivalent(with: event)
     }
 
-    /// Edit → Find. `performTextFinderAction` is on `NSResponder` (macOS 10.7).
+    /// Edit → Find. Only the actions Reading handles are claimed. The superclass is
+    /// asked only when it actually implements the selector.
     override func performTextFinderAction(_ sender: Any?) {
         let tag = (sender as? NSMenuItem)?.tag ?? NSTextFinder.Action.showFindInterface.rawValue
         guard let action = NSTextFinder.Action(rawValue: tag) else {
-            super.performTextFinderAction(sender)
+            forwardTextFinder(sender)
             return
         }
         switch action {
         case .showFindInterface, .nextMatch, .previousMatch:
             surface?.perform(action)
         default:
-            super.performTextFinderAction(sender)
+            forwardTextFinder(sender)
         }
+    }
+
+    private func forwardTextFinder(_ sender: Any?) {
+        let sel = #selector(NSResponder.performTextFinderAction(_:))
+        guard let superclass = XYZPreviewWebView.superclass(), superclass.instancesRespond(to: sel) else { return }
+        super.performTextFinderAction(sender)
     }
 }
 

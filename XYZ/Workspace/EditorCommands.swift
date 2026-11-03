@@ -49,6 +49,8 @@ protocol EditorCommandTarget: AnyObject {
     func paletteFiles() -> [PaletteFile]
     func paletteOpen(fileID: String, newWindow: Bool)
     func toggleSidebar()
+    var showsOutlinePane: Bool { get }
+    func toggleOutlinePane()
     func focusFilter()
     func replaceInFolder(pattern: String, replacement: String)
     func toggleHiddenFiles()
@@ -88,6 +90,8 @@ extension EditorCommandTarget {
     var showsHiddenFiles: Bool { true }
     var supportsWorkspaceFiles: Bool { false }
     func toggleSidebar() {}
+    var showsOutlinePane: Bool { false }
+    func toggleOutlinePane() {}
     func focusFilter() {}
     func replaceInFolder(pattern: String, replacement: String) {}
     func toggleHiddenFiles() {}
@@ -156,6 +160,11 @@ final class EditorCommands: NSObject {
         if flags == .command && key == "/" {
             guard target != nil else { return false }
             toggleSource(nil)
+            return true
+        }
+        if flags == [.command, .option] && key.lowercased() == "b" {
+            guard target?.supportsWorkspaceFiles == true else { return false }
+            toggleOutline(nil)
             return true
         }
         if flags == .command && key.lowercased() == "p" {
@@ -590,8 +599,7 @@ final class EditorCommands: NSObject {
     }
 
     @objc func toggleOutline(_ sender: Any?) {
-        let defaults = UserDefaults.standard
-        defaults.set(!defaults.bool(forKey: OutlineSetting.key), forKey: OutlineSetting.key)
+        target?.toggleOutlinePane()
     }
 
     @objc func toggleWordWrap(_ sender: Any?) {
@@ -694,7 +702,7 @@ final class EditorCommands: NSObject {
             menuItem.state = UserDefaults.standard.bool(forKey: WordCountSetting.key) ? .on : .off
             return true
         case "xyz.outline":
-            menuItem.state = UserDefaults.standard.bool(forKey: OutlineSetting.key) ? .on : .off
+            menuItem.state = target?.showsOutlinePane == true ? .on : .off
             return target?.supportsWorkspaceFiles == true
         case "xyz.edit.replaceFolder":
             return target?.supportsWorkspaceFiles == true && target?.editorIsEditing == true
@@ -975,7 +983,7 @@ enum EditorMenuSupport {
             ("xyz.lineNumbers", String(localized: "Show Line Numbers in Reading"), "", [], #selector(EditorCommands.toggleLineNumbers(_:))),
             ("xyz.wordWrap", String(localized: "Wrap Lines"), "z", .option, #selector(EditorCommands.toggleWordWrap(_:))),
             ("xyz.wordCount", String(localized: "Show Word Count"), "", [], #selector(EditorCommands.toggleWordCount(_:))),
-            ("xyz.outline", String(localized: "Show Outline"), "", [], #selector(EditorCommands.toggleOutline(_:))),
+            ("xyz.outline", String(localized: "Show Outline"), "b", [.command, .option], #selector(EditorCommands.toggleOutline(_:))),
         ]
         var previous: NSMenuItem?
         for spec in specs {

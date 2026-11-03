@@ -427,9 +427,11 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
     }
 
     /// Backup for Esc when the key is not already consumed by the window monitor.
+    ///
+    /// `NSWindowController` does not implement `cancelOperation:`. WebKit forwards Esc
+    /// here from the Reading page, and `super` would raise NSInvalidArgumentException.
     override func cancelOperation(_ sender: Any?) {
         if EscapeKey.dismissTopmost() { return }
-        super.cancelOperation(sender)
     }
 
     private static func persistOpenWindows() {

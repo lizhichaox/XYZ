@@ -20,34 +20,64 @@ extension FocusedValues {
     }
 }
 
-/// Sidebar and editor. The divider is 6 points to grab and draws as a 1 point line.
-private struct WorkspaceSplit<Sidebar: View, Detail: View>: NSViewRepresentable {
+/// Explorer, editor, and the Markdown outline. Each divider is 6 points to grab and draws as a 1 point line.
+private struct WorkspaceSplit<Sidebar: View, Detail: View, Outline: View>: NSViewRepresentable {
     var showsSidebar: Bool
+    var showsOutline: Bool
+    var outlineWidth: CGFloat
+    var onOutlineWidth: (CGFloat) -> Void
     var sidebar: Sidebar
     var detail: Detail
+    var outline: Outline
 
-    init(showsSidebar: Bool, @ViewBuilder sidebar: () -> Sidebar, @ViewBuilder detail: () -> Detail) {
+    init(
+        showsSidebar: Bool,
+        showsOutline: Bool,
+        outlineWidth: CGFloat,
+        onOutlineWidth: @escaping (CGFloat) -> Void,
+        @ViewBuilder sidebar: () -> Sidebar,
+        @ViewBuilder detail: () -> Detail,
+        @ViewBuilder outline: () -> Outline
+    ) {
         self.showsSidebar = showsSidebar
+        self.showsOutline = showsOutline
+        self.outlineWidth = outlineWidth
+        self.onOutlineWidth = onOutlineWidth
         self.sidebar = sidebar()
         self.detail = detail()
+        self.outline = outline()
     }
 
     func makeNSView(context: Context) -> XYZSplitView {
         let split = XYZSplitView()
         let side = NSHostingView(rootView: sidebar)
         let main = NSHostingView(rootView: detail)
+        let outlineHost = NSHostingView(rootView: outline)
         side.sizingOptions = [.minSize]
         main.sizingOptions = [.minSize]
+        outlineHost.sizingOptions = [.minSize]
         context.coordinator.side = side
         context.coordinator.detail = main
-        split.install(sidebar: side, detail: main, showsSidebar: showsSidebar)
+        context.coordinator.outline = outlineHost
+        split.onOutlineWidth = onOutlineWidth
+        split.install(
+            sidebar: side,
+            detail: main,
+            outline: outlineHost,
+            showsSidebar: showsSidebar,
+            showsOutline: showsOutline,
+            outlineWidth: outlineWidth
+        )
         return split
     }
 
     func updateNSView(_ split: XYZSplitView, context: Context) {
         context.coordinator.side?.rootView = sidebar
         context.coordinator.detail?.rootView = detail
+        context.coordinator.outline?.rootView = outline
+        split.onOutlineWidth = onOutlineWidth
         split.setSidebarShown(showsSidebar)
+        split.setOutline(shown: showsOutline, width: outlineWidth)
     }
 
     func makeCoordinator() -> Coordinator {
@@ -57,14 +87,19 @@ private struct WorkspaceSplit<Sidebar: View, Detail: View>: NSViewRepresentable 
     final class Coordinator {
         var side: NSHostingView<Sidebar>?
         var detail: NSHostingView<Detail>?
+        var outline: NSHostingView<Outline>?
     }
 }
 
 final class XYZSplitView: NSSplitView {
-    private var sidebar: NSView?
-    private var detail: NSView?
+    fileprivate var sidebar: NSView?
+    fileprivate var detail: NSView?
+    fileprivate var outline: NSView?
+    var onOutlineWidth: ((CGFloat) -> Void)?
     private var savedPosition: CGFloat = 260
+    private var savedOutline: CGFloat = 220
     private var sidebarShown = true
+    private var outlineShown = false
     private var loggedDivider = NSRect.null
 
     override init(frame frameRect: NSRect) {
@@ -80,7 +115,21 @@ final class XYZSplitView: NSSplitView {
     }
 
     /// Wide enough to grab. The drawn line stays 1 point.
-    override var dividerThickness: CGFloat { sidebarShown ? 6 : 0 }
+    override var dividerThickness: CGFloat { subviews.count > 1 ? 6 : 0 }
+
+    private var adjusting = false
+
+    override func layout() {
+        super.layout()
+        guard !adjusting, bounds.width > 1 else { return }
+        adjusting = true
+        if sidebarShown, let sidebar, sidebar.superview != nil, sidebar.frame.width < 200 {
+            let room = bounds.width - (outlineShown ? savedOutline + dividerThickness : 0) - 480
+            setPosition(min(max(savedPosition, 220), max(220, room)), ofDividerAt: 0)
+        }
+        applyOutlineWidthIfNeeded()
+        adjusting = false
+    }
 
     override func drawDivider(in rect: NSRect) {
         NSColor.separatorColor.setFill()
@@ -89,68 +138,134 @@ final class XYZSplitView: NSSplitView {
 
     override func resetCursorRects() {
         super.resetCursorRects()
-        guard sidebarShown, subviews.count > 1 else { return }
-        let left = subviews[0].frame
-        let rect = NSRect(x: left.maxX, y: 0, width: dividerThickness, height: bounds.height)
-        addCursorRect(rect, cursor: .resizeLeftRight)
-        if abs(rect.origin.x - loggedDivider.origin.x) > 0.5 || abs(rect.width - loggedDivider.width) > 0.5 {
-            loggedDivider = rect
-            XYZDiagnostics.note(String(format: "divider frame=(%.1f,%.1f %.1fx%.1f) cursor=resizeLeftRight", rect.origin.x, rect.origin.y, rect.width, rect.height))
+        guard subviews.count > 1, dividerThickness > 0 else { return }
+        for index in 0..<(subviews.count - 1) {
+            let left = subviews[index].frame
+            let rect = NSRect(x: left.maxX, y: 0, width: dividerThickness, height: bounds.height)
+            addCursorRect(rect, cursor: .resizeLeftRight)
+            if index == 0, abs(rect.origin.x - loggedDivider.origin.x) > 0.5 {
+                loggedDivider = rect
+                XYZDiagnostics.note(String(format: "divider frame=(%.1f,%.1f %.1fx%.1f) cursor=resizeLeftRight", rect.origin.x, rect.origin.y, rect.width, rect.height))
+            }
         }
     }
 
-    func install(sidebar: NSView, detail: NSView, showsSidebar: Bool) {
+    func install(
+        sidebar: NSView,
+        detail: NSView,
+        outline: NSView,
+        showsSidebar: Bool,
+        showsOutline: Bool,
+        outlineWidth: CGFloat
+    ) {
         self.sidebar = sidebar
         self.detail = detail
+        self.outline = outline
         sidebarShown = showsSidebar
+        outlineShown = showsOutline
+        savedOutline = outlineWidth
         rebuild()
-        if showsSidebar {
-            setPosition(savedPosition, ofDividerAt: 0)
-        }
+        applyPositions()
     }
 
     func setSidebarShown(_ shown: Bool) {
         guard shown != sidebarShown else { return }
-        if sidebarShown, subviews.count > 1 {
-            savedPosition = subviews[0].frame.width
+        if sidebarShown, let sidebar, sidebar.superview != nil {
+            savedPosition = sidebar.frame.width
         }
         sidebarShown = shown
         rebuild()
-        if shown {
-            setPosition(min(max(savedPosition, 220), max(220, bounds.width - 480)), ofDividerAt: 0)
+        applyPositions()
+        window?.invalidateCursorRects(for: self)
+    }
+
+    func setOutline(shown: Bool, width: CGFloat) {
+        savedOutline = width
+        guard shown != outlineShown else {
+            applyOutlineWidthIfNeeded()
+            return
         }
+        outlineShown = shown
+        rebuild()
+        applyPositions()
         window?.invalidateCursorRects(for: self)
     }
 
     private func rebuild() {
         sidebar?.removeFromSuperview()
         detail?.removeFromSuperview()
+        outline?.removeFromSuperview()
         if sidebarShown, let sidebar {
             addSubview(sidebar)
         }
         if let detail {
             addSubview(detail)
         }
-        window?.invalidateCursorRects(for: self)
+        if outlineShown, let outline {
+            addSubview(outline)
+        }
+    }
+
+    private func applyPositions() {
+        if sidebarShown, subviews.count > 1, subviews[0] === sidebar {
+            let room = bounds.width - (outlineShown ? savedOutline + dividerThickness : 0) - 480
+            let position = min(max(savedPosition, 220), max(220, room))
+            setPosition(position, ofDividerAt: 0)
+        }
+        applyOutlineWidthIfNeeded()
+    }
+
+    private func applyOutlineWidthIfNeeded() {
+        guard outlineShown, let outline, outline.superview != nil, bounds.width > 1 else { return }
+        let index = subviews.count - 2
+        guard index >= 0 else { return }
+        let target = bounds.width - savedOutline - dividerThickness
+        if abs(outline.frame.width - savedOutline) > 2 {
+            setPosition(target, ofDividerAt: index)
+        }
+    }
+
+    fileprivate func isRightDivider(_ dividerIndex: Int) -> Bool {
+        outlineShown && dividerIndex == subviews.count - 2
     }
 }
 
 extension XYZSplitView: NSSplitViewDelegate {
     func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
-        220
+        if isRightDivider(dividerIndex) {
+            return sidebarShown ? 220 + 480 : 480
+        }
+        return 220
     }
 
     func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
-        max(220, splitView.bounds.width - 480)
+        if isRightDivider(dividerIndex) {
+            return max(480, splitView.bounds.width - 160)
+        }
+        let reserve: CGFloat = outlineShown ? 160 : 0
+        return max(220, splitView.bounds.width - 480 - reserve)
     }
 
     func splitView(_ splitView: NSSplitView, constrainSplitPosition proposedPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
-        min(max(proposedPosition, 220), max(220, splitView.bounds.width - 480))
+        let lower = splitView.splitView(splitView, constrainMinCoordinate: proposedPosition, ofSubviewAt: dividerIndex)
+        let upper = splitView.splitView(splitView, constrainMaxCoordinate: proposedPosition, ofSubviewAt: dividerIndex)
+        return min(max(proposedPosition, lower), max(lower, upper))
     }
 
     func splitViewDidResizeSubviews(_ notification: Notification) {
         sidebar?.needsLayout = true
         detail?.needsLayout = true
+        outline?.needsLayout = true
+        if outlineShown, let outline, outline.superview != nil {
+            let width = outline.frame.width
+            if abs(width - savedOutline) > 0.5 {
+                savedOutline = width
+                onOutlineWidth?(width)
+            }
+        }
+        if sidebarShown, let sidebar, sidebar.superview != nil {
+            savedPosition = sidebar.frame.width
+        }
     }
 }
 
@@ -168,14 +283,15 @@ struct WorkspaceView: View {
             // A top padding on the full-height host pushes the editor past the window.
             // This row is the title-bar overlap, so the status bar stays inside the frame.
             Color.clear.frame(height: titlebarInset)
-            WorkspaceSplit(showsSidebar: columnVisibility != .detailOnly) {
-                VStack(spacing: 0) {
-                    WorkspaceSidebar(session: session, undoManager: undoManager)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    SidebarOutlineDock(session: session, outline: outline)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .background(Color.sidebarBackground)
+            WorkspaceSplit(
+                showsSidebar: columnVisibility != .detailOnly,
+                showsOutline: showsMarkdownOutline,
+                outlineWidth: session.outlineWidth,
+                onOutlineWidth: { session.rememberOutlineWidth($0) }
+            ) {
+                WorkspaceSidebar(session: session, undoManager: undoManager)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(Color.sidebarBackground)
             } detail: {
                 WorkspaceDetail(
                     session: session,
@@ -184,6 +300,8 @@ struct WorkspaceView: View {
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color.editorBackground)
+            } outline: {
+                OutlineSidebar(session: session, outline: outline)
             }
             if session.buffer != nil {
                 EditorStatusBar(
@@ -219,6 +337,10 @@ struct WorkspaceView: View {
             if session.showsHiddenFiles != value {
                 session.showsHiddenFiles = value
             }
+        }
+        .onAppear { refreshMarkdownOutline() }
+        .onChange(of: session.buffer?.editorToken) { _, _ in
+            refreshMarkdownOutline()
         }
         .focusedSceneValue(
             \.workspaceActions,
@@ -265,6 +387,21 @@ struct WorkspaceView: View {
         guard let path = openFilePath else { return folder }
         let file = (path as NSString).lastPathComponent
         return "\(file) — \(folder)"
+    }
+
+    /// The right outline is only for a Markdown file, and only when this window left it open.
+    private var showsMarkdownOutline: Bool {
+        guard session.outlineVisible, let path = session.buffer?.relativePath else { return false }
+        return FileFormats.format(for: path).language == .markdown
+    }
+
+    private func refreshMarkdownOutline() {
+        guard let text = session.buffer?.text,
+              FileFormats.format(for: session.buffer?.relativePath ?? "").language == .markdown else {
+            outline.clear()
+            return
+        }
+        outline.update(text: text, language: .markdown)
     }
 
     private var openFilePath: String? {
@@ -464,7 +601,6 @@ private struct WorkspaceDetail: View {
     @StateObject private var wordCount = WordCountModel()
     @State private var caret = EditorCaret()
     @State private var surfaceDetail: String?
-    @AppStorage(OutlineSetting.key) private var showsOutline = false
     @AppStorage(XYZEditorStyle.readingLineNumbersKey) private var readingLineNumbers = false
 
     var body: some View {
@@ -520,9 +656,6 @@ private struct WorkspaceDetail: View {
         }
         .onChange(of: showsWordCount) { _, _ in
             countWords(immediate: true)
-        }
-        .onChange(of: showsOutline) { _, shown in
-            if shown { refreshOutline(immediate: true) }
         }
         .onChange(of: session.viewMode) { _, mode in
             if mode == .reading {
@@ -583,12 +716,12 @@ private struct WorkspaceDetail: View {
     }
 
     private func refreshOutline(immediate: Bool) {
-        guard showsOutline, showsText, let text = session.buffer?.text else { return }
-        if immediate {
-            outline.update(text: text, language: format.language)
-        } else {
-            outline.update(text: text, language: format.language)
+        guard format.language == .markdown, let text = session.buffer?.text else {
+            outline.clear()
+            return
         }
+        outline.update(text: text, language: .markdown)
+        _ = immediate
     }
 
     private var activePath: String? {
@@ -722,8 +855,8 @@ private struct WorkspaceDetail: View {
                 if format.isProse {
                     wordCount.update(newText)
                 }
-                if showsOutline {
-                    outline.update(text: newText, language: format.language)
+                if format.language == .markdown {
+                    outline.update(text: newText, language: .markdown)
                 }
             },
             lineNumbersVisible: showsEditorLineNumbers,
@@ -797,6 +930,12 @@ final class WorkspaceCommandBridge: ObservableObject, EditorCommandTarget {
 
     func toggleSidebar() {
         columnVisibility.wrappedValue = columnVisibility.wrappedValue == .detailOnly ? .all : .detailOnly
+    }
+
+    var showsOutlinePane: Bool { session?.outlineVisible ?? false }
+
+    func toggleOutlinePane() {
+        session?.toggleOutlinePane()
     }
 
     func focusFilter() {

@@ -543,15 +543,32 @@ struct ScrollElasticityNone: NSViewRepresentable {
     }
 }
 
-/// Headings, JSON keys, or declarations for the open file. View → Show Outline.
+/// Markdown headings for the right sidebar. A chevron collapses the levels under it.
 struct OutlinePane: View {
     var entries: [OutlineEntry]
     var currentLine: Int = 0
     var choose: (Int) -> Void
+    @State private var collapsed: Set<String> = []
 
     private var activeID: String? {
         guard currentLine > 0 else { return nil }
         return entries.last(where: { $0.line <= currentLine })?.id
+    }
+
+    private var visibleEntries: [OutlineEntry] {
+        var hiddenBelow: Int?
+        var shown: [OutlineEntry] = []
+        for entry in entries {
+            if let limit = hiddenBelow {
+                if entry.depth > limit { continue }
+                hiddenBelow = nil
+            }
+            shown.append(entry)
+            if collapsed.contains(entry.id) {
+                hiddenBelow = entry.depth
+            }
+        }
+        return shown
     }
 
     var body: some View {
@@ -567,22 +584,42 @@ struct OutlinePane: View {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(alignment: .leading, spacing: 0) {
-                            ForEach(entries) { entry in
+                            ForEach(visibleEntries) { entry in
                                 let active = entry.id == activeID
-                                Button {
-                                    choose(entry.line)
-                                } label: {
-                                    Text(entry.title)
-                                        .font(.system(size: 12, weight: active ? .semibold : .regular))
-                                        .foregroundStyle(.primary)
-                                        .lineLimit(1)
-                                        .truncationMode(.tail)
-                                        .padding(.leading, 12 + CGFloat(min(entry.depth, 6)) * 12)
-                                        .padding(.trailing, 10)
-                                        .frame(maxWidth: .infinity, minHeight: 22, alignment: .leading)
-                                        .background(active ? Color.primary.opacity(0.12) : Color.clear)
+                                let children = hasChildren(entry)
+                                HStack(spacing: 2) {
+                                    if children {
+                                        Button {
+                                            if collapsed.contains(entry.id) {
+                                                collapsed.remove(entry.id)
+                                            } else {
+                                                collapsed.insert(entry.id)
+                                            }
+                                        } label: {
+                                            Image(systemName: collapsed.contains(entry.id) ? "chevron.right" : "chevron.down")
+                                                .font(.system(size: 9, weight: .semibold))
+                                                .foregroundStyle(.secondary)
+                                                .frame(width: 14, height: 22)
+                                        }
+                                        .buttonStyle(.plain)
+                                    } else {
+                                        Color.clear.frame(width: 14, height: 22)
+                                    }
+                                    Button {
+                                        choose(entry.line)
+                                    } label: {
+                                        Text(entry.title)
+                                            .font(.system(size: 12, weight: active ? .semibold : .regular))
+                                            .foregroundStyle(.primary)
+                                            .lineLimit(1)
+                                            .truncationMode(.tail)
+                                            .frame(maxWidth: .infinity, minHeight: 22, alignment: .leading)
+                                    }
+                                    .buttonStyle(.plain)
                                 }
-                                .buttonStyle(.plain)
+                                .padding(.leading, 8 + CGFloat(min(entry.depth, 6)) * 12)
+                                .padding(.trailing, 8)
+                                .background(active ? Color.primary.opacity(0.12) : Color.clear)
                                 .id(entry.id)
                                 .help(String(format: String(localized: "Ln %lld, Col %lld"), Int64(entry.line), Int64(1)))
                             }
@@ -600,6 +637,47 @@ struct OutlinePane: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.sidebarBackground)
+    }
+
+    private func hasChildren(_ entry: OutlineEntry) -> Bool {
+        guard let index = entries.firstIndex(where: { $0.id == entry.id }) else { return false }
+        let next = entries.index(after: index)
+        guard next < entries.endIndex else { return false }
+        return entries[next].depth > entry.depth
+    }
+}
+
+/// Right sidebar for a Markdown note. Same tint as the file tree.
+struct OutlineSidebar: View {
+    @ObservedObject var session: WorkspaceSession
+    @ObservedObject var outline: OutlineModel
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Text(String(localized: "Outline").localizedUppercase)
+                .font(.system(size: 11, weight: .medium))
+                .tracking(0.6)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 12)
+                .padding(.top, 8)
+                .padding(.bottom, 4)
+                .accessibilityLabel(String(localized: "Outline"))
+            OutlinePane(entries: outline.entries, currentLine: followedLine) { line in
+                session.scrollLink.revealLine(line)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color.sidebarBackground)
+    }
+
+    /// Reading follows the line on screen. Editing follows the caret.
+    private var followedLine: Int {
+        FileOutline.followedLine(
+            reading: session.viewMode == .reading,
+            viewportLine: session.viewportLine,
+            caretLine: session.caret.line
+        )
     }
 }
 
@@ -643,70 +721,6 @@ struct EditorStatusKey: PreferenceKey {
     static var defaultValue = EditorStatusSnapshot.empty
     static func reduce(value: inout EditorStatusSnapshot, nextValue: () -> EditorStatusSnapshot) {
         value = nextValue()
-    }
-}
-
-/// Collapsible outline at the bottom of the sidebar. Collapsed until View → Show Outline.
-struct SidebarOutlineDock: View {
-    @ObservedObject var session: WorkspaceSession
-    @ObservedObject var outline: OutlineModel
-    @AppStorage(OutlineSetting.key) private var shown = false
-
-    var body: some View {
-        VStack(spacing: 0) {
-            Rectangle().fill(Color.primary.opacity(0.12)).frame(height: 1)
-            Button {
-                shown.toggle()
-            } label: {
-                HStack(spacing: 4) {
-                    Image(systemName: shown ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 9, weight: .semibold))
-                    Text(String(localized: "Outline").localizedUppercase)
-                        .font(.system(size: 11, weight: .semibold))
-                        .tracking(0.6)
-                    Spacer(minLength: 0)
-                }
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 10)
-                .frame(height: 22)
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(String(localized: "Outline"))
-            if shown {
-                OutlinePane(entries: outline.entries, currentLine: followedLine) { line in
-                    session.scrollLink.revealLine(line)
-                }
-                .frame(height: 180)
-            }
-        }
-        .background(Color.sidebarBackground)
-        .onAppear { refresh() }
-        .onChange(of: shown) { _, isShown in
-            if isShown { refresh() }
-        }
-        .onChange(of: session.buffer?.editorToken) { _, _ in
-            refresh()
-        }
-    }
-
-    /// Reading follows the line on screen. Editing follows the caret.
-    private var followedLine: Int {
-        FileOutline.followedLine(
-            reading: session.viewMode == .reading,
-            viewportLine: session.viewportLine,
-            caretLine: session.caret.line
-        )
-    }
-
-    private func refresh() {
-        guard shown else { return }
-        guard let text = session.buffer?.text else {
-            outline.clear()
-            return
-        }
-        let path = session.buffer?.relativePath ?? ""
-        outline.update(text: text, language: FileFormats.format(for: path).language)
     }
 }
 
