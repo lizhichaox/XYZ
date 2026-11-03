@@ -31,6 +31,9 @@ struct WorkspaceView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // A top padding on the full-height host pushes the editor past the window.
+            // This row is the title-bar overlap, so the status bar stays inside the frame.
+            Color.clear.frame(height: titlebarInset)
             HSplitView {
                 if columnVisibility != .detailOnly {
                     VStack(spacing: 0) {
@@ -66,7 +69,7 @@ struct WorkspaceView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .padding(.top, titlebarInset)
+        .clipped()
         .frame(minWidth: 880, minHeight: 520)
         .background(Color.editorBackground)
         .background(WorkspaceWindowChrome(

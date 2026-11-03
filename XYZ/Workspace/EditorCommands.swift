@@ -1344,6 +1344,8 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
     private var rows: [PaletteRow] = []
     /// The note's headings, read once per show the first time the query starts with `@`.
     private var headings: [OutlineHeading]?
+    /// Field-editor text. Reloading the list must not read or write `stringValue`.
+    private var typedQuery = ""
     private var suppressResign = false
     private var closing = false
 
@@ -1352,6 +1354,7 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
         headings = nil
         let panel = self.panel ?? makePanel()
         self.panel = panel
+        typedQuery = query
         search?.stringValue = query
         reloadRows()
         place(panel)
@@ -1373,6 +1376,11 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
     }
 
     func controlTextDidChange(_ notification: Notification) {
+        if let editor = notification.userInfo?["NSFieldEditor"] as? NSTextView {
+            typedQuery = editor.string
+        } else if let editor = search?.currentEditor() as? NSTextView {
+            typedQuery = editor.string
+        }
         reloadRows()
     }
 
@@ -1450,6 +1458,7 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
         panel.isMovable = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isReleasedWhenClosed = false
+        panel.isExcludedFromWindowsMenu = true
 
         let search = NSSearchField()
         search.placeholderString = String(localized: "Go to file, > for commands, @ for headings, : for a line")
@@ -1553,7 +1562,7 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
     }
 
     private func reloadRows() {
-        let query = search?.stringValue ?? ""
+        let query = typedQuery
         if query.hasPrefix("@"), headings == nil {
             headings = target?.paletteHeadings() ?? []
         }

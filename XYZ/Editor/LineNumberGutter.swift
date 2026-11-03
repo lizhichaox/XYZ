@@ -15,6 +15,7 @@ final class LineNumberGutter: NSView {
     static let gap: CGFloat = 12
 
     override var isFlipped: Bool { true }
+    override var isOpaque: Bool { false }
 
     override func hitTest(_ point: NSPoint) -> NSView? {
         nil
@@ -46,12 +47,16 @@ final class LineNumberGutter: NSView {
             removeFromSuperview()
             scrollView.addSubview(self, positioned: .above, relativeTo: scrollView.contentView)
         }
-        let clip = scrollView.contentView
-        let visible = clip.convert(clip.bounds, to: scrollView)
+        let visible = scrollView.contentView.frame
+        // Leave a column of text uncovered. A gutter as wide as the clip paints a blank editor.
+        let room = max(visible.width - 24, 28)
+        let column = min(max(width, 28), room)
+        wantsLayer = false
+        clipsToBounds = true
         let next = NSRect(
             x: visible.minX,
             y: visible.minY,
-            width: min(max(width, 28), max(visible.width, 28)),
+            width: column,
             height: max(visible.height, 1)
         )
         if frame != next {

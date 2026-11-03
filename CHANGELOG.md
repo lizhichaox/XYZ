@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.8
+
+- Editing draws the source again, in light and dark, with line numbers beside it. The editor stops at the status bar.
+- ⌘K keeps the last character you type. Find in Files is one panel, and a hidden 500×500 window is closed again.
+
 ## 0.5.7
 
 - In Reading, the outline follows the heading at the top of the page as you scroll. Editing still follows the caret. Choosing a heading still jumps to it.

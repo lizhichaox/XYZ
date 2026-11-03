@@ -344,17 +344,20 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private static func isPhantom(_ window: NSWindow, includeVisible: Bool) -> Bool {
-        if window.isMiniaturized || window.isKeyWindow || window.isMainWindow { return false }
+        if window.isMiniaturized { return false }
         if window is NSPanel { return false }
         if controller(for: window) != nil { return false }
         if EscapeKey.isRegistered(window) { return false }
-        if window.isVisible && !includeVisible { return false }
         let size = window.frame.size
-        guard abs(size.width - 500) < 2, abs(size.height - 500) < 2 else { return false }
-        if window.isVisible {
-            guard let document = NSDocumentController.shared.document(for: window) else { return false }
-            return document.fileURL == nil
+        let defaultSquare = abs(size.width - 500) < 2 && abs(size.height - 500) < 2
+        let document = NSDocumentController.shared.document(for: window)
+        let untitled = document != nil && document?.fileURL == nil
+        // A hidden window can still be key or main. It is not one the user is looking at.
+        if !window.isVisible {
+            return defaultSquare
         }
+        if window.isKeyWindow || window.isMainWindow { return false }
+        guard includeVisible, defaultSquare, untitled else { return false }
         return true
     }
 

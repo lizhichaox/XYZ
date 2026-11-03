@@ -474,9 +474,17 @@ private struct FindScan {
     func syncLineNumbers(_ show: Bool) {
         if showsLineNumbers != show {
             showsLineNumbers = show
+            showViewport()
         } else if show {
             installGutter()
         }
+    }
+
+    /// TextKit 2 only draws the laid-out viewport. A mode change has to ask for it again.
+    func showViewport() {
+        textLayoutManager?.textViewportLayoutController.layoutViewport()
+        needsDisplay = true
+        enclosingScrollView?.needsDisplay = true
     }
 
     /// The side padding from Settings, widened when line numbers need more room.
@@ -725,7 +733,7 @@ private struct FindScan {
         if let layoutRange {
             manager.ensureLayout(for: layoutRange)
         } else {
-            manager.ensureLayout(for: manager.documentRange)
+            manager.textViewportLayoutController.layoutViewport()
         }
         let fragment = manager.textLayoutFragment(for: start)
             ?? (clamped > 0 ? content.location(document.location, offsetBy: clamped - 1).flatMap { manager.textLayoutFragment(for: $0) } : nil)
@@ -737,25 +745,18 @@ private struct FindScan {
     /// The source line whose top is at the viewport's content top.
     /// Uses the same fragment frame as `lineOffset`, so capture and restore name one line.
     private func viewportTopLine() -> Int {
-        guard let scroll = enclosingScrollView,
-              let manager = textLayoutManager,
+        guard let manager = textLayoutManager,
               let content = manager.textContentManager else { return 1 }
-        let marker = scroll.contentView.bounds.origin.y + 0.5
-        var found: NSTextLayoutFragment?
-        manager.enumerateTextLayoutFragments(
-            from: content.documentRange.location,
-            options: [.ensuresLayout]
-        ) { fragment in
-            let bottom = textContainerOrigin.y + fragment.layoutFragmentFrame.maxY - textContainerInset.height
-            if bottom > marker {
-                found = fragment
-                return false
-            }
-            return true
+        // Walking from the start with `.ensuresLayout` lays out the whole file and, on macOS 27,
+        // leaves the viewport with nothing to draw.
+        let viewport = manager.textViewportLayoutController
+        viewport.layoutViewport()
+        guard let location = viewport.viewportRange?.location else { return 1 }
+        let offset = content.offset(from: content.documentRange.location, to: location)
+        if let index = lineIndexCache {
+            return max(1, index.line(at: max(0, offset)))
         }
-        guard let found else { return 1 }
-        let offset = content.offset(from: content.documentRange.location, to: found.rangeInElement.location)
-        return EditorScrollAnchor.lineNumber(at: max(0, offset), in: string)
+        return max(1, EditorScrollAnchor.lineNumber(at: max(0, offset), in: string))
     }
 
     /// The first source line already in the viewport. Does not lay out the rest of the file.
@@ -805,6 +806,11 @@ struct XYZMacEditor: NSViewRepresentable {
         textView.usesFindBar = false
         textView.isIncrementalSearchingEnabled = true
         textView.drawsBackground = true
+        // A layer-backed text view, and a clip view that paints its own background, hide the
+        // glyphs on macOS 27 once the gutter is added above the clip. Draw the text directly.
+        textView.wantsLayer = false
+        textView.clipsToBounds = true
+        textView.usesAdaptiveColorMappingForDarkAppearance = false
         textView.isVerticallyResizable = true
         textView.textContainer?.lineFragmentPadding = 0
         textView.minSize = NSSize(width: 0, height: 0)
@@ -840,7 +846,11 @@ struct XYZMacEditor: NSViewRepresentable {
         scrollView.horizontalScrollElasticity = .none
         scrollView.contentView.automaticallyAdjustsContentInsets = false
         scrollView.contentView.contentInsets = NSEdgeInsets()
-        scrollView.contentView.drawsBackground = true
+        // The clip view's background layer sits over TextKit 2 fragments. The text view paints
+        // the canvas itself.
+        scrollView.clipsToBounds = true
+        scrollView.contentView.clipsToBounds = true
+        scrollView.contentView.drawsBackground = false
         scrollView.documentView = textView
         applyChrome(textView: textView, scrollView: scrollView, style: style)
         textView.string = text
@@ -861,7 +871,7 @@ struct XYZMacEditor: NSViewRepresentable {
         let editingChanged = textView.isEditable != isEditable
         textView.isEditable = isEditable
         if editingChanged {
-            textView.setNeedsDisplay(textView.visibleRect)
+            textView.showViewport()
             if !isEditable {
                 context.coordinator.forgetViewportLine()
             }
@@ -878,6 +888,9 @@ struct XYZMacEditor: NSViewRepresentable {
         scrollView.scrollerInsets = NSEdgeInsets()
         scrollView.contentView.automaticallyAdjustsContentInsets = false
         scrollView.contentView.contentInsets = NSEdgeInsets()
+        scrollView.clipsToBounds = true
+        scrollView.contentView.clipsToBounds = true
+        scrollView.contentView.drawsBackground = false
         textView.documentUndoManager = undoManager
         scrollLink.capture = { [weak textView] in
             textView?.scrollAnchor() ?? EditorScrollAnchor(fraction: 0, probe: "", line: 1)
@@ -972,8 +985,9 @@ struct XYZMacEditor: NSViewRepresentable {
             .paragraphStyle: paragraph,
         ]
         scrollView.backgroundColor = .textBackgroundColor
-        scrollView.contentView.drawsBackground = true
-        scrollView.contentView.backgroundColor = .textBackgroundColor
+        scrollView.clipsToBounds = true
+        scrollView.contentView.clipsToBounds = true
+        scrollView.contentView.drawsBackground = false
     }
 
     /// Wrap tracks the pane. With wrap off, the line keeps its length and the pane scrolls sideways.

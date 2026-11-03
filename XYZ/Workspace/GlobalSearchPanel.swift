@@ -6,7 +6,6 @@ import XYZCore
 @MainActor
 final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate, NSWindowDelegate {
     private var panel: SearchPanel?
-    private var dim: DimWindow?
     private var search: NSSearchField?
     private var table: NSTableView?
     private var empty: NSTextField?
@@ -21,6 +20,8 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
     private var scope: Scope = .all
     private var generation = 0
     private var task: Task<Void, Never>?
+    /// What the field editor currently holds. The search task reads this and never writes it back.
+    private var typedQuery = ""
     private var suppressResign = false
     private var closing = false
 
@@ -33,7 +34,7 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
     var isOpen: Bool { panel?.isVisible == true }
 
     func owns(_ window: NSWindow?) -> Bool {
-        window != nil && (window === panel || window === dim)
+        window != nil && window === panel
     }
 
     func closeIfOpen() -> Bool {
@@ -56,6 +57,7 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
         self.panel = panel
         scope = .all
         updateChips()
+        typedQuery = ""
         search?.stringValue = ""
         showRecents()
         place(panel)
@@ -75,6 +77,12 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
     }
 
     func controlTextDidChange(_ notification: Notification) {
+        // `stringValue` during this callback is one character behind and writing it back drops that character.
+        if let editor = notification.userInfo?["NSFieldEditor"] as? NSTextView {
+            typedQuery = editor.string
+        } else if let editor = search?.currentEditor() as? NSTextView {
+            typedQuery = editor.string
+        }
         schedule()
     }
 
@@ -153,7 +161,7 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
             let line = String(format: String(localized: "Ln %lld"), Int64(hit.lineNumber))
             cell.apply(
                 title: plain("\(name)  \(line)", size: 13),
-                detail: snippet(hit.excerpt, query: search?.stringValue ?? ""),
+                detail: snippet(hit.excerpt, query: typedQuery),
                 icon: icon(for: hit.relativePath)
             )
             return cell
@@ -201,6 +209,7 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
         panel.isMovable = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isReleasedWhenClosed = false
+        panel.isExcludedFromWindowsMenu = true
 
         let search = NSSearchField()
         search.placeholderString = String(localized: "Search files and text")
@@ -311,7 +320,7 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
 
     private func schedule() {
         task?.cancel()
-        let query = search?.stringValue ?? ""
+        let query = typedQuery
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, let session else {
             showRecents()
@@ -324,7 +333,8 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
         task = Task { [weak self, weak session] in
             try? await Task.sleep(for: .milliseconds(100))
             guard !Task.isCancelled, let self else { return }
-            let latest = self.currentQuery().trimmingCharacters(in: .whitespacesAndNewlines)
+            // A newer keystroke cancels this task. Do not read or write the field from here.
+            let latest = query.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !latest.isEmpty else {
                 self.showRecents()
                 return
@@ -341,13 +351,6 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
             self.contentCapped = content.capped
             self.rebuild()
         }
-    }
-
-    private func currentQuery() -> String {
-        if let editor = search?.currentEditor() as? NSTextView {
-            return editor.string
-        }
-        return search?.stringValue ?? ""
     }
 
     private func showRecents() {
@@ -389,7 +392,7 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
     }
 
     private func applyRows() {
-        let querying = !(search?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let querying = !typedQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         empty?.isHidden = !rows.isEmpty || !querying
         table?.reloadData()
         if let table {
@@ -432,17 +435,6 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
             panel.parent?.removeChildWindow(panel)
             parent.addChildWindow(panel, ordered: .above)
         }
-        let dim = self.dim ?? DimWindow()
-        self.dim = dim
-        dim.onClick = { [weak self] in self?.close() }
-        if dim.parent !== parent {
-            dim.parent?.removeChildWindow(dim)
-            parent.addChildWindow(dim, ordered: .above)
-        }
-        parent.removeChildWindow(panel)
-        parent.addChildWindow(panel, ordered: .above)
-        dim.setFrame(parent.frame, display: true)
-        dim.orderFront(nil)
         let width = panel.frame.width
         let height = panel.frame.height
         let top = parent.frame.height * 0.16
@@ -451,7 +443,7 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
 
     private func parentWindow(for panel: NSWindow) -> NSWindow? {
         if let parent = panel.parent { return parent }
-        return NSApp.keyWindow.flatMap { $0 === panel || $0 === dim ? nil : $0 } ?? NSApp.mainWindow
+        return NSApp.keyWindow.flatMap { $0 === panel ? nil : $0 } ?? NSApp.mainWindow
     }
 
     private func move(_ delta: Int) {
@@ -469,7 +461,7 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
         let row = rows[table.selectedRow]
         guard row.selectable else { return }
         suppressResign = true
-        let query = search?.stringValue.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let query = typedQuery.trimmingCharacters(in: .whitespacesAndNewlines)
         switch row {
         case .recent(let path):
             session.openRelative(path, pin: true)
@@ -511,10 +503,6 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
         if let panel {
             panel.parent?.removeChildWindow(panel)
             panel.orderOut(nil)
-        }
-        if let dim {
-            dim.parent?.removeChildWindow(dim)
-            dim.orderOut(nil)
         }
         closing = false
     }
@@ -668,32 +656,6 @@ private final class SearchPanel: NSPanel {
         let controller = controller
         MainActor.assumeIsolated { () -> Void in
             controller?.close()
-        }
-    }
-}
-
-private final class DimWindow: NSWindow {
-    var onClick: (@MainActor () -> Void)?
-
-    init() {
-        super.init(
-            contentRect: NSRect(x: 0, y: 0, width: 100, height: 100),
-            styleMask: [.borderless],
-            backing: .buffered,
-            defer: false
-        )
-        isOpaque = false
-        backgroundColor = NSColor.black.withAlphaComponent(0.08)
-        ignoresMouseEvents = false
-        level = .floating
-        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-        isReleasedWhenClosed = false
-    }
-
-    override func mouseDown(with event: NSEvent) {
-        let click = onClick
-        MainActor.assumeIsolated { () -> Void in
-            click?()
         }
     }
 }

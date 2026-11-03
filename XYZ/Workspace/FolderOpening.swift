@@ -190,7 +190,25 @@ enum FolderOpening {
             }
             return imp_implementationWithBlock(block)
         }
-        didHookUntitled = hookedUntitled || hookedReopen
+        let makeUntitled = NSSelectorFromString("makeUntitledDocumentOfType:error:")
+        let hookedMake = hook(cls, makeUntitled) { original, selector in
+            let block: @convention(block) (AnyObject, NSString, UnsafeMutablePointer<NSError?>?) -> AnyObject? = { controller, typeName, errorOut in
+                if !userAskedForUntitled() {
+                    errorOut?.pointee = NSError(
+                        domain: NSCocoaErrorDomain,
+                        code: CocoaError.userCancelled.rawValue
+                    )
+                    return nil
+                }
+                let call = unsafeBitCast(
+                    original,
+                    to: (@convention(c) (AnyObject, Selector, NSString, UnsafeMutablePointer<NSError?>?) -> AnyObject?).self
+                )
+                return call(controller, selector, typeName, errorOut)
+            }
+            return imp_implementationWithBlock(block)
+        }
+        didHookUntitled = hookedUntitled || hookedReopen || hookedMake
     }
 
     /// A menu click or ⌘N. A timer or scene restoration has no current event.
