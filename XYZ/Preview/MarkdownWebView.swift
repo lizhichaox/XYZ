@@ -808,6 +808,16 @@ private enum PreviewPage {
         }
         if (window.hljs) hljs.configure({ignoreUnescapedHTML: true});
         // Code colors for fenced blocks that name a language, and the alt text for a picture that cannot load.
+        function xyzEscapeLiteral(text) {
+          var special = ".*+?^${}()|[]\\\\";
+          var out = "";
+          for (var i = 0; i < text.length; i++) {
+            var ch = text.charAt(i);
+            if (special.indexOf(ch) !== -1) out += "\\\\" + ch;
+            else out += ch;
+          }
+          return out;
+        }
         function xyzClearFind() {
           var root = document.getElementById("content");
           if (!root) return;
@@ -824,8 +834,8 @@ private enum PreviewPage {
           xyzClearFind();
           if (!spec || !spec.pattern) return {count: 0, index: 0, wrapped: false, invalid: false};
           var source = spec.pattern;
-          if (!spec.regex) source = source.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-          if (spec.wholeWord) source = "(?<![\\p{L}\\p{N}_])(?:" + source + ")(?![\\p{L}\\p{N}_])";
+          if (!spec.regex) source = xyzEscapeLiteral(source);
+          if (spec.wholeWord) source = "(?<![\\\\p{L}\\\\p{N}_])(?:" + source + ")(?![\\\\p{L}\\\\p{N}_])";
           var flags = spec.matchCase ? "gu" : "giu";
           var expression;
           try { expression = new RegExp(source, flags); }
