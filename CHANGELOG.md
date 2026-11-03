@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.5
+
+- A tab’s menu can close it, close the others, close the tabs to the right, copy its path, or reveal it in Finder. A breadcrumb opens the files and folders beside that segment.
+
 ## 0.5.4
 
 - ⌥Z wraps lines. The outline follows the caret and scrolls the current heading into view. The line and column in the status bar open Go to Line.

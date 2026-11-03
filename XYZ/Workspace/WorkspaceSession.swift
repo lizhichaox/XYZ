@@ -479,6 +479,29 @@ final class WorkspaceSession: ObservableObject {
         copyString(path.isEmpty ? "." : path)
     }
 
+    func closeOtherTabs(keeping id: String) {
+        for other in tabStrip.ids(otherThan: id) {
+            _ = closeTab(other)
+        }
+    }
+
+    func closeTabs(toTheRightOf id: String) {
+        for other in tabStrip.ids(toTheRightOf: id) {
+            _ = closeTab(other)
+        }
+    }
+
+    func revealTabInFinder(_ id: String) {
+        NSWorkspace.shared.activateFileViewerSelecting([url(for: id)])
+    }
+
+    /// Files and folders next to `relativePath`, already loaded in the tree.
+    func siblingNodes(of relativePath: String) -> [WorkspaceNode] {
+        let parent = WorkspacePaths.parent(of: relativePath)
+        let nodes = children[parent] ?? []
+        return WorkspaceTreeSort.ordered(WorkspaceTreeFilter.visible(nodes, showsHidden: showsHiddenFiles))
+    }
+
     func closeActiveTab() -> Bool {
         guard let id = tabStrip.activeID else { return false }
         closeTab(id)

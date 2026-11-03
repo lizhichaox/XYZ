@@ -337,7 +337,11 @@ private struct WorkspaceDetail: View {
             if session.buffer != nil {
                 EditorTabBar(session: session)
                 if let path = activePath {
-                    EditorBreadcrumb(rootName: session.displayName, relativePath: path) { crumb in
+                    EditorBreadcrumb(
+                        rootName: session.displayName,
+                        relativePath: path,
+                        siblings: { session.siblingNodes(of: $0) }
+                    ) { crumb in
                         session.revealCrumb(crumb)
                     }
                 }

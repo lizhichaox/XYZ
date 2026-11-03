@@ -166,6 +166,21 @@ struct EditorTabBar: View {
                                 close: {
                                     _ = session.closeTab(tab.id)
                                 },
+                                closeOthers: {
+                                    session.closeOtherTabs(keeping: tab.id)
+                                },
+                                closeRight: {
+                                    session.closeTabs(toTheRightOf: tab.id)
+                                },
+                                copyPath: {
+                                    session.copyString(session.url(for: tab.id).path)
+                                },
+                                copyRelative: {
+                                    session.copyRelativePath(of: tab.id)
+                                },
+                                reveal: {
+                                    session.revealTabInFinder(tab.id)
+                                },
                                 move: {
                                     session.onMoveTab?(tab.id)
                                 }
@@ -201,6 +216,11 @@ private struct EditorTabItem: View {
     var active: Bool
     var select: () -> Void
     var close: () -> Void
+    var closeOthers: () -> Void
+    var closeRight: () -> Void
+    var copyPath: () -> Void
+    var copyRelative: () -> Void
+    var reveal: () -> Void
     var move: () -> Void
     @State private var hovering = false
 
@@ -240,9 +260,15 @@ private struct EditorTabItem: View {
         .onHover { hovering = $0 }
         .help(tab.id)
         .contextMenu {
-            Button("Move to New Window") {
-                move()
-            }
+            Button("Close") { close() }
+            Button("Close Others") { closeOthers() }
+            Button("Close to the Right") { closeRight() }
+            Divider()
+            Button("Copy Path") { copyPath() }
+            Button("Copy Relative Path") { copyRelative() }
+            Button("Reveal in Finder") { reveal() }
+            Divider()
+            Button("Move to New Window") { move() }
         }
         .simultaneousGesture(
             DragGesture(minimumDistance: 28).onEnded { value in
@@ -306,6 +332,7 @@ private struct EditorTabItem: View {
 struct EditorBreadcrumb: View {
     var rootName: String
     var relativePath: String
+    var siblings: (String) -> [WorkspaceNode] = { _ in [] }
     var choose: (String) -> Void
 
     var body: some View {
@@ -321,15 +348,7 @@ struct EditorBreadcrumb: View {
                             .font(.caption)
                             .foregroundStyle(.tertiary)
                     }
-                    Button {
-                        choose(crumb.relativePath)
-                    } label: {
-                        Text(crumb.name)
-                            .font(.system(size: 12, weight: index == crumbs.count - 1 ? .medium : .regular))
-                            .foregroundStyle(index == crumbs.count - 1 ? Color.primary : Color.secondary)
-                            .lineLimit(1)
-                    }
-                    .buttonStyle(.plain)
+                    crumbMenu(crumb, emphasized: index == crumbs.count - 1)
                 }
             }
             .padding(.horizontal, 10)
@@ -338,6 +357,32 @@ struct EditorBreadcrumb: View {
         .frame(height: 22)
         .background(Color.editorBackground)
         .background(ScrollElasticityNone())
+    }
+
+    private func crumbMenu(_ crumb: WorkspaceCrumb, emphasized: Bool) -> some View {
+        let nodes = siblings(crumb.relativePath)
+        return Menu {
+            if nodes.isEmpty {
+                Button(String(localized: "Nothing else here")) {}
+                    .disabled(true)
+            } else {
+                ForEach(nodes, id: \.relativePath) { node in
+                    Button {
+                        choose(node.relativePath)
+                    } label: {
+                        Text(node.name)
+                    }
+                }
+            }
+        } label: {
+            Text(crumb.name)
+                .font(.system(size: 12, weight: emphasized ? .medium : .regular))
+                .foregroundStyle(emphasized ? Color.primary : Color.secondary)
+                .lineLimit(1)
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
     }
 }
 

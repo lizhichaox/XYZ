@@ -128,6 +128,17 @@ final class EditorTabTests: XCTestCase {
         XCTAssertTrue(strip.tabs.isEmpty)
     }
 
+    func testTabsToTheRightAndTheOthers() {
+        var strip = EditorTabStrip()
+        strip.open("a.md", pin: true)
+        strip.open("b.md", pin: true)
+        strip.open("c.md", pin: true)
+        XCTAssertEqual(strip.ids(toTheRightOf: "b.md"), ["c.md"])
+        XCTAssertEqual(strip.ids(toTheRightOf: "c.md"), [])
+        XCTAssertEqual(strip.ids(otherThan: "b.md"), ["a.md", "c.md"])
+        XCTAssertEqual(strip.ids(toTheRightOf: "missing"), [])
+    }
+
     func testShortcutsSelectTabsAndNineIsLast() {
         var strip = EditorTabStrip()
         for name in ["a", "b", "c", "d", "e", "f", "g", "h", "i", "j"] {

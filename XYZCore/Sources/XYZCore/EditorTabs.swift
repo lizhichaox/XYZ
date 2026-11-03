@@ -99,6 +99,17 @@ public struct EditorTabStrip: Equatable, Sendable {
         return true
     }
 
+    /// Every tab except `id`, in strip order.
+    public func ids(otherThan id: String) -> [String] {
+        tabs.map(\.id).filter { $0 != id }
+    }
+
+    /// Tabs to the right of `id`. Empty when `id` is missing or last.
+    public func ids(toTheRightOf id: String) -> [String] {
+        guard let index = tabs.firstIndex(where: { $0.id == id }) else { return [] }
+        return tabs.dropFirst(index + 1).map(\.id)
+    }
+
     /// Closes a tab and selects the neighbor to its right, or the one to its left.
     @discardableResult
     public mutating func close(id: String) -> String? {
