@@ -317,17 +317,20 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
             let files = await Task.detached(priority: .userInitiated) {
                 GlobalFileSearch.match(entries: entries, query: trimmed, showsHidden: showsHidden)
             }.value
-            let content = await session?.searchPanelContents(query: trimmed) ?? ([], 0, false)
-            guard !Task.isCancelled else { return }
-            await MainActor.run {
-                guard let self, self.generation == token else { return }
-                self.fileHits = files.hits
-                self.fileMore = files.more
-                self.contentHits = content.hits
-                self.contentMore = content.more
-                self.contentCapped = content.capped
-                self.rebuild()
+            let content: (hits: [WorkspaceContentHit], more: Int, capped: Bool)
+            if let session {
+                content = await session.searchPanelContents(query: trimmed)
+            } else {
+                content = ([], 0, false)
             }
+            guard !Task.isCancelled else { return }
+            guard let self, self.generation == token else { return }
+            self.fileHits = files.hits
+            self.fileMore = files.more
+            self.contentHits = content.hits
+            self.contentMore = content.more
+            self.contentCapped = content.capped
+            self.rebuild()
         }
     }
 
