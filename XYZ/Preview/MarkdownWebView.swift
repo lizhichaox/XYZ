@@ -825,7 +825,7 @@ private enum HTMLAttribute {
     }
 }
 
-private enum PreviewStyles {
+enum PreviewStyles {
     static func load() -> String {
         if let url = Bundle.main.url(forResource: "Preview", withExtension: "css"),
            let css = try? String(contentsOf: url, encoding: .utf8),
@@ -836,7 +836,7 @@ private enum PreviewStyles {
     }
 }
 
-private enum PreviewPage {
+enum PreviewPage {
     static func shell(css: String, html: String, theme: String, prefs: PreviewPrefs) -> String {
         let themeName = theme == "dark" ? "dark" : "light"
         return """
