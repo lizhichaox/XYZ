@@ -1940,14 +1940,6 @@ enum GutterSnapshotCheck {
         return found
     }
 
-    private static func findSplit(in view: NSView) -> XYZSplitView? {
-        if let split = view as? XYZSplitView { return split }
-        for child in view.subviews {
-            if let found = findSplit(in: child) { return found }
-        }
-        return nil
-    }
-
     private static func row(_ outline: NSOutlineView, titled name: String) -> Int? {
         for index in 0..<outline.numberOfRows {
             if rowTitle(outline, index) == name { return index }
