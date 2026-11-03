@@ -82,10 +82,12 @@ jobs:
           test -d "$APP"
           codesign --force --deep --sign - "$APP"
           LOG="$PWD/build/macos/gutter.log"
-          "$APP/Contents/MacOS/XYZ" -XYZCheckGutter -ApplePersistenceIgnoreState YES >"$LOG" 2>&1 &
+          SHOTS="$PWD/build/macos/shots"
+          mkdir -p "$SHOTS"
+          XYZWindowShots="$SHOTS" "$APP/Contents/MacOS/XYZ" -XYZCheckGutter -ApplePersistenceIgnoreState YES >"$LOG" 2>&1 &
           PID=$!
           CODE=0
-          for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+          for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40; do
             if ! kill -0 "$PID" 2>/dev/null; then
               wait "$PID" || CODE=$?
               cat "$LOG"
@@ -97,6 +99,14 @@ jobs:
           cat "$LOG" || true
           kill "$PID" || true
           exit 1
+
+      - name: Upload editor window shots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: editor-window-shots
+          path: build/macos/shots
+          if-no-files-found: ignore
 
       - name: Launch macOS app
         if: steps.macos.conclusion == 'success'

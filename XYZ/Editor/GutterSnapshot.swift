@@ -1,6 +1,7 @@
 #if os(macOS)
 import AppKit
 import SwiftUI
+import Vision
 import WebKit
 import XYZCore
 
@@ -20,8 +21,10 @@ enum GutterSnapshotCheck {
         let aligned = reading == nil && wrapped == nil && rendered == nil ? renderReadingAlignment() : nil
         stage(aligned == nil ? "production" : "reading-align-failed")
         let production = aligned == nil && reading == nil && wrapped == nil && rendered == nil ? renderProductionEditors() : nil
-        stage(production == nil ? "search" : "production-failed")
-        let failure = rendered ?? wrapped ?? reading ?? aligned ?? production ?? SearchTypingCheck.run() ?? EscapeCrashCheck.run() ?? SidebarColumnFitCheck.run()
+        stage(production == nil ? "window" : "production-failed")
+        let windowed = production == nil ? renderDocumentWindows() : nil
+        stage(windowed == nil ? "search" : "window-failed")
+        let failure = rendered ?? wrapped ?? reading ?? aligned ?? production ?? windowed ?? SearchTypingCheck.run() ?? EscapeCrashCheck.run() ?? SidebarColumnFitCheck.run()
         stage("done")
         if let failure {
             print("GUTTER_MISSING \(failure)")
@@ -430,6 +433,226 @@ enum GutterSnapshotCheck {
         abs(color.redComponent - other.redComponent)
             + abs(color.greenComponent - other.greenComponent)
             + abs(color.blueComponent - other.blueComponent)
+    }
+
+    /// The real folder window, not a hand-built text view. `cacheDisplay` paints glyphs the
+    /// layer-backed window never shows, so this check reads the composited layer.
+    private static func renderDocumentWindows() -> String? {
+        let fixture = """
+        Glyphsample
+        Secondline is the next source line
+        中文短句
+        \(String(repeating: "Gamma ", count: 24))
+        """
+        let appearanceNames: [(NSAppearance.Name, String)] = [(.aqua, "light"), (.darkAqua, "dark")]
+        for wraps in [true, false] {
+            for (appearance, appearanceName) in appearanceNames {
+                if let failure = renderDocumentWindow(
+                    fixture: fixture,
+                    wraps: wraps,
+                    appearance: appearance,
+                    appearanceName: appearanceName,
+                    fileName: "fixture.md",
+                    requireBody: true
+                ) {
+                    return failure
+                }
+            }
+        }
+        return renderDocumentWindow(
+            fixture: "",
+            wraps: true,
+            appearance: .aqua,
+            appearanceName: "light",
+            fileName: "empty.md",
+            requireBody: false
+        )
+    }
+
+    private static func renderDocumentWindow(
+        fixture: String,
+        wraps: Bool,
+        appearance: NSAppearance.Name,
+        appearanceName: String,
+        fileName: String,
+        requireBody: Bool
+    ) -> String? {
+        let label = "\(appearanceName)-\(wraps ? "wrap" : "nowrap")-\(requireBody ? "body" : "blank")"
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("xyz-window-fixture", isDirectory: true)
+        let file = root.appendingPathComponent(fileName)
+        do {
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            try fixture.write(to: file, atomically: true, encoding: .utf8)
+        } catch {
+            return "window \(label): could not write the synthetic file"
+        }
+        let defaults = UserDefaults.standard
+        let wrapKey = XYZEditorStyle.wordWrapKey
+        let previousWrap = defaults.object(forKey: wrapKey)
+        defaults.set(wraps, forKey: wrapKey)
+        let previousAppearance = NSApp.appearance
+        NSApp.appearance = NSAppearance(named: appearance)
+        defer {
+            if let previousWrap {
+                defaults.set(previousWrap, forKey: wrapKey)
+            } else {
+                defaults.removeObject(forKey: wrapKey)
+            }
+            NSApp.appearance = previousAppearance
+            try? FileManager.default.removeItem(at: root)
+        }
+        let failure = MainActor.assumeIsolated { () -> String? in
+            let session = WorkspaceSession(rootURL: root, bookmark: nil)
+            let controller = WorkspaceWindowController(session: session)
+            guard let window = controller.window, let content = window.contentView else {
+                return "window \(label): the document window was not created"
+            }
+            window.appearance = NSAppearance(named: appearance)
+            window.title = "XYZ"
+            content.appearance = window.appearance
+            session.openRelative(fileName)
+            if !waitForBuffer(session, containing: fixture, seconds: 4) {
+                return "window \(label): the file binding did not load storage=\((session.buffer?.text as NSString?)?.length ?? -1)"
+            }
+            if fixture.isEmpty == false {
+                session.selectViewMode(.source, source: "check")
+            } else {
+                session.selectViewMode(.source, source: "check")
+            }
+            let host = content
+            pump(0.4)
+            host.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            pump(0.3)
+            host.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            guard let pane = findPane(in: host), let textView = pane.scrollView.documentView as? XYZMacTextView else {
+                return "window \(label): Editing did not mount the text view evidence=missing"
+            }
+            let stored = (textView.string as NSString).length
+            let expected = (fixture as NSString).length
+            if textView.string != fixture || stored != expected {
+                return "window \(label): editor storage \(stored) expected \(expected)"
+            }
+            guard let image = compositedImage(of: textView) else {
+                return "window \(label): the text view has no composited layer evidence=missing"
+            }
+            let words = recognizedText(in: image)
+            let shortened = String(words.prefix(180))
+            print("GUTTER_WINDOW label=\(label) words=\(shortened) storage=\(stored) layer=\(textView.layer == nil ? 0 : 1)")
+            fflush(stdout)
+            saveShot(image, name: "editing-\(label).png")
+            if let paneImage = compositedImage(of: pane) {
+                saveShot(paneImage, name: "pane-\(label).png")
+            }
+            let recognized = words.range(of: "Glyphsample", options: .caseInsensitive) != nil
+                && words.range(of: "Secondline", options: .caseInsensitive) != nil
+            if requireBody {
+                if !recognized {
+                    return "window \(label): composited body did not show the fixture words evidence=missing"
+                }
+                let numbers = pane.gutter.testingSnapshot().rows.filter(\.shows).map(\.line)
+                if numbers.first != 1 {
+                    return "window \(label): gutter numbered \(numbers)"
+                }
+                let disk = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
+                if disk != fixture {
+                    return "window \(label): synthetic file changed on disk stored=\((disk as NSString).length)"
+                }
+            } else if recognized {
+                return "window \(label): blank document was accepted as a readable body"
+            }
+            controller.session.shutdown()
+            return nil
+        }
+        return failure
+    }
+
+    @MainActor
+    private static func waitForBuffer(_ session: WorkspaceSession, containing fixture: String, seconds: TimeInterval) -> Bool {
+        let start = Date()
+        while Date().timeIntervalSince(start) < seconds {
+            if session.buffer?.text == fixture { return true }
+            pump(0.05)
+        }
+        return session.buffer?.text == fixture
+    }
+
+    private static func pump(_ seconds: TimeInterval) {
+        RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(seconds))
+    }
+
+    /// The layer tree a window composites. `cacheDisplay` is intentionally not used.
+    private static func compositedImage(of view: NSView) -> CGImage? {
+        let host = nearestLayerView(view) ?? view
+        host.layoutSubtreeIfNeeded()
+        host.displayIfNeeded()
+        guard let layer = host.layer else { return nil }
+        let bounds = host.bounds
+        let scale: CGFloat = 2
+        let width = max(1, Int(bounds.width * scale))
+        let height = max(1, Int(bounds.height * scale))
+        guard let rep = NSBitmapImageRep(
+            bitmapDataPlanes: nil,
+            pixelsWide: width,
+            pixelsHigh: height,
+            bitsPerSample: 8,
+            samplesPerPixel: 4,
+            hasAlpha: true,
+            isPlanar: false,
+            colorSpaceName: .deviceRGB,
+            bytesPerRow: 0,
+            bitsPerPixel: 0
+        ), let graphics = NSGraphicsContext(bitmapImageRep: rep) else { return nil }
+        NSGraphicsContext.saveGraphicsState()
+        let ctx = graphics.cgContext
+        ctx.translateBy(x: 0, y: CGFloat(height))
+        ctx.scaleBy(x: scale, y: -scale)
+        layer.render(in: ctx)
+        NSGraphicsContext.restoreGraphicsState()
+        guard var image = rep.cgImage else { return nil }
+        if host !== view {
+            let rect = view.convert(view.bounds, to: host)
+            var crop = CGRect(x: rect.minX * scale, y: rect.minY * scale, width: rect.width * scale, height: rect.height * scale)
+            crop.origin.y = CGFloat(height) - crop.origin.y - crop.height
+            if let cropped = image.cropping(to: crop.integral) {
+                image = cropped
+            }
+        }
+        return image
+    }
+
+    private static func nearestLayerView(_ view: NSView) -> NSView? {
+        var current: NSView? = view
+        while let view = current {
+            if view.layer != nil { return view }
+            current = view.superview
+        }
+        return nil
+    }
+
+    private static func recognizedText(in image: CGImage) -> String {
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = false
+        request.recognitionLanguages = ["en-US"]
+        let handler = VNImageRequestHandler(cgImage: image, options: [:])
+        do {
+            try handler.perform([request])
+        } catch {
+            return ""
+        }
+        return (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: " ")
+    }
+
+    private static func saveShot(_ image: CGImage, name: String) {
+        guard let directory = ProcessInfo.processInfo.environment["XYZWindowShots"], !directory.isEmpty else { return }
+        let rep = NSBitmapImageRep(cgImage: image)
+        guard let data = rep.representation(using: .png, properties: [:]) else { return }
+        let url = URL(fileURLWithPath: directory).appendingPathComponent(name)
+        try? data.write(to: url)
+        print("GUTTER_WINDOW_SHOT \(name)")
+        fflush(stdout)
     }
 
     private static func findPane(in view: NSView) -> EditorPane? {
