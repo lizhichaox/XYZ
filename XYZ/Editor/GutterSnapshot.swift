@@ -656,6 +656,9 @@ enum GutterSnapshotCheck {
             let words = recognizedText(in: screen ?? windowImage)
             let chain = layerChain(from: textView)
             let viewNames = textView.subviews.map { NSStringFromClass(type(of: $0)) }.joined(separator: ",")
+            textView.joinWindowLayer()
+            textView.displayIfNeeded()
+            window.displayIfNeeded()
             let box = textView.convert(textView.bounds, to: nil)
             let visible = textView.visibleRect
             let clipY = textView.enclosingScrollView?.contentView.bounds.origin.y ?? -1

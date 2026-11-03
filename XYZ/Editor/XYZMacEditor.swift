@@ -595,6 +595,9 @@ private struct FindScan {
         }
         editorPane?.noteTextLayout()
         alignIfReady()
+        if window != nil {
+            flipOwnedLayers()
+        }
     }
 
     /// Turns numbers on or off on this view. Called from SwiftUI updates, including a mode
@@ -799,18 +802,29 @@ private struct FindScan {
     }
 
     /// The glyphs are already in this view. A flipped text view inside the folder window
-    /// was leaving that layer out of the window unless the layer uses the view's flip.
+    /// leaves them on an unflipped layer, so the window shows the numbers and not the note.
     /// The text view stays the editor: caret, selection, scrolling, and find are unchanged.
     func joinWindowLayer() {
         guard window != nil else { return }
         wantsLayer = true
-        layer?.isGeometryFlipped = isFlipped
         if let scroll = enclosingScrollView {
             scroll.wantsLayer = true
             scroll.contentView.drawsBackground = false
         }
         textLayoutManager?.textViewportLayoutController.layoutViewport()
+        flipOwnedLayers()
         needsDisplay = true
+    }
+
+    /// TextKit rebuilds the content layer after the text view's own layer is configured.
+    private func flipOwnedLayers() {
+        var pending = [self]
+        while let view = pending.popLast() {
+            if view.isFlipped, let layer = view.layer, !layer.isGeometryFlipped {
+                layer.isGeometryFlipped = true
+            }
+            pending.append(contentsOf: view.subviews)
+        }
     }
 
     func scrollAnchor() -> EditorScrollAnchor {
