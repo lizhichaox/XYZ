@@ -799,9 +799,11 @@ private enum PreviewPage {
           document.documentElement.setAttribute("data-theme", theme);
         }
         function setPrefs(size, readable) {
+          var kept = xyzTop();
           var root = document.documentElement;
           root.style.setProperty("--text-size", (size | 0) + "px");
           root.setAttribute("data-readable", readable ? "true" : "false");
+          if (kept && kept.line) xyzRevealLine(kept.line);
         }
         function xyzSourceLine(start, end, fraction) {
           start = Math.max(1, start | 0);

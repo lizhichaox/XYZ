@@ -386,6 +386,7 @@ struct XYZMacEditor: NSViewRepresentable {
         textView.string = text
         context.coordinator.restyle(edited: nil)
         applyWrap(textView: textView, scrollView: scrollView, wraps: style.wraps)
+        textView.layoutManager?.allowsNonContiguousLayout = true
         assert(textView.textLayoutManager != nil, "XYZEditor requires TextKit 2")
         return scrollView
     }
@@ -416,20 +417,33 @@ struct XYZMacEditor: NSViewRepresentable {
             guard let textView, let window = textView.window else { return }
             window.makeFirstResponder(textView)
         }
-        let styleChanged = context.coordinator.style != style || markupChanged || context.coordinator.syntax != syntax
+        let previous = context.coordinator.style
+        let syntaxChanged = context.coordinator.syntax != syntax
         context.coordinator.syntax = syntax
-        if context.coordinator.style != style {
+        if previous != style {
             context.coordinator.style = style
             applyChrome(textView: textView, scrollView: scrollView, style: style)
+            if previous.wraps != style.wraps {
+                applyWrap(textView: textView, scrollView: scrollView, wraps: style.wraps)
+            }
+            // Size, face, and wrap change the line boxes. Color and heading sizes follow once.
+            let metrics = previous.fontSize != style.fontSize
+                || previous.monospaced != style.monospaced
+                || previous.lineHeight != style.lineHeight
+                || previous.wraps != style.wraps
+            if metrics {
+                context.coordinator.applyMetrics()
+                context.coordinator.scheduleRecolor()
+            }
         }
         if context.coordinator.reloadToken != reloadToken {
             context.coordinator.reloadToken = reloadToken
             if textView.string != text {
                 context.coordinator.perform(.replaceContents(text))
-            } else if styleChanged {
+            } else if markupChanged || syntaxChanged {
                 context.coordinator.restyle(edited: nil)
             }
-        } else if styleChanged {
+        } else if markupChanged || syntaxChanged {
             context.coordinator.restyle(edited: nil)
         }
         if let anchor = scrollLink.take(for: .source) {
@@ -462,8 +476,6 @@ struct XYZMacEditor: NSViewRepresentable {
             .foregroundColor: NSColor.labelColor,
             .paragraphStyle: paragraph,
         ]
-        textView.textContainerInset = NSSize(width: style.horizontalInset, height: style.verticalInset)
-        applyWrap(textView: textView, scrollView: scrollView, wraps: style.wraps)
         scrollView.backgroundColor = .textBackgroundColor
         scrollView.contentView.drawsBackground = true
         scrollView.contentView.backgroundColor = .textBackgroundColor
@@ -501,6 +513,7 @@ struct XYZMacEditor: NSViewRepresentable {
         private var isRestyling = false
         private var editedRange: NSRange?
         private var laterRestyle: DispatchWorkItem?
+        private var metricRecolor: DispatchWorkItem?
 
         var text: String {
             textView?.string ?? ""
@@ -568,6 +581,30 @@ struct XYZMacEditor: NSViewRepresentable {
                 }
             }
             onTextChange(textView.string)
+        }
+
+        /// Font, line box, and wrap. One attribute pass, then the viewport lays itself out.
+        func applyMetrics() {
+            guard let textView, !textView.hasMarkedText() else { return }
+            isRestyling = true
+            defer { isRestyling = false }
+            EditorTypography.applyMetrics(to: textView, style: style)
+            textView.lineNumbersChanged()
+        }
+
+        /// Heading sizes and syntax colors after the last size step, not on every ⌘−.
+        func scheduleRecolor() {
+            metricRecolor?.cancel()
+            let item = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                if self.textView?.hasMarkedText() == true {
+                    self.scheduleRecolor()
+                    return
+                }
+                self.restyle(edited: nil)
+            }
+            metricRecolor = item
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(120), execute: item)
         }
 
         func restyle(edited: NSRange?) {
@@ -674,9 +711,38 @@ enum EditorTypography {
             .foregroundColor: NSColor.labelColor,
             .paragraphStyle: paragraph,
         ]
-        if full.length <= immediateLimit, let manager = textView.textLayoutManager {
-            manager.ensureLayout(for: manager.documentRange)
+        keepViewportLayout(textView)
+    }
+
+    /// The size change itself. Colors and heading sizes are a later pass.
+    /// Laying out `documentRange` here turns viewport layout off for good, so later typing lays out the whole note.
+    static func applyMetrics(to textView: NSTextView, style: XYZEditorStyle) {
+        guard let storage = textView.textStorage else { return }
+        let font = baseFont(style)
+        let paragraph = style.paragraphStyle(naturalLineHeight: naturalLineHeight(font))
+        let full = NSRange(location: 0, length: storage.length)
+        textView.undoManager?.disableUndoRegistration()
+        storage.beginEditing()
+        if full.length > 0 {
+            storage.addAttribute(.font, value: font, range: full)
+            storage.addAttribute(.paragraphStyle, value: paragraph, range: full)
         }
+        storage.endEditing()
+        textView.undoManager?.enableUndoRegistration()
+        textView.defaultParagraphStyle = paragraph
+        textView.typingAttributes = [
+            .font: font,
+            .foregroundColor: NSColor.labelColor,
+            .paragraphStyle: paragraph,
+        ]
+        keepViewportLayout(textView, displayViewport: true)
+    }
+
+    /// `setAttributes` can clear `allowsNonContiguousLayout`. Put it back so scrolling stays on the viewport.
+    private static func keepViewportLayout(_ textView: NSTextView, displayViewport: Bool = false) {
+        textView.layoutManager?.allowsNonContiguousLayout = true
+        guard displayViewport, let manager = textView.textLayoutManager else { return }
+        manager.textViewportLayoutController.layoutViewport()
     }
 
     private static func lineSpan(_ ns: NSString, around edited: NSRange?) -> NSRange {

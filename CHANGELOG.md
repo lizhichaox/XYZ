@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.3
+
+- Changing the text size updates the font once and leaves the rest of the note on viewport layout, so typing and scrolling stay smooth afterward.
+- Reading applies that size through the page's text-size setting and keeps the line that was at the top.
+
 ## 0.1.2
 
 - ⇧⌘T reopens the last closed tab. ⌃G asks for a line, and optionally a column (`12:4`). View → Reveal Active File selects that file in the sidebar.
