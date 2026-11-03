@@ -471,7 +471,7 @@ private struct FindQueryField: NSViewRepresentable {
     }
 }
 
-/// Open files for the window. A preview tab is italic. A dirty file has a dot until the close button shows.
+/// Open files for the window. A preview tab is italic. A pinned tab shows a pin. A dirty file has a dot until the close button shows.
 struct EditorTabBar: View {
     @ObservedObject var session: WorkspaceSession
 
@@ -490,6 +490,12 @@ struct EditorTabBar: View {
                                 },
                                 close: {
                                     _ = session.closeTab(tab.id)
+                                },
+                                keep: {
+                                    session.keepTab(tab.id)
+                                },
+                                togglePin: {
+                                    session.setTabPinned(tab.id, !tab.isPinned)
                                 },
                                 closeOthers: {
                                     session.closeOtherTabs(keeping: tab.id)
@@ -544,6 +550,8 @@ private struct EditorTabItem: View {
     var active: Bool
     var select: () -> Void
     var close: () -> Void
+    var keep: () -> Void
+    var togglePin: () -> Void
     var closeOthers: () -> Void
     var closeRight: () -> Void
     var closeAll: () -> Void
@@ -569,6 +577,13 @@ private struct EditorTabItem: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel(name)
+            if tab.isPinned {
+                Image(systemName: "pin.fill")
+                    .font(.system(size: 9))
+                    .foregroundStyle(Color.xyzSecondaryText)
+                    .frame(width: 12, height: 12)
+                    .accessibilityLabel(String(localized: "Pinned"))
+            }
             closeControl
         }
         .padding(.leading, 10)
@@ -587,10 +602,18 @@ private struct EditorTabItem: View {
             Rectangle().fill(Color.xyzDivider).frame(width: 1)
         }
         .onHover { hovering = $0 }
-        .overlay(TabMiddleClick(tabID: tab.id, action: close))
+        .overlay(TabMiddleClick(tabID: tab.id, close: {
+            guard !tab.isPinned else { return }
+            close()
+        }, keep: keep))
         .help(tab.id)
         .contextMenu {
             Button("Close") { close() }
+            if tab.isPinned {
+                Button("Unpin") { togglePin() }
+            } else {
+                Button("Pin") { togglePin() }
+            }
             Button("Close Others") { closeOthers() }
             Button("Close to the Right") { closeRight() }
             Button("Close All") { closeAll() }
@@ -659,21 +682,24 @@ private struct EditorTabItem: View {
     }
 }
 
-/// Middle-click closes a tab. A monitor looks at the tab's frame, because the title field eats the event before hit testing.
+/// Middle-click closes a tab. A double click keeps a preview. A monitor looks at the tab's frame, because the title field eats the event before hit testing.
 private struct TabMiddleClick: NSViewRepresentable {
     var tabID: String
-    var action: () -> Void
+    var close: () -> Void
+    var keep: () -> Void
 
     func makeNSView(context: Context) -> TabMiddleTarget {
         let view = TabMiddleTarget()
         view.tabID = tabID
-        view.action = action
+        view.close = close
+        view.keep = keep
         return view
     }
 
     func updateNSView(_ view: TabMiddleTarget, context: Context) {
         view.tabID = tabID
-        view.action = action
+        view.close = close
+        view.keep = keep
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: TabMiddleTarget, context: Context) -> CGSize? {
@@ -683,7 +709,8 @@ private struct TabMiddleClick: NSViewRepresentable {
 
 private final class TabMiddleTarget: NSView {
     var tabID = ""
-    var action: () -> Void = {}
+    var close: () -> Void = {}
+    var keep: () -> Void = {}
     private static var live: [WeakTab] = []
     private static var monitor: Any?
 
@@ -700,14 +727,26 @@ private final class TabMiddleTarget: NSView {
 
     private static func install() {
         guard monitor == nil else { return }
-        monitor = NSEvent.addLocalMonitorForEvents(matching: [.otherMouseUp]) { event in
-            guard event.buttonNumber == 2, event.window != nil else { return event }
+        monitor = NSEvent.addLocalMonitorForEvents(matching: [.otherMouseUp, .leftMouseUp]) { event in
+            guard event.window != nil else { return event }
             live.removeAll { $0.view == nil }
+            if event.type == .leftMouseUp {
+                guard event.clickCount == 2 else { return event }
+                for item in live {
+                    guard let view = item.view, view.window === event.window else { continue }
+                    let local = view.convert(event.locationInWindow, from: nil)
+                    guard view.bounds.contains(local) else { continue }
+                    view.keep()
+                    return event
+                }
+                return event
+            }
+            guard event.buttonNumber == 2 else { return event }
             for item in live {
                 guard let view = item.view, view.window === event.window else { continue }
                 let local = view.convert(event.locationInWindow, from: nil)
                 guard view.bounds.contains(local) else { continue }
-                view.action()
+                view.close()
                 return nil
             }
             return event

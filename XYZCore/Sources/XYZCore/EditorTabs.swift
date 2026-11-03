@@ -3,18 +3,29 @@ import Foundation
 /// One open file in a window.
 ///
 /// A preview tab is replaced by the next file opened from a single click.
-/// Editing, or opening with `pin`, keeps the tab.
+/// Editing, or opening with `pin`, keeps the tab (roman title) without sticking it.
+/// `isPinned` is the separate Pin command: the tab stays out of preview replacement
+/// and out of Close Others, Close to the Right, and Close All.
 public struct EditorTab: Equatable, Sendable, Identifiable {
     public var id: String
     public var isPreview: Bool
     public var isDirty: Bool
+    /// Stays put. A pinned tab is never a preview.
+    public var isPinned: Bool
     /// Source or Reading for this tab. Each tab keeps its own mode.
     public var mode: EditorViewMode
 
-    public init(id: String, isPreview: Bool, isDirty: Bool = false, mode: EditorViewMode = .reading) {
+    public init(
+        id: String,
+        isPreview: Bool,
+        isDirty: Bool = false,
+        isPinned: Bool = false,
+        mode: EditorViewMode = .reading
+    ) {
         self.id = id
-        self.isPreview = isPreview
+        self.isPreview = isPinned ? false : isPreview
         self.isDirty = isDirty
+        self.isPinned = isPinned
         self.mode = mode
     }
 }
@@ -34,8 +45,8 @@ public struct EditorTabStrip: Equatable, Sendable {
     }
 
     /// Opens `id`. A single click (`pin == false`) replaces the current clean preview tab in place.
-    /// A dirty preview is pinned instead of replaced. Returns the path of a preview that was removed.
-    /// An existing tab keeps the mode it already has.
+    /// A dirty preview is kept instead of replaced. Returns the path of a preview that was removed.
+    /// An existing tab keeps the mode it already has. `pin` keeps the tab. It does not set `isPinned`.
     @discardableResult
     public mutating func open(_ id: String, pin: Bool, mode: EditorViewMode = .reading) -> String? {
         if let index = tabs.firstIndex(where: { $0.id == id }) {
@@ -43,7 +54,7 @@ public struct EditorTabStrip: Equatable, Sendable {
             if pin { tabs[index].isPreview = false }
             return nil
         }
-        if !pin, let preview = tabs.firstIndex(where: { $0.isPreview }) {
+        if !pin, let preview = tabs.firstIndex(where: { $0.isPreview && !$0.isPinned }) {
             if tabs[preview].isDirty {
                 tabs[preview].isPreview = false
             } else {
@@ -65,6 +76,10 @@ public struct EditorTabStrip: Equatable, Sendable {
 
     public mutating func setPreview(id: String, _ preview: Bool) {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
+        if tabs[index].isPinned {
+            tabs[index].isPreview = false
+            return
+        }
         tabs[index].isPreview = preview
     }
 
@@ -83,12 +98,22 @@ public struct EditorTabStrip: Equatable, Sendable {
         return tab
     }
 
+    /// Keeps a preview. The title goes roman. This is not the Pin command.
     public mutating func pin(_ id: String) {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
         tabs[index].isPreview = false
     }
 
-    /// Updates the dirty dot. A dirty tab is pinned. Returns whether the strip changed.
+    /// Pin sticks the tab. Unpin leaves it kept. A pinned tab is not a preview.
+    public mutating func setPinned(id: String, _ pinned: Bool) {
+        guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
+        tabs[index].isPinned = pinned
+        if pinned {
+            tabs[index].isPreview = false
+        }
+    }
+
+    /// Updates the dirty dot. A dirty tab is kept. Returns whether the strip changed.
     @discardableResult
     public mutating func setDirty(id: String, _ dirty: Bool) -> Bool {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return false }
@@ -108,6 +133,28 @@ public struct EditorTabStrip: Equatable, Sendable {
     public func ids(toTheRightOf id: String) -> [String] {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return [] }
         return tabs.dropFirst(index + 1).map(\.id)
+    }
+
+    /// Tabs Close All may remove. Pinned tabs stay.
+    public func closableIDs() -> [String] {
+        tabs.filter { !$0.isPinned }.map(\.id)
+    }
+
+    /// Tabs Close Others may remove. The kept tab and every pinned tab stay.
+    public func closableIDs(otherThan id: String) -> [String] {
+        tabs.filter { $0.id != id && !$0.isPinned }.map(\.id)
+    }
+
+    /// Tabs Close to the Right may remove. Pinned tabs to the right stay.
+    public func closableIDs(toTheRightOf id: String) -> [String] {
+        guard let index = tabs.firstIndex(where: { $0.id == id }) else { return [] }
+        return tabs.dropFirst(index + 1).filter { !$0.isPinned }.map(\.id)
+    }
+
+    /// Middle-click closes an unpinned tab. A pinned tab stays until Unpin or Close.
+    public func canMiddleClickClose(_ id: String) -> Bool {
+        guard let tab = tabs.first(where: { $0.id == id }) else { return false }
+        return !tab.isPinned
     }
 
     /// Closes a tab and selects the neighbor to its right, or the one to its left.
@@ -197,11 +244,40 @@ public struct WorkspaceTabState: Equatable, Codable, Sendable {
     public var path: String
     public var isPreview: Bool
     public var mode: EditorViewMode
+    /// Absent in windows saved before Pin. Those tabs stay unpinned.
+    public var isPinned: Bool
 
-    public init(path: String, isPreview: Bool, mode: EditorViewMode) {
+    public init(path: String, isPreview: Bool, mode: EditorViewMode, isPinned: Bool = false) {
         self.path = path
-        self.isPreview = isPreview
+        self.isPreview = isPinned ? false : isPreview
         self.mode = mode
+        self.isPinned = isPinned
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case path
+        case isPreview
+        case mode
+        case isPinned
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        path = try container.decode(String.self, forKey: .path)
+        isPreview = try container.decode(Bool.self, forKey: .isPreview)
+        mode = try container.decode(EditorViewMode.self, forKey: .mode)
+        isPinned = try container.decodeIfPresent(Bool.self, forKey: .isPinned) ?? false
+        if isPinned {
+            isPreview = false
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(path, forKey: .path)
+        try container.encode(isPreview, forKey: .isPreview)
+        try container.encode(mode, forKey: .mode)
+        try container.encode(isPinned, forKey: .isPinned)
     }
 }
 
@@ -222,6 +298,10 @@ public struct WorkspaceWindowState: Equatable, Codable, Sendable {
         kept.reserveCapacity(tabs.count)
         for tab in tabs {
             guard !tab.path.isEmpty, seen.insert(tab.path).inserted else { continue }
+            var tab = tab
+            if tab.isPinned {
+                tab.isPreview = false
+            }
             kept.append(tab)
         }
         if let preview = kept.firstIndex(where: { $0.isPreview && $0.path == activePath })

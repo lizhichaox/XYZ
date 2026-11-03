@@ -153,10 +153,13 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
                 isDirectory: false,
                 isHidden: WorkspacePaths.isHidden(name: name, resourceHidden: false)
             ),
-            pin: !tab.isPreview,
+            pin: !tab.isPreview || tab.isPinned,
             mode: tab.mode,
             adoptExisting: false
         )
+        if tab.isPinned {
+            destination.session.setTabPinned(id, true)
+        }
     }
 
     static func prompt(fresh: Bool = false) {

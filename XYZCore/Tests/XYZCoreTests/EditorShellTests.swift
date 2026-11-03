@@ -117,6 +117,42 @@ final class EditorTabTests: XCTestCase {
         XCTAssertEqual(strip.tabs.count, 2)
     }
 
+    func testKeepingAPreviewDoesNotStickIt() {
+        var strip = EditorTabStrip()
+        strip.open("a.md", pin: false)
+        strip.pin("a.md")
+        XCTAssertFalse(strip.tabs[0].isPreview)
+        XCTAssertFalse(strip.tabs[0].isPinned)
+        XCTAssertNil(strip.open("b.md", pin: false))
+        XCTAssertEqual(strip.tabs.map(\.id), ["a.md", "b.md"])
+        XCTAssertTrue(strip.tabs[1].isPreview)
+    }
+
+    func testPinnedTabStaysOutOfPreviewAndBulkClose() {
+        var strip = EditorTabStrip()
+        strip.open("a.md", pin: false)
+        strip.setPinned(id: "a.md", true)
+        XCTAssertFalse(strip.tabs[0].isPreview)
+        XCTAssertTrue(strip.tabs[0].isPinned)
+        XCTAssertNil(strip.open("b.md", pin: false))
+        XCTAssertEqual(strip.tabs.map(\.id), ["a.md", "b.md"])
+        XCTAssertTrue(strip.tabs[1].isPreview)
+        strip.open("c.md", pin: true)
+        XCTAssertEqual(strip.closableIDs(), ["b.md", "c.md"])
+        XCTAssertEqual(strip.closableIDs(otherThan: "c.md"), ["b.md"])
+        XCTAssertEqual(strip.closableIDs(toTheRightOf: "a.md"), ["b.md"])
+        XCTAssertFalse(strip.canMiddleClickClose("a.md"))
+        XCTAssertTrue(strip.canMiddleClickClose("b.md"))
+        XCTAssertFalse(strip.canMiddleClickClose("missing"))
+        strip.setPinned(id: "a.md", false)
+        XCTAssertFalse(strip.tabs[0].isPreview)
+        XCTAssertFalse(strip.tabs[0].isPinned)
+        XCTAssertTrue(strip.canMiddleClickClose("a.md"))
+        XCTAssertTrue(strip.setDirty(id: "b.md", true))
+        XCTAssertFalse(strip.tabs[1].isPinned)
+        XCTAssertFalse(strip.tabs[1].isPreview)
+    }
+
     func testCloseSelectsTheNeighbor() {
         var strip = EditorTabStrip()
         strip.open("a.md", pin: true)
@@ -213,7 +249,21 @@ final class WindowRestoreTests: XCTestCase {
         ).normalized()
         XCTAssertEqual(state.tabs.map(\.path), ["a.md", "b.md"])
         XCTAssertEqual(state.tabs.map(\.isPreview), [true, false])
+        XCTAssertEqual(state.tabs.map(\.isPinned), [false, false])
         XCTAssertNil(state.activePath)
+    }
+
+    func testAWindowSavedBeforePinDecodesUnpinned() throws {
+        let json = #"{"tabs":[{"path":"a.md","isPreview":true,"mode":"reading"}],"activePath":"a.md"}"#
+        let state = try XCTUnwrap(JSONDecoder().decode(WorkspaceWindowState.self, from: Data(json.utf8)))
+        XCTAssertEqual(state.tabs.map(\.isPinned), [false])
+        XCTAssertEqual(state.tabs.map(\.isPreview), [true])
+        let pinned = WorkspaceWindowState(
+            tabs: [WorkspaceTabState(path: "a.md", isPreview: true, mode: .reading, isPinned: true)],
+            activePath: "a.md"
+        ).normalized()
+        XCTAssertEqual(pinned.tabs.map(\.isPreview), [false])
+        XCTAssertEqual(pinned.tabs.map(\.isPinned), [true])
     }
 
     func testAnotherWindowOwnsAFileTheCurrentWindowDoesNot() {

@@ -556,21 +556,39 @@ final class WorkspaceSession: ObservableObject {
     }
 
     func closeOtherTabs(keeping id: String) {
-        for other in tabStrip.ids(otherThan: id) {
+        for other in tabStrip.closableIDs(otherThan: id) {
             _ = closeTab(other)
         }
     }
 
     func closeAllTabs() {
-        for id in tabStrip.tabs.map(\.id) {
+        for id in tabStrip.closableIDs() {
             _ = closeTab(id)
         }
     }
 
     func closeTabs(toTheRightOf id: String) {
-        for other in tabStrip.ids(toTheRightOf: id) {
+        for other in tabStrip.closableIDs(toTheRightOf: id) {
             _ = closeTab(other)
         }
+    }
+
+    /// Double-click on a preview tab. The file stays, and the title is no longer italic.
+    func keepTab(_ id: String) {
+        var strip = tabStrip
+        strip.pin(id)
+        guard strip != tabStrip else { return }
+        tabStrip = strip
+        onTabsChanged?()
+    }
+
+    /// Pin sticks the tab. Unpin leaves it open as a normal tab.
+    func setTabPinned(_ id: String, _ pinned: Bool) {
+        var strip = tabStrip
+        strip.setPinned(id: id, pinned)
+        guard strip != tabStrip else { return }
+        tabStrip = strip
+        onTabsChanged?()
     }
 
     func revealTabInFinder(_ id: String) {
@@ -648,7 +666,7 @@ final class WorkspaceSession: ObservableObject {
     func windowState() -> WorkspaceWindowState {
         WorkspaceWindowState(
             tabs: tabStrip.tabs.map {
-                WorkspaceTabState(path: $0.id, isPreview: $0.isPreview, mode: .reading)
+                WorkspaceTabState(path: $0.id, isPreview: $0.isPreview, mode: .reading, isPinned: $0.isPinned)
             },
             activePath: tabStrip.activeID
         ).normalized()
@@ -664,6 +682,11 @@ final class WorkspaceSession: ObservableObject {
             openRestored(tab)
             var strip = tabStrip
             strip.setPreview(id: tab.path, true)
+            tabStrip = strip
+        }
+        for tab in state.tabs where tab.isPinned {
+            var strip = tabStrip
+            strip.setPinned(id: tab.path, true)
             tabStrip = strip
         }
         if let active = state.activePath {

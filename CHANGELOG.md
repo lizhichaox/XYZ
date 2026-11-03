@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.20
+
+- A single click in Explorer opens a preview tab, with an italic title. The next single click replaces that tab. Double-click the file, double-click the tab, or edit it, and the tab stays with a roman title.
+- The tab menu has Pin and Unpin. A pinned tab shows a pin. It is not replaced by a preview, and Close Others, Close to the Right, and Close All leave it open. Middle-click does not close it. Close still does.
+
 ## 0.5.19
 
 - Switching files clears the previous caret, selection, and find marks. Reading shows no leftover highlight from the file you left.
