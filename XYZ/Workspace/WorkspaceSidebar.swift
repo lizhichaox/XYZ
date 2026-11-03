@@ -27,7 +27,7 @@ struct WorkspaceSidebar: NSViewRepresentable {
         outline.backgroundColor = .clear
         outline.focusRingType = .none
         outline.autoresizesOutlineColumn = true
-        outline.setAccessibilityLabel("Folder contents")
+        outline.setAccessibilityLabel(String(localized: "Folder contents"))
         outline.registerForDraggedTypes([.fileURL])
         outline.setDraggingSourceOperationMask(.move, forLocal: true)
 
@@ -292,17 +292,17 @@ struct WorkspaceSidebar: NSViewRepresentable {
                 let parent = node.isDirectory ? node.relativePath : WorkspacePaths.parent(of: node.relativePath)
                 addCreationItems(menu, parent: parent, session: session)
                 menu.addItem(.separator())
-                menu.addItem(menuItem("Rename", #selector(renameItem(_:)), node.relativePath))
+                menu.addItem(menuItem(String(localized: "Rename"), #selector(renameItem(_:)), node.relativePath))
                 if !node.isDirectory {
-                    menu.addItem(menuItem("Open with Default App", #selector(openExternal(_:)), node.relativePath))
+                    menu.addItem(menuItem(String(localized: "Open with Default App"), #selector(openExternal(_:)), node.relativePath))
                 }
-                menu.addItem(menuItem("Reveal in Finder", #selector(reveal(_:)), node.relativePath))
-                menu.addItem(menuItem("Copy Path", #selector(copyPath(_:)), node.relativePath))
+                menu.addItem(menuItem(String(localized: "Reveal in Finder"), #selector(reveal(_:)), node.relativePath))
+                menu.addItem(menuItem(String(localized: "Copy Path"), #selector(copyPath(_:)), node.relativePath))
                 menu.addItem(.separator())
-                menu.addItem(menuItem("Move to Trash", #selector(trashItem(_:)), node.relativePath))
+                menu.addItem(menuItem(String(localized: "Move to Trash"), #selector(trashItem(_:)), node.relativePath))
             } else if let hit = item as? SidebarHit {
-                menu.addItem(menuItem("Reveal in Finder", #selector(reveal(_:)), hit.relativePath))
-                menu.addItem(menuItem("Copy Path", #selector(copyPath(_:)), hit.relativePath))
+                menu.addItem(menuItem(String(localized: "Reveal in Finder"), #selector(reveal(_:)), hit.relativePath))
+                menu.addItem(menuItem(String(localized: "Copy Path"), #selector(copyPath(_:)), hit.relativePath))
             }
         }
 
@@ -350,16 +350,16 @@ struct WorkspaceSidebar: NSViewRepresentable {
             guard let session, let path = sender.representedObject as? String else { return }
             let name = (path as NSString).lastPathComponent
             let alert = NSAlert()
-            alert.messageText = "Move “\(name)” to the Trash?"
-            alert.informativeText = "You can recover it from the Trash."
+            alert.messageText = String(localized: "Move “\(name)” to the Trash?")
+            alert.informativeText = String(localized: "You can recover it from the Trash.")
             alert.alertStyle = .warning
-            alert.addButton(withTitle: "Move to Trash")
-            alert.addButton(withTitle: "Cancel")
-            guard alert.runModal() == .alertFirstButtonReturn else { return }
+            alert.addButton(withTitle: String(localized: "Move to Trash"))
+            alert.addButton(withTitle: String(localized: "Cancel"))
+            guard alert.runModalClosingOnEscape() == .alertFirstButtonReturn else { return }
             do {
                 try session.trash(relativePath: path)
             } catch {
-                present("Couldn't move this item to the Trash.")
+                present(String(localized: "Couldn't move this item to the Trash."))
             }
         }
 
@@ -393,8 +393,8 @@ struct WorkspaceSidebar: NSViewRepresentable {
         }
 
         private func addCreationItems(_ menu: NSMenu, parent: String, session: WorkspaceSession) {
-            menu.addItem(menuItem("New File", #selector(newFile(_:)), parent))
-            menu.addItem(menuItem("New Folder", #selector(newFolder(_:)), parent))
+            menu.addItem(menuItem(String(localized: "New File"), #selector(newFile(_:)), parent))
+            menu.addItem(menuItem(String(localized: "New Folder"), #selector(newFolder(_:)), parent))
         }
 
         private func menuItem(_ title: String, _ action: Selector, _ path: String) -> NSMenuItem {
@@ -408,8 +408,8 @@ struct WorkspaceSidebar: NSViewRepresentable {
             let alert = NSAlert()
             alert.messageText = message
             alert.alertStyle = .warning
-            alert.addButton(withTitle: "OK")
-            alert.runModal()
+            alert.addButton(withTitle: String(localized: "OK"))
+            _ = alert.runModalClosingOnEscape()
         }
 
         private func rebuild(_ session: WorkspaceSession) {
@@ -424,16 +424,16 @@ struct WorkspaceSidebar: NSViewRepresentable {
                 fill(nodes: tree.children, parent: "", highlights: tree.highlights, lazy: nil, session: session)
                 rootRows = childItems[""] ?? []
                 if tree.truncated {
-                    rootRows.append(SidebarMessage(text: "Showing the first \(WorkspaceTreeQuery.matchLimit) name matches."))
+                    rootRows.append(SidebarMessage(text: String(localized: "Showing the first \(WorkspaceTreeQuery.matchLimit) name matches.")))
                 }
                 appendContentHits(session, emptyNames: rootRows.isEmpty)
                 if rootRows.isEmpty {
-                    rootRows = [SidebarMessage(text: "No matches")]
+                    rootRows = [SidebarMessage(text: String(localized: "No matches"))]
                 }
                 return
             }
             if session.children[""] == nil {
-                rootRows = [SidebarMessage(text: "Loading…")]
+                rootRows = [SidebarMessage(text: String(localized: "Loading…"))]
                 return
             }
             fill(nodes: nil, parent: "", highlights: [:], lazy: session, session: session)
@@ -461,7 +461,7 @@ struct WorkspaceSidebar: NSViewRepresentable {
                 } else if let error = session.loadErrors[node.relativePath] {
                     childItems[node.relativePath] = [SidebarMessage(text: error)]
                 } else if session.isExpanded(node.relativePath) {
-                    childItems[node.relativePath] = [SidebarMessage(text: "Loading…")]
+                    childItems[node.relativePath] = [SidebarMessage(text: String(localized: "Loading…"))]
                 } else {
                     childItems[node.relativePath] = []
                 }
@@ -474,12 +474,12 @@ struct WorkspaceSidebar: NSViewRepresentable {
             guard !query.isEmpty else { return }
             guard session.contentSearching || !session.contentHits.isEmpty else { return }
             if !emptyNames {
-                rootRows.append(SidebarSection(title: "Contents"))
+                rootRows.append(SidebarSection(title: String(localized: "Contents")))
             } else {
-                rootRows.append(SidebarSection(title: "Contents"))
+                rootRows.append(SidebarSection(title: String(localized: "Contents")))
             }
             if session.contentSearching && session.contentHits.isEmpty {
-                rootRows.append(SidebarMessage(text: "Searching…"))
+                rootRows.append(SidebarMessage(text: String(localized: "Searching…")))
             }
             for hit in session.contentHits {
                 rootRows.append(SidebarHit(hit))
@@ -584,11 +584,11 @@ fileprivate final class SidebarColumnView: NSView {
         self.search = search
         super.init(frame: frameRect)
         search.translatesAutoresizingMaskIntoConstraints = false
-        search.placeholderString = "Filter"
+        search.placeholderString = String(localized: "Filter")
         search.sendsSearchStringImmediately = true
         search.controlSize = .regular
         search.focusRingType = .none
-        search.setAccessibilityLabel("Filter files")
+        search.setAccessibilityLabel(String(localized: "Filter files"))
         search.setContentHuggingPriority(.required, for: .vertical)
         search.setContentCompressionResistancePriority(.required, for: .vertical)
         scroll.translatesAutoresizingMaskIntoConstraints = false

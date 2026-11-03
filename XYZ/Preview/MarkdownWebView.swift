@@ -17,11 +17,14 @@ enum PreviewLog {
 final class PreviewWebHost {
     private var storage: WKWebView?
     private var coordinatorStorage: PreviewWebCoordinator?
+    /// Opens a file a relative link in Reading points at, such as another note in the folder.
+    var openFile: ((URL) -> Void)?
 
     var webView: WKWebView {
         if let storage { return storage }
         let created = PreviewWebViewFactory.make()
         let coordinator = PreviewWebCoordinator()
+        coordinator.openFile = { [weak self] url in self?.openFile?(url) }
         created.navigationDelegate = coordinator
         created.configuration.userContentController.add(coordinator, name: "xyzAnchor")
         storage = created
@@ -36,17 +39,39 @@ final class PreviewWebHost {
     }
 }
 
+/// Reading settings the page applies without reloading: the text size shared with the
+/// editor, and whether the column stops at a readable width.
+struct PreviewPrefs: Equatable {
+    var fontSize: Double = XYZEditorStyle.defaultFontSize
+    var readableWidth = false
+    /// `<base href>` for the note's folder. Set before the content, so its pictures resolve.
+    var baseHref = ""
+
+    var script: String {
+        "setPrefs(\(Int(XYZEditorStyle.clampedFontSize(fontSize))), \(readableWidth));"
+    }
+}
+
 struct MarkdownWebView: View {
     var html: String
+    /// The note's folder. Relative image and link paths resolve against it.
+    var baseDirectory: URL?
     var host: PreviewWebHost
     var scrollLink: EditorScrollLink
     @Environment(\.colorScheme) private var colorScheme
+    @AppStorage(XYZEditorStyle.fontSizeKey) private var fontSize = XYZEditorStyle.defaultFontSize
+    @AppStorage(XYZEditorStyle.readableWidthKey) private var readableWidth = false
 
     var body: some View {
+        let prefs = PreviewPrefs(
+            fontSize: fontSize,
+            readableWidth: readableWidth,
+            baseHref: LocalAssets.baseHref(for: baseDirectory)
+        )
         #if os(macOS)
-        MacMarkdownWebView(html: html, theme: colorScheme == .dark ? "dark" : "light", host: host, scrollLink: scrollLink)
+        MacMarkdownWebView(html: html, theme: colorScheme == .dark ? "dark" : "light", prefs: prefs, host: host, scrollLink: scrollLink)
         #else
-        IOSMarkdownWebView(html: html, theme: colorScheme == .dark ? "dark" : "light", host: host, scrollLink: scrollLink)
+        IOSMarkdownWebView(html: html, theme: colorScheme == .dark ? "dark" : "light", prefs: prefs, host: host, scrollLink: scrollLink)
         #endif
     }
 }
@@ -55,6 +80,7 @@ struct MarkdownWebView: View {
 private struct MacMarkdownWebView: NSViewRepresentable {
     var html: String
     var theme: String
+    var prefs: PreviewPrefs
     var host: PreviewWebHost
     var scrollLink: EditorScrollLink
 
@@ -62,7 +88,7 @@ private struct MacMarkdownWebView: NSViewRepresentable {
         let surface = ReadingSurface()
         if let webView = claim(host.webView) as? XYZPreviewWebView {
             surface.install(webView)
-            host.coordinator.update(webView: webView, html: html, theme: theme, scrollLink: scrollLink)
+            host.coordinator.update(webView: webView, html: html, theme: theme, prefs: prefs, scrollLink: scrollLink)
         }
         return surface
     }
@@ -70,7 +96,7 @@ private struct MacMarkdownWebView: NSViewRepresentable {
     func updateNSView(_ surface: ReadingSurface, context: Context) {
         guard let webView = host.webView as? XYZPreviewWebView else { return }
         surface.install(webView)
-        host.coordinator.update(webView: webView, html: html, theme: theme, scrollLink: scrollLink)
+        host.coordinator.update(webView: webView, html: html, theme: theme, prefs: prefs, scrollLink: scrollLink)
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: ReadingSurface, context: Context) -> CGSize? {
@@ -137,11 +163,11 @@ final class ReadingSurface: NSView, NSSearchFieldDelegate {
         super.init(frame: frameRect)
         findHost.translatesAutoresizingMaskIntoConstraints = false
         findField.translatesAutoresizingMaskIntoConstraints = false
-        findField.placeholderString = "Find"
+        findField.placeholderString = String(localized: "Find")
         findField.focusRingType = .none
         findField.controlSize = .regular
         findField.delegate = self
-        findField.setAccessibilityLabel("Find in note")
+        findField.setAccessibilityLabel(String(localized: "Find in note"))
         findField.setContentHuggingPriority(.required, for: .vertical)
         findField.setContentCompressionResistancePriority(.required, for: .vertical)
         findHost.setContentCompressionResistancePriority(.required, for: .vertical)
@@ -288,17 +314,18 @@ final class ReadingSurface: NSView, NSSearchFieldDelegate {
 private struct IOSMarkdownWebView: UIViewRepresentable {
     var html: String
     var theme: String
+    var prefs: PreviewPrefs
     var host: PreviewWebHost
     var scrollLink: EditorScrollLink
 
     func makeUIView(context: Context) -> WKWebView {
         let webView = claim(host.webView)
-        host.coordinator.update(webView: webView, html: html, theme: theme, scrollLink: scrollLink)
+        host.coordinator.update(webView: webView, html: html, theme: theme, prefs: prefs, scrollLink: scrollLink)
         return webView
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
-        host.coordinator.update(webView: webView, html: html, theme: theme, scrollLink: scrollLink)
+        host.coordinator.update(webView: webView, html: html, theme: theme, prefs: prefs, scrollLink: scrollLink)
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: WKWebView, context: Context) -> CGSize? {
@@ -322,6 +349,7 @@ private enum PreviewWebViewFactory {
     static func make() -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
+        configuration.setURLSchemeHandler(LocalAssetSchemeHandler.shared, forURLScheme: LocalAssets.scheme)
         #if os(macOS)
         let webView = XYZPreviewWebView(frame: .zero, configuration: configuration)
         #else
@@ -330,7 +358,7 @@ private enum PreviewWebViewFactory {
         webView.allowsBackForwardNavigationGestures = false
         webView.allowsLinkPreview = true
         #if os(macOS)
-        webView.setAccessibilityLabel("Markdown preview")
+        webView.setAccessibilityLabel(String(localized: "Markdown preview"))
         #endif
         PreviewWebChrome.apply(to: webView)
         #if DEBUG
@@ -342,12 +370,15 @@ private enum PreviewWebViewFactory {
 
 final class PreviewWebCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
     private let css = PreviewStyles.load()
+    var openFile: ((URL) -> Void)?
     private var didStartLoad = false
     private var isReady = false
     private var pendingHTML: String?
     private var appliedHTML: String?
     private var pendingTheme: String?
     private var appliedTheme: String?
+    private var pendingPrefs = PreviewPrefs()
+    private var appliedPrefs: PreviewPrefs?
     private var didLogScriptFailure = false
     private var scrollLink: EditorScrollLink?
     /// Last line the page posted. Capture reads this; `evaluateJavaScript` is too late for a toggle.
@@ -375,15 +406,20 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate, WKScriptMessa
         }
     }
 
-    func update(webView: WKWebView, html: String, theme: String, scrollLink: EditorScrollLink) {
+    func update(webView: WKWebView, html: String, theme: String, prefs: PreviewPrefs, scrollLink: EditorScrollLink) {
         pendingHTML = html
         pendingTheme = theme
+        pendingPrefs = prefs
         self.scrollLink = scrollLink
         scrollLink.capture = { [weak self, weak webView] in
             guard let self, let webView else {
                 return EditorScrollAnchor(fraction: 0, probe: "", line: 1)
             }
             return self.readingAnchor(in: webView)
+        }
+        scrollLink.revealLine = { [weak self, weak webView] line in
+            guard let self, let webView, self.isReady else { return }
+            self.evaluate(webView, "xyzRevealLine(\(max(1, line)));")
         }
         PreviewWebChrome.apply(to: webView)
         if !didStartLoad {
@@ -419,6 +455,7 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate, WKScriptMessa
         didStartLoad = false
         appliedHTML = nil
         appliedTheme = nil
+        appliedPrefs = nil
         didLogScriptFailure = false
         loadShell(webView, html: pendingHTML ?? "", theme: pendingTheme ?? "light")
     }
@@ -430,7 +467,11 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate, WKScriptMessa
     ) {
         if navigationAction.navigationType == .linkActivated {
             if let url = navigationAction.request.url {
-                Self.openIfSafe(url)
+                if let file = LocalAssets.fileURL(for: url) {
+                    openFile?(file)
+                } else {
+                    Self.openIfSafe(url)
+                }
             }
             decisionHandler(.cancel)
             return
@@ -443,8 +484,9 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate, WKScriptMessa
         isReady = false
         appliedHTML = html
         appliedTheme = theme
+        appliedPrefs = pendingPrefs
         PreviewLog.logger.notice("shell requested")
-        webView.loadHTMLString(PreviewPage.shell(css: css, html: html, theme: theme), baseURL: nil)
+        webView.loadHTMLString(PreviewPage.shell(css: css, html: html, theme: theme, prefs: pendingPrefs), baseURL: nil)
     }
 
     private func push(to webView: WKWebView) {
@@ -455,6 +497,15 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate, WKScriptMessa
             script += "setTheme(\(PreviewPage.javaScriptLiteral(theme)));"
         }
         var replaced = false
+        if pendingPrefs != appliedPrefs {
+            if pendingPrefs.baseHref != appliedPrefs?.baseHref {
+                // Pictures resolve when they load. Lay the content out again under the new folder.
+                script += "setBase(\(PreviewPage.javaScriptLiteral(pendingPrefs.baseHref)));"
+                appliedHTML = nil
+            }
+            appliedPrefs = pendingPrefs
+            script += pendingPrefs.script
+        }
         if let html = pendingHTML, html != appliedHTML {
             appliedHTML = html
             replaced = true
@@ -636,6 +687,26 @@ private enum PreviewWebChrome {
     #endif
 }
 
+private enum PreviewScripts {
+    /// highlight.js 11.11.1, common languages (BSD-3-Clause). Read once; every page inlines it.
+    static let highlight: String = {
+        guard let url = Bundle.main.url(forResource: "highlight.min", withExtension: "js"),
+              let script = try? String(contentsOf: url, encoding: .utf8) else {
+            return ""
+        }
+        return script
+    }()
+}
+
+private enum HTMLAttribute {
+    static func escape(_ value: String) -> String {
+        value
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+    }
+}
+
 private enum PreviewStyles {
     static func load() -> String {
         if let url = Bundle.main.url(forResource: "Preview", withExtension: "css"),
@@ -648,7 +719,7 @@ private enum PreviewStyles {
 }
 
 private enum PreviewPage {
-    static func shell(css: String, html: String, theme: String) -> String {
+    static func shell(css: String, html: String, theme: String, prefs: PreviewPrefs) -> String {
         let themeName = theme == "dark" ? "dark" : "light"
         return """
         <!DOCTYPE html>
@@ -656,6 +727,7 @@ private enum PreviewPage {
         <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+        <base id="xyz-base" href="\(HTMLAttribute.escape(prefs.baseHref))">
         <style>
         \(css)
         \(PreviewWebChrome.canvasCSS())
@@ -664,6 +736,9 @@ private enum PreviewPage {
         <body>
         <article id="content">\(html)</article>
         <script>
+        \(PreviewScripts.highlight)
+        </script>
+        <script>
         var xyzPinned = 0;
         var xyzPinUntil = 0;
         function setContent(html) {
@@ -671,9 +746,56 @@ private enum PreviewPage {
           if (node) node.innerHTML = html;
           xyzPinned = 0;
           xyzPinUntil = 0;
+          xyzDecorate();
         }
+        function setBase(href) {
+          var base = document.getElementById("xyz-base");
+          if (base) base.setAttribute("href", href);
+        }
+        if (window.hljs) hljs.configure({ignoreUnescapedHTML: true});
+        // Code colors for fenced blocks that name a language, and the alt text for a picture that cannot load.
+        function xyzDecorate() {
+          var root = document.getElementById("content");
+          if (!root) return;
+          var images = root.querySelectorAll("img");
+          for (var i = 0; i < images.length; i++) {
+            images[i].addEventListener("error", xyzMissingImage, {once: true});
+          }
+          if (!window.hljs) return;
+          var blocks = root.querySelectorAll("pre code[class*='language-']");
+          if (blocks.length > 400) return;
+          for (var j = 0; j < blocks.length; j++) {
+            try { hljs.highlightElement(blocks[j]); } catch (error) {}
+          }
+        }
+        function xyzMissingImage(event) {
+          var image = event.target;
+          var label = document.createElement("span");
+          label.className = "missing-image";
+          label.textContent = image.getAttribute("alt") || image.getAttribute("src") || "";
+          image.replaceWith(label);
+        }
+        // #fragment links scroll to the heading. The page's <base> would otherwise turn them into a navigation.
+        document.addEventListener("click", function(event) {
+          var link = event.target && event.target.closest ? event.target.closest("a[href]") : null;
+          if (!link) return;
+          var href = link.getAttribute("href") || "";
+          if (href.charAt(0) !== "#") return;
+          event.preventDefault();
+          var id = href.slice(1);
+          try { id = decodeURIComponent(id); } catch (error) {}
+          var target = document.getElementById(id) || document.getElementById(id.toLowerCase());
+          if (!target) return;
+          xyzPinned = 0;
+          target.scrollIntoView({block: "start"});
+        });
         function setTheme(theme) {
           document.documentElement.setAttribute("data-theme", theme);
+        }
+        function setPrefs(size, readable) {
+          var root = document.documentElement;
+          root.style.setProperty("--text-size", (size | 0) + "px");
+          root.setAttribute("data-readable", readable ? "true" : "false");
         }
         function xyzSourceLine(start, end, fraction) {
           start = Math.max(1, start | 0);
@@ -766,6 +888,8 @@ private enum PreviewPage {
         window.addEventListener("touchmove", xyzUnpin, {passive: true});
         window.addEventListener("keydown", xyzUnpin);
         setTheme("\(themeName)");
+        \(prefs.script)
+        xyzDecorate();
         xyzReport();
         </script>
         </body>

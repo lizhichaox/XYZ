@@ -40,6 +40,8 @@ struct DocumentEditorView: View {
     #if os(macOS)
     @StateObject private var commands: DocumentCommandBridge
     #endif
+    @AppStorage(WordCountSetting.key) private var showsWordCount = false
+    @StateObject private var wordCount = WordCountModel()
 
     init(document: MarkdownFileDocument, isEditable: Bool, fileURL: URL? = nil) {
         self.document = document
@@ -65,12 +67,28 @@ struct DocumentEditorView: View {
             #endif
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .safeAreaInset(edge: .bottom, spacing: 0) {
+            if showsWordCount {
+                WordCountBar(stats: wordCount.stats)
+            }
+        }
         .background(Color.editorBackground)
+        .onAppear {
+            if showsWordCount {
+                wordCount.update(bridge.latestText, immediate: true)
+            }
+        }
+        .onChange(of: showsWordCount) { _, shown in
+            if shown {
+                wordCount.update(bridge.latestText, immediate: true)
+            }
+        }
         #if os(macOS)
         .frame(minWidth: 640, minHeight: 400)
         .background(
             EditorCommandAnchor(target: commands) {
                 commands.fileURL = fileURL
+                commands.currentText = { [bridge] in bridge.latestText }
             }
         )
         #else
@@ -92,17 +110,33 @@ struct DocumentEditorView: View {
             undoManager: undoManager,
             scrollLink: scrollLink,
             markup: TextMarkup.allows(fileExtension: fileURL?.pathExtension),
+            spellCheck: TextMarkup.isProse(fileExtension: fileURL?.pathExtension),
             onTextChange: { newText in
                 document.storeEditorText(newText)
                 bridge.send(newText)
+                if showsWordCount {
+                    wordCount.update(newText)
+                }
             }
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var preview: some View {
-        MarkdownPreview(bridge: bridge, host: webHost, scrollLink: scrollLink)
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        MarkdownPreview(
+            bridge: bridge,
+            host: webHost,
+            scrollLink: scrollLink,
+            baseDirectory: fileURL?.deletingLastPathComponent()
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        #if os(macOS)
+        .onAppear {
+            webHost.openFile = { url in
+                NSDocumentController.shared.openDocument(withContentsOf: url, display: true) { _, _, _ in }
+            }
+        }
+        #endif
     }
 
     @ViewBuilder
@@ -161,6 +195,8 @@ final class DocumentCommandBridge: ObservableObject, EditorCommandTarget {
     @Published private(set) var mode: EditorViewMode = .source
     let scrollLink = EditorScrollLink()
     var fileURL: URL?
+    /// The editor's text, for Go to Heading.
+    var currentText: () -> String = { "" }
 
     var editorViewMode: EditorViewMode { mode }
     var showsHiddenFiles: Bool { true }
@@ -209,6 +245,15 @@ final class DocumentCommandBridge: ObservableObject, EditorCommandTarget {
 
     func reloadFile() {
         NSApp.sendAction(#selector(NSDocument.revertToSaved(_:)), to: nil, from: nil)
+    }
+
+    func paletteHeadings() -> [OutlineHeading] {
+        guard TextMarkup.allows(fileExtension: fileURL?.pathExtension) else { return [] }
+        return MarkdownOutline.headings(in: currentText())
+    }
+
+    func revealHeading(line: Int) {
+        scrollLink.revealLine(line)
     }
 }
 #endif

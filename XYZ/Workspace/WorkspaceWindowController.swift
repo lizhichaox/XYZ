@@ -53,8 +53,8 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
         panel.canChooseDirectories = true
         panel.allowsMultipleSelection = false
         panel.canCreateDirectories = true
-        panel.prompt = "Open Folder"
-        panel.message = "Open a folder as a workspace."
+        panel.prompt = String(localized: "Open Folder")
+        panel.message = String(localized: "Open a folder as a workspace.")
         panel.showsHiddenFiles = true
         panel.begin { response in
             guard response == .OK, let url = panel.url else {
@@ -203,11 +203,16 @@ final class XYZAppDelegate: NSObject, NSApplicationDelegate {
         FolderOpening.installEarly()
     }
 
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        AppAppearance.stored.apply()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         FolderOpening.installLate()
         FileMenuSupport.install()
         MainActor.assumeIsolated {
             EditorMenuSupport.install()
+            EscapeKey.install()
         }
         MainActor.assumeIsolated {
             WorkspaceWindowController.restore()

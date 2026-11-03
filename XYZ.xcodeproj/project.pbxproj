@@ -25,6 +25,15 @@
 		8C0000000000000000000016 /* WorkspaceLog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000016 /* WorkspaceLog.swift */; };
 		8C0000000000000000000018 /* WorkspaceSidebar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000018 /* WorkspaceSidebar.swift */; };
 		8C0000000000000000000019 /* EditorCommands.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000019 /* EditorCommands.swift */; };
+		8C000000000000000000001A /* FormatMenu.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B000000000000000000001A /* FormatMenu.swift */; };
+		8C000000000000000000001B /* AppSettings.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B000000000000000000001B /* AppSettings.swift */; };
+		8C000000000000000000001C /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B000000000000000000001C /* SettingsView.swift */; };
+		8C000000000000000000001D /* LocalAssets.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B000000000000000000001D /* LocalAssets.swift */; };
+		8C000000000000000000001E /* WordCountBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B000000000000000000001E /* WordCountBar.swift */; };
+		8C000000000000000000001F /* highlight.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 8B000000000000000000001F /* highlight.min.js */; };
+		8C0000000000000000000020 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000020 /* Localizable.xcstrings */; };
+		8C0000000000000000000021 /* EscapeKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000021 /* EscapeKey.swift */; };
+		8C0000000000000000000022 /* LineNumberGutter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000022 /* LineNumberGutter.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -52,6 +61,15 @@
 		8B0000000000000000000016 /* WorkspaceLog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceLog.swift; sourceTree = "<group>"; };
 		8B0000000000000000000018 /* WorkspaceSidebar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorkspaceSidebar.swift; sourceTree = "<group>"; };
 		8B0000000000000000000019 /* EditorCommands.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorCommands.swift; sourceTree = "<group>"; };
+		8B000000000000000000001A /* FormatMenu.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FormatMenu.swift; sourceTree = "<group>"; };
+		8B000000000000000000001B /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
+		8B000000000000000000001C /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+		8B000000000000000000001D /* LocalAssets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalAssets.swift; sourceTree = "<group>"; };
+		8B000000000000000000001E /* WordCountBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordCountBar.swift; sourceTree = "<group>"; };
+		8B000000000000000000001F /* highlight.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = highlight.min.js; sourceTree = "<group>"; };
+		8B0000000000000000000020 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		8B0000000000000000000021 /* EscapeKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EscapeKey.swift; sourceTree = "<group>"; };
+		8B0000000000000000000022 /* LineNumberGutter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineNumberGutter.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -83,6 +101,7 @@
 				8A000000000000000000000A /* Editor */,
 				8A000000000000000000000B /* Preview */,
 				8A000000000000000000000C /* Resources */,
+				8A0000000000000000000017 /* Settings */,
 				8A0000000000000000000016 /* Workspace */,
 				8B000000000000000000000A /* Info.plist */,
 				8B000000000000000000000F /* Info-macOS.plist */,
@@ -106,6 +125,9 @@
 				8B0000000000000000000003 /* XYZEditor.swift */,
 				8B0000000000000000000004 /* XYZMacEditor.swift */,
 				8B0000000000000000000005 /* XYZIOSEditor.swift */,
+				8B000000000000000000001A /* FormatMenu.swift */,
+				8B000000000000000000001E /* WordCountBar.swift */,
+				8B0000000000000000000022 /* LineNumberGutter.swift */,
 			);
 			path = Editor;
 			sourceTree = "<group>";
@@ -115,6 +137,7 @@
 			children = (
 				8B0000000000000000000006 /* MarkdownPreview.swift */,
 				8B0000000000000000000007 /* MarkdownWebView.swift */,
+				8B000000000000000000001D /* LocalAssets.swift */,
 			);
 			path = Preview;
 			sourceTree = "<group>";
@@ -139,8 +162,18 @@
 				8B0000000000000000000015 /* FolderOpening.swift */,
 				8B0000000000000000000016 /* WorkspaceLog.swift */,
 				8B0000000000000000000019 /* EditorCommands.swift */,
+				8B0000000000000000000021 /* EscapeKey.swift */,
 			);
 			path = Workspace;
+			sourceTree = "<group>";
+		};
+		8A0000000000000000000017 /* Settings */ = {
+			isa = PBXGroup;
+			children = (
+				8B000000000000000000001B /* AppSettings.swift */,
+				8B000000000000000000001C /* SettingsView.swift */,
+			);
+			path = Settings;
 			sourceTree = "<group>";
 		};
 		8A000000000000000000000C /* Resources */ = {
@@ -148,6 +181,8 @@
 			children = (
 				8B0000000000000000000008 /* Assets.xcassets */,
 				8B0000000000000000000009 /* Preview.css */,
+				8B000000000000000000001F /* highlight.min.js */,
+				8B0000000000000000000020 /* Localizable.xcstrings */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -197,6 +232,7 @@
 			knownRegions = (
 				en,
 				Base,
+				"zh-Hans",
 			);
 			mainGroup = 8A0000000000000000000007;
 			packageReferences = (
@@ -218,6 +254,8 @@
 			files = (
 				8C0000000000000000000008 /* Assets.xcassets in Resources */,
 				8C0000000000000000000009 /* Preview.css in Resources */,
+				8C000000000000000000001F /* highlight.min.js in Resources */,
+				8C0000000000000000000020 /* Localizable.xcstrings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -243,6 +281,13 @@
 				8C0000000000000000000016 /* WorkspaceLog.swift in Sources */,
 				8C0000000000000000000018 /* WorkspaceSidebar.swift in Sources */,
 				8C0000000000000000000019 /* EditorCommands.swift in Sources */,
+				8C000000000000000000001A /* FormatMenu.swift in Sources */,
+				8C000000000000000000001B /* AppSettings.swift in Sources */,
+				8C000000000000000000001C /* SettingsView.swift in Sources */,
+				8C000000000000000000001D /* LocalAssets.swift in Sources */,
+				8C000000000000000000001E /* WordCountBar.swift in Sources */,
+				8C0000000000000000000021 /* EscapeKey.swift in Sources */,
+				8C0000000000000000000022 /* LineNumberGutter.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -21,11 +21,15 @@ private struct HTMLRenderingWalker: MarkupWalker {
     var html = ""
     private var alignments: [Table.ColumnAlignment?] = []
     private var inHeader = false
+    private var anchors = HeadingAnchor.Registry()
 
     mutating func visitHeading(_ heading: Heading) {
         let level = min(max(heading.level, 1), 6)
         html.append("<h")
         html.append(String(level))
+        html.append(" id=\"")
+        html.append(HTMLText.attribute(anchors.claim(HeadingAnchor.slug(heading.plainText))))
+        html.append("\"")
         html.append(lineMarkup(heading))
         html.append(">")
         descendInto(heading)
@@ -313,6 +317,42 @@ private struct HTMLRenderingWalker: MarkupWalker {
             }
         }
         return result
+    }
+}
+
+/// Heading ids for `#fragment` links, as GitHub writes them: lowercase, spaces to hyphens,
+/// punctuation dropped, letters of every script kept. A repeated heading gets `-1`, `-2`, ….
+public enum HeadingAnchor {
+    public static func slug(_ title: String) -> String {
+        var slug = ""
+        for character in title.lowercased() {
+            if character.isLetter || character.isNumber || character == "-" || character == "_" {
+                slug.append(character)
+            } else if character == " " || character == "\t" {
+                slug.append("-")
+            }
+        }
+        return slug.isEmpty ? "section" : slug
+    }
+
+    struct Registry {
+        private var used: [String: Int] = [:]
+
+        mutating func claim(_ slug: String) -> String {
+            guard let count = used[slug] else {
+                used[slug] = 1
+                return slug
+            }
+            var next = count
+            var candidate = "\(slug)-\(next)"
+            while used[candidate] != nil {
+                next += 1
+                candidate = "\(slug)-\(next)"
+            }
+            used[slug] = next + 1
+            used[candidate] = 1
+            return candidate
+        }
     }
 }
 

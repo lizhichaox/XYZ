@@ -89,19 +89,22 @@ struct MarkdownPreview: View {
     var bridge: PreviewBridge
     var host: PreviewWebHost
     var scrollLink: EditorScrollLink
+    /// The note's folder, for relative pictures and links.
+    var baseDirectory: URL?
     @StateObject private var model: PreviewModel
 
-    init(bridge: PreviewBridge, host: PreviewWebHost, scrollLink: EditorScrollLink) {
+    init(bridge: PreviewBridge, host: PreviewWebHost, scrollLink: EditorScrollLink, baseDirectory: URL? = nil) {
         self.bridge = bridge
         self.host = host
         self.scrollLink = scrollLink
+        self.baseDirectory = baseDirectory
         let model = PreviewModel()
         model.adopt(bridge.latestText)
         _model = StateObject(wrappedValue: model)
     }
 
     var body: some View {
-        MarkdownWebView(html: model.html, host: host, scrollLink: scrollLink)
+        MarkdownWebView(html: model.html, baseDirectory: baseDirectory, host: host, scrollLink: scrollLink)
             .background(Color.editorBackground)
             .accessibilityLabel("Markdown preview")
             .onAppear {

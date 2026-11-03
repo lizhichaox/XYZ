@@ -8,6 +8,33 @@ final class XYZMacTextView: NSTextView {
     weak var documentUndoManager: UndoManager?
     var onAppearanceChange: (() -> Void)?
     var allowsMarkup = true
+    /// Size and measure from Settings. Layout derives the side padding from it.
+    var style = XYZEditorStyle() {
+        didSet {
+            if showsLineNumbers, style != oldValue {
+                gutter.needsDisplay = true
+            }
+        }
+    }
+    /// Settings → Show line numbers. The left padding grows to fit them.
+    var showsLineNumbers = false {
+        didSet {
+            guard showsLineNumbers != oldValue else { return }
+            gutter.isHidden = !showsLineNumbers
+            if showsLineNumbers {
+                gutter.invalidateLines()
+            }
+            needsLayout = true
+        }
+    }
+    private lazy var gutter: LineNumberGutter = {
+        let view = LineNumberGutter()
+        view.textView = self
+        view.isHidden = true
+        view.autoresizingMask = [.height]
+        addSubview(view)
+        return view
+    }()
     /// Restored once, after the view is in a window and the inset matches the pane.
     private var pendingAnchor: EditorScrollAnchor?
     private var isAligning = false
@@ -33,24 +60,19 @@ final class XYZMacTextView: NSTextView {
         if EditorCommands.shared.handleKeyEquivalent(event) {
             return true
         }
-        if markupKeyEquivalent(event) {
+        // Format shortcuts work here even while SwiftUI is rebuilding the main menu.
+        if let item = FormatMenu.item(matching: event), isEditable, allowsMarkup {
+            NSApp.sendAction(item.action, to: self, from: item.menuItem())
             return true
         }
         return super.performKeyEquivalent(with: event)
     }
 
-    /// ⌘B and ⌘I. AppKit has no `toggleBoldface` on NSResponder; the text view handles the keys itself.
-    private func markupKeyEquivalent(_ event: NSEvent) -> Bool {
-        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
-        guard flags == .command else { return false }
-        switch event.charactersIgnoringModifiers?.lowercased() {
-        case "b":
-            return applyMarkupEdit(SourceEditing.toggleBold(in: string, selection: sourceSelection()))
-        case "i":
-            return applyMarkupEdit(SourceEditing.toggleItalic(in: string, selection: sourceSelection()))
-        default:
-            return false
+    override func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if let action = menuItem.action, FormatMenu.actions.contains(action) {
+            return isEditable && allowsMarkup
         }
+        return super.validateMenuItem(menuItem)
     }
 
     override func insertNewline(_ sender: Any?) {
@@ -74,13 +96,13 @@ final class XYZMacTextView: NSTextView {
         }
     }
 
-    private func sourceSelection() -> SourceRange {
+    func sourceSelection() -> SourceRange {
         let range = selectedRange()
         return SourceRange(location: range.location, length: range.length)
     }
 
     @discardableResult
-    private func applyMarkupEdit(_ edit: SourceReplacement?) -> Bool {
+    func applyMarkupEdit(_ edit: SourceReplacement?) -> Bool {
         guard isEditable, allowsMarkup, !hasMarkedText(), let edit, let storage = textStorage else { return false }
         let range = NSRange(location: edit.range.location, length: edit.range.length)
         guard shouldChangeText(in: range, replacementString: edit.text) else { return false }
@@ -97,14 +119,51 @@ final class XYZMacTextView: NSTextView {
         super.layout()
         guard !isAligning else { return }
         guard let width = enclosingScrollView?.contentSize.width, width > 1 else { return }
-        let side = XYZEditorStyle.sideInset(for: width)
-        let next = NSSize(width: side, height: XYZEditorStyle.markdown.verticalInset)
+        let next = expectedInset(for: width)
         if textContainerInset != next {
             textContainerInset = next
             needsLayout = true
             return
         }
+        if showsLineNumbers {
+            placeGutter()
+        }
         alignIfReady()
+    }
+
+    /// The side padding from Settings, widened when line numbers need more room.
+    private func expectedInset(for paneWidth: CGFloat) -> NSSize {
+        var side = style.sideInset(for: paneWidth)
+        if showsLineNumbers {
+            side = max(side, gutter.numberWidth(fontSize: style.fontSize) + LineNumberGutter.gap + 12)
+        }
+        return NSSize(width: side, height: style.verticalInset)
+    }
+
+    /// The gutter covers the left padding, above TextKit's own fragment views.
+    private func placeGutter() {
+        let frame = NSRect(x: 0, y: 0, width: textContainerInset.width, height: bounds.height)
+        if gutter.frame != frame {
+            gutter.frame = frame
+            gutter.needsDisplay = true
+        }
+        if subviews.last !== gutter {
+            addSubview(gutter, positioned: .above, relativeTo: nil)
+        }
+    }
+
+    /// The text changed: renumber, and widen the padding when the count gains a digit.
+    func lineNumbersChanged() {
+        guard showsLineNumbers else { return }
+        if gutter.invalidateLines() {
+            needsLayout = true
+        }
+    }
+
+    /// The caret's number is darker, so a selection change redraws the numbers in view.
+    func caretMoved() {
+        guard showsLineNumbers else { return }
+        gutter.setNeedsDisplay(visibleRect)
     }
 
     override func viewDidMoveToWindow() {
@@ -141,6 +200,15 @@ final class XYZMacTextView: NSTextView {
         return EditorScrollAnchor(fraction: fraction, probe: probe, line: line)
     }
 
+    /// Go to Heading: the caret at the start of the line, and the line at the top of the pane.
+    func jump(toLine line: Int) {
+        let length = (string as NSString).length
+        let location = min(max(0, EditorScrollAnchor.utf16Location(ofLine: line, in: string)), length)
+        setSelectedRange(NSRange(location: location, length: 0))
+        window?.makeFirstResponder(self)
+        reveal(EditorScrollAnchor(fraction: 0, probe: "", line: line))
+    }
+
     /// Remember the line and align on the next layout that has a window and a real inset.
     /// One scroll. `scrollRangeToVisible` is not used: it only guarantees the line is somewhere in view.
     func reveal(_ anchor: EditorScrollAnchor) {
@@ -154,9 +222,7 @@ final class XYZMacTextView: NSTextView {
     private func alignIfReady() {
         guard let anchor = pendingAnchor, !isAligning, window != nil else { return }
         guard let scroll = enclosingScrollView, scroll.contentSize.width > 1, bounds.width > 1 else { return }
-        let side = XYZEditorStyle.sideInset(for: scroll.contentSize.width)
-        let expected = NSSize(width: side, height: XYZEditorStyle.markdown.verticalInset)
-        guard textContainerInset == expected else { return }
+        guard textContainerInset == expectedInset(for: scroll.contentSize.width) else { return }
         pendingAnchor = nil
         scrollLineToTop(anchor)
     }
@@ -249,9 +315,11 @@ struct XYZMacEditor: NSViewRepresentable {
     var isEditable: Bool
     var undoManager: UndoManager?
     var reloadToken: Int
-    var monospaced: Bool
+    var style: XYZEditorStyle
     var scrollLink: EditorScrollLink
     var markup: Bool
+    var spellCheck: Bool
+    var lineNumbers: Bool
     var onTextChange: (String) -> Void
 
     func makeNSView(context: Context) -> NSScrollView {
@@ -270,7 +338,7 @@ struct XYZMacEditor: NSViewRepresentable {
         textView.isAutomaticLinkDetectionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
         textView.isAutomaticSpellingCorrectionEnabled = false
-        textView.isContinuousSpellCheckingEnabled = true
+        textView.isContinuousSpellCheckingEnabled = spellCheck
         textView.isGrammarCheckingEnabled = false
         textView.usesFindBar = true
         textView.isIncrementalSearchingEnabled = true
@@ -285,12 +353,13 @@ struct XYZMacEditor: NSViewRepresentable {
             width: CGFloat.greatestFiniteMagnitude,
             height: CGFloat.greatestFiniteMagnitude
         )
-        textView.setAccessibilityLabel("Markdown editor")
+        textView.setAccessibilityLabel(String(localized: "Markdown editor"))
 
         context.coordinator.textView = textView
         context.coordinator.onTextChange = onTextChange
-        context.coordinator.monospaced = monospaced
+        context.coordinator.style = style
         textView.allowsMarkup = markup
+        textView.showsLineNumbers = lineNumbers
         textView.delegate = context.coordinator
         textView.documentUndoManager = undoManager
         textView.onAppearanceChange = { [weak coordinator = context.coordinator] in
@@ -312,7 +381,7 @@ struct XYZMacEditor: NSViewRepresentable {
         scrollView.contentView.contentInsets = NSEdgeInsets()
         scrollView.contentView.drawsBackground = true
         scrollView.documentView = textView
-        applyChrome(textView: textView, scrollView: scrollView, monospaced: monospaced)
+        applyChrome(textView: textView, scrollView: scrollView, style: style)
         textView.string = text
         context.coordinator.restyle(edited: nil)
         textView.textContainer?.containerSize = NSSize(
@@ -328,15 +397,23 @@ struct XYZMacEditor: NSViewRepresentable {
         context.coordinator.onTextChange = onTextChange
         context.coordinator.scrollLink = scrollLink
         textView.isEditable = isEditable
+        let markupChanged = textView.allowsMarkup != markup
         textView.allowsMarkup = markup
+        if textView.isContinuousSpellCheckingEnabled != spellCheck {
+            textView.isContinuousSpellCheckingEnabled = spellCheck
+        }
+        textView.showsLineNumbers = lineNumbers
         textView.documentUndoManager = undoManager
         scrollLink.capture = { [weak textView] in
             textView?.scrollAnchor() ?? EditorScrollAnchor(fraction: 0, probe: "", line: 1)
         }
-        let styleChanged = context.coordinator.monospaced != monospaced
-        if styleChanged {
-            context.coordinator.monospaced = monospaced
-            applyChrome(textView: textView, scrollView: scrollView, monospaced: monospaced)
+        scrollLink.revealLine = { [weak textView] line in
+            textView?.jump(toLine: line)
+        }
+        let styleChanged = context.coordinator.style != style || markupChanged
+        if context.coordinator.style != style {
+            context.coordinator.style = style
+            applyChrome(textView: textView, scrollView: scrollView, style: style)
         }
         if context.coordinator.reloadToken != reloadToken {
             context.coordinator.reloadToken = reloadToken
@@ -361,8 +438,9 @@ struct XYZMacEditor: NSViewRepresentable {
         CGSize(width: proposal.width ?? 640, height: proposal.height ?? 480)
     }
 
-    private func applyChrome(textView: XYZMacTextView, scrollView: NSScrollView, monospaced: Bool) {
-        let style = XYZEditorStyle(monospaced: monospaced)
+    private func applyChrome(textView: XYZMacTextView, scrollView: NSScrollView, style: XYZEditorStyle) {
+        textView.style = style
+        textView.needsLayout = true
         let font = EditorTypography.baseFont(style)
         let paragraph = style.paragraphStyle(naturalLineHeight: EditorTypography.naturalLineHeight(font))
         textView.backgroundColor = .textBackgroundColor
@@ -385,7 +463,7 @@ struct XYZMacEditor: NSViewRepresentable {
         var onTextChange: (String) -> Void = { _ in }
         var scrollLink: EditorScrollLink?
         var reloadToken = 0
-        var monospaced = false
+        var style = XYZEditorStyle()
         private var isApplyingExternalText = false
         private var isRestyling = false
         private var editedRange: NSRange?
@@ -422,6 +500,10 @@ struct XYZMacEditor: NSViewRepresentable {
             return true
         }
 
+        func textViewDidChangeSelection(_ notification: Notification) {
+            (notification.object as? XYZMacTextView)?.caretMoved()
+        }
+
         func textDidChange(_ notification: Notification) {
             guard !isApplyingExternalText, !isRestyling else { return }
             guard let textView = notification.object as? NSTextView else { return }
@@ -447,7 +529,8 @@ struct XYZMacEditor: NSViewRepresentable {
             guard let textView, !isRestyling, !textView.hasMarkedText() else { return }
             isRestyling = true
             defer { isRestyling = false }
-            EditorTypography.apply(to: textView, monospaced: monospaced, edited: edited)
+            EditorTypography.apply(to: textView, style: style, markup: textView.allowsMarkup, edited: edited)
+            textView.lineNumbersChanged()
         }
     }
 }
@@ -505,9 +588,9 @@ enum EditorTypography {
         return NSFont(descriptor: descriptor, size: size) ?? base
     }
 
-    static func apply(to textView: NSTextView, monospaced: Bool, edited: NSRange?) {
+    /// Base font and line height everywhere; heading sizes and tinted markers only when `markup` is on.
+    static func apply(to textView: NSTextView, style: XYZEditorStyle, markup: Bool, edited: NSRange?) {
         guard let storage = textView.textStorage else { return }
-        let style = XYZEditorStyle(monospaced: monospaced)
         let font = baseFont(style)
         let paragraph = style.paragraphStyle(naturalLineHeight: naturalLineHeight(font))
         let ns = storage.string as NSString
@@ -521,7 +604,7 @@ enum EditorTypography {
                 .foregroundColor: NSColor.labelColor,
                 .paragraphStyle: paragraph,
             ], range: span)
-            if full.length <= stylingLimit {
+            if markup, full.length <= stylingLimit {
                 styleMarkup(storage, style: style, within: span)
             }
         }
