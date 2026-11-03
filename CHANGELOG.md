@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.3
+
+- Reading shows a callout for a quote that starts with `[!note]` or `[!warning] Title`, a compact properties block for leading front matter, and turns `[[wiki links]]` into links to the named note. Code stays literal.
+
 ## 0.5.2
 
 - Editing shows line numbers. They sit above the text, including on a file that was already open when you switch to Editing.

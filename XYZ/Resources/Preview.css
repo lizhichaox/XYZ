@@ -171,6 +171,42 @@ blockquote {
 
 blockquote p { margin: 0.4em 0; }
 
+aside.callout {
+  margin: 1.15em 0;
+  padding: 0.55em 0.85em 0.7em;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--code);
+}
+
+aside.callout .callout-title {
+  margin: 0 0 0.35em;
+  font-size: 0.78em;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+aside.callout p { margin: 0.35em 0; }
+
+dl.properties {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.2em 0.9em;
+  margin: 0 0 1.35em;
+  padding: 0.55em 0.8em;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.88em;
+}
+
+dl.properties dt {
+  color: var(--muted);
+}
+
+dl.properties dd { margin: 0; }
+
 ul, ol {
   margin: 0.75em 0;
   padding-left: 1.4em;

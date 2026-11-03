@@ -6,7 +6,11 @@ import Foundation
 /// preview page and swaps it into the web view without reloading.
 public enum MarkdownHTML: Sendable {
     public static func render(_ markdown: String) -> String {
-        let document = MarkdownParser.parse(markdown)
-        return HTMLRenderer().render(document, reserve: markdown.utf8.count + 64)
+        let prepared = ReadingSource.prepare(markdown)
+        let document = MarkdownParser.parse(prepared.body)
+        let body = HTMLRenderer().render(document, reserve: markdown.utf8.count + 64)
+        let properties = prepared.properties.html
+        if properties.isEmpty { return body }
+        return properties + body
     }
 }
