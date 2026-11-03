@@ -435,6 +435,51 @@ enum GutterSnapshotCheck {
             + abs(color.blueComponent - other.blueComponent)
     }
 
+    /// A titled window with ordinary AppKit text. If this picture has no words, the
+    /// capture is blind and a blank editor shot is not evidence.
+    private static func verifyCaptureControl() -> String? {
+        let window = NSWindow(
+            contentRect: NSRect(x: 40, y: 40, width: 520, height: 260),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.title = "Capture"
+        let content = NSView(frame: NSRect(x: 0, y: 0, width: 520, height: 260))
+        let label = NSTextField(labelWithString: "Captureprobe")
+        label.frame = NSRect(x: 24, y: 180, width: 460, height: 24)
+        let scroll = NSScrollView(frame: NSRect(x: 24, y: 40, width: 460, height: 120))
+        scroll.hasVerticalScroller = true
+        scroll.drawsBackground = true
+        let text = NSTextView(frame: NSRect(x: 0, y: 0, width: 460, height: 120))
+        text.string = "Nativebody"
+        text.isEditable = true
+        text.isSelectable = true
+        text.drawsBackground = true
+        scroll.documentView = text
+        content.addSubview(label)
+        content.addSubview(scroll)
+        window.contentView = content
+        window.orderFrontRegardless()
+        window.displayIfNeeded()
+        pump(0.4)
+        let image = shownImage(of: window, content: content)
+        window.close()
+        guard let image else {
+            return "capture control: the titled window produced no picture evidence=missing"
+        }
+        saveShot(image, name: "window-capture-control.png")
+        let words = recognizedText(in: image)
+        print("GUTTER_WINDOW label=capture-control words=\(String(words.prefix(160)))")
+        fflush(stdout)
+        let recognized = words.range(of: "Captureprobe", options: .caseInsensitive) != nil
+            && words.range(of: "Nativebody", options: .caseInsensitive) != nil
+        if !recognized {
+            return "capture control: native text was not in the window picture evidence=missing words=\(String(words.prefix(80)))"
+        }
+        return nil
+    }
+
     /// The real folder window, not a hand-built text view. `cacheDisplay` paints glyphs the
     /// layer-backed window never shows, so this check reads the composited layer.
     private static func renderDocumentWindows() -> String? {
@@ -444,6 +489,7 @@ enum GutterSnapshotCheck {
         中文短句
         \(String(repeating: "Gamma ", count: 24))
         """
+        if let failure = verifyCaptureControl() { return failure }
         let appearanceNames: [(NSAppearance.Name, String)] = [(.aqua, "light"), (.darkAqua, "dark")]
         for wraps in [true, false] {
             for (appearance, appearanceName) in appearanceNames {
@@ -554,7 +600,6 @@ enum GutterSnapshotCheck {
             if textView.string != fixture || stored != expected {
                 return "window \(label): editor storage \(stored) expected \(expected)"
             }
-            textView.embedBodyInWindowLayer()
             textView.needsDisplay = true
             pane.needsDisplay = true
             textView.displayIfNeeded()

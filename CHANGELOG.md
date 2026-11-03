@@ -2,7 +2,7 @@
 
 ## 0.5.27
 
-- Opening a file shows its text again. Editing copies the text view's own drawing into the pane the window shows, beside the line numbers. Reading shows the note text in the window itself, because the web view's layer stays blank. The file column keeps the width left after the sidebar. A blank file still fails the window check.
+- Opening a file shows its text in the real editor and the real Reading page. The copied bitmap and the plain-text stand-in are gone, so the caret, selection, scrolling, find, and Markdown rendering stay on the native views. The file column keeps the width left after the sidebar. The window check first reads a normal text control, so a blind capture is not treated as a blank document. A blank file still fails.
 
 ## 0.5.26
 

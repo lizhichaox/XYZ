@@ -52,34 +52,6 @@ final class XYZMacTextView: NSTextView {
 
     override func changeColor(_ sender: Any?) {}
 
-    /// Line numbers are drawn into the pane, and that is the layer the window shows.
-    /// A text-view layer holds the glyphs and never joins that pane, so the numbers show
-    /// and the file does not. This view draws into the pane instead. The TextKit surfaces
-    /// keep their own layers, which the window drops, so they stay hidden.
-    func embedBodyInWindowLayer() {
-        clipsToBounds = true
-        wantsLayer = false
-        canDrawSubviewsIntoLayer = false
-        if let scroll = enclosingScrollView {
-            scroll.wantsLayer = false
-            scroll.canDrawSubviewsIntoLayer = false
-            scroll.drawsBackground = false
-            scroll.backgroundColor = .clear
-            let clip = scroll.contentView
-            clip.wantsLayer = false
-            clip.canDrawSubviewsIntoLayer = false
-            clip.drawsBackground = false
-            clip.backgroundColor = .clear
-        }
-        editorPane?.wantsLayer = true
-        editorPane?.canDrawSubviewsIntoLayer = true
-        hideFragmentViews()
-        guard window != nil else { return }
-        textLayoutManager?.textViewportLayoutController.layoutViewport()
-        needsDisplay = true
-        editorPane?.needsDisplay = true
-    }
-
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
@@ -623,52 +595,6 @@ private struct FindScan {
         }
         editorPane?.noteTextLayout()
         alignIfReady()
-        hideFragmentViews()
-    }
-
-    /// These surfaces have their own layers. The window shows the pane's drawing, not those layers.
-    private func hideFragmentViews() {
-        for subview in subviews {
-            let name = NSStringFromClass(type(of: subview))
-            let surface = name.contains("Fragment")
-                || name.contains("Viewport")
-                || name.contains("Content")
-                || name.contains("RenderingSurface")
-            guard surface else { continue }
-            if !subview.isHidden {
-                subview.isHidden = true
-            }
-        }
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        super.draw(dirtyRect)
-        paintLaidOutGlyphs(in: dirtyRect)
-    }
-
-    /// Glyphs for the visible viewport, in this view's layer. Fragment subviews are not
-    /// what the document window composites.
-    private func paintLaidOutGlyphs(in dirtyRect: NSRect) {
-        guard let manager = textLayoutManager, let content = manager.textContentManager else { return }
-        guard let context = NSGraphicsContext.current?.cgContext else { return }
-        let viewport = manager.textViewportLayoutController
-        let origin = textContainerOrigin
-        let start = viewport.viewportRange?.location ?? content.documentRange.location
-        var seen = 0
-        manager.enumerateTextLayoutFragments(from: start, options: [.ensuresLayout]) { fragment in
-            seen += 1
-            let frame = fragment.layoutFragmentFrame
-            let rect = NSRect(
-                x: origin.x + frame.minX,
-                y: origin.y + frame.minY,
-                width: max(frame.width, 1),
-                height: max(frame.height, 1)
-            )
-            if rect.intersects(dirtyRect) {
-                fragment.draw(at: NSPoint(x: rect.minX, y: rect.minY), in: context)
-            }
-            return seen < 80 && rect.minY < self.bounds.maxY + rect.height
-        }
     }
 
     /// Turns numbers on or off on this view. Called from SwiftUI updates, including a mode
@@ -869,11 +795,6 @@ private struct FindScan {
         guard window != nil else { return }
         layoutSubtreeIfNeeded()
         alignIfReady()
-        // Layer hosting dirties constraints. Doing it inside this layout pass makes the
-        // window ask for another constraint update until AppKit aborts.
-        DispatchQueue.main.async { [weak self] in
-            self?.embedBodyInWindowLayer()
-        }
     }
 
     func scrollAnchor() -> EditorScrollAnchor {
@@ -1037,46 +958,6 @@ private struct FindScan {
 /// The editor scroller. Line numbers are not a subview of this view: `NSScrollView` would cover them.
 final class EditorScrollView: NSScrollView {}
 
-/// Visible source, drawn into the pane. Clicks fall through to the text view.
-final class SourceBodyMirror: NSView {
-    weak var textView: XYZMacTextView?
-    override var isFlipped: Bool { true }
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-
-    override func draw(_ dirtyRect: NSRect) {
-        NSColor.xyzEditor.setFill()
-        dirtyRect.fill()
-        guard let textView else { return }
-        let visible = textView.visibleRect
-        let width = max(1, Int(visible.width.rounded(.up)))
-        let height = max(1, Int(visible.height.rounded(.up)))
-        guard width > 2, height > 2,
-              let rep = NSBitmapImageRep(
-                bitmapDataPlanes: nil,
-                pixelsWide: width,
-                pixelsHigh: height,
-                bitsPerSample: 8,
-                samplesPerPixel: 4,
-                hasAlpha: true,
-                isPlanar: false,
-                colorSpaceName: .deviceRGB,
-                bytesPerRow: 0,
-                bitsPerPixel: 0
-              ) else { return }
-        // The text view's layer is not in the window. Its own drawing is. Paint that
-        // drawing into this pane, which is the layer the window shows.
-        textView.cacheDisplay(in: visible, to: rep)
-        rep.draw(
-            in: bounds,
-            from: NSRect(x: 0, y: 0, width: visible.width, height: visible.height),
-            operation: .sourceOver,
-            fraction: 1,
-            respectFlipped: true,
-            hints: nil
-        )
-    }
-}
-
 /// Gutter and scroller, side by side. The pair stops at the top of the status bar.
 final class EditorPane: NSView {
     let gutter = LineNumberGutter()
@@ -1088,19 +969,11 @@ final class EditorPane: NSView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
-        wantsLayer = true
-        canDrawSubviewsIntoLayer = true
         gutter.translatesAutoresizingMaskIntoConstraints = true
         scrollView.translatesAutoresizingMaskIntoConstraints = true
-        mirror.translatesAutoresizingMaskIntoConstraints = true
-        mirror.wantsLayer = false
         addSubview(gutter)
         addSubview(scrollView)
-        addSubview(mirror)
     }
-
-    /// The text view's layer never joins the window. This view draws the same lines into the pane.
-    let mirror = SourceBodyMirror()
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
@@ -1129,7 +1002,6 @@ final class EditorPane: NSView {
         ) { [weak self] _ in
             MainActor.assumeIsolated { () -> Void in
                 self?.gutter.noteGeometryChanged()
-                self?.mirror.needsDisplay = true
             }
         }
         needsLayout = true
@@ -1138,7 +1010,6 @@ final class EditorPane: NSView {
     func noteTextLayout() {
         // Display only. Marking the pane dirty from the text view's layout never finishes.
         gutter.noteGeometryChanged()
-        mirror.needsDisplay = true
     }
 
     override func layout() {
@@ -1165,11 +1036,6 @@ final class EditorPane: NSView {
         let scrollFrame = NSRect(x: width, y: 0, width: max(1, bounds.width - width), height: bounds.height)
         if gutter.frame != gutterFrame { gutter.frame = gutterFrame }
         if scrollView.frame != scrollFrame { scrollView.frame = scrollFrame }
-        mirror.textView = gutter.textView
-        if mirror.frame != scrollFrame { mirror.frame = scrollFrame }
-        if subviews.last !== gutter {
-            addSubview(mirror, positioned: .above, relativeTo: scrollView)
-        }
         if gutter.superview === self, subviews.last !== gutter {
             addSubview(gutter, positioned: .above, relativeTo: scrollView)
         }
@@ -1255,7 +1121,7 @@ struct XYZMacEditor: NSViewRepresentable {
         textView.usesFindBar = false
         textView.isIncrementalSearchingEnabled = true
         textView.drawsBackground = true
-        textView.embedBodyInWindowLayer()
+        textView.clipsToBounds = true
         textView.usesAdaptiveColorMappingForDarkAppearance = false
         textView.isVerticallyResizable = true
         textView.textContainer?.lineFragmentPadding = 0
@@ -1280,8 +1146,7 @@ struct XYZMacEditor: NSViewRepresentable {
 
         let pane = EditorPane()
         let scrollView = pane.scrollView
-        scrollView.drawsBackground = false
-        scrollView.backgroundColor = .clear
+        scrollView.drawsBackground = true
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
         scrollView.autohidesScrollers = true
@@ -1293,16 +1158,9 @@ struct XYZMacEditor: NSViewRepresentable {
         scrollView.horizontalScrollElasticity = .none
         scrollView.contentView.automaticallyAdjustsContentInsets = false
         scrollView.contentView.contentInsets = NSEdgeInsets()
-        // The body is drawn into the pane, with the line numbers. A layer on the clip
-        // covers that drawing with an empty page.
         scrollView.clipsToBounds = true
-        scrollView.wantsLayer = false
-        scrollView.canDrawSubviewsIntoLayer = false
         scrollView.contentView.clipsToBounds = true
-        scrollView.contentView.wantsLayer = false
-        scrollView.contentView.canDrawSubviewsIntoLayer = false
         scrollView.contentView.drawsBackground = false
-        scrollView.contentView.backgroundColor = .clear
         pane.attach(textView)
         textView.syncLineNumbers(lineNumbers)
         applyChrome(textView: textView, scrollView: scrollView, style: style)
@@ -1311,7 +1169,6 @@ struct XYZMacEditor: NSViewRepresentable {
         context.coordinator.restyle(edited: nil)
         context.coordinator.observeScroll(of: scrollView)
         applyWrap(textView: textView, scrollView: scrollView, wraps: style.wraps)
-        textView.embedBodyInWindowLayer()
         // Leave `layoutManager` unread. On this path it installs TextKit 1 and the assert
         // in a debug build is the crash the hosted check hit. Release builds kept editing
         // and drew no wrapped line numbers.
@@ -1367,16 +1224,10 @@ struct XYZMacEditor: NSViewRepresentable {
         scrollView.contentView.automaticallyAdjustsContentInsets = false
         scrollView.contentView.contentInsets = NSEdgeInsets()
         scrollView.clipsToBounds = true
-        scrollView.wantsLayer = false
-        scrollView.canDrawSubviewsIntoLayer = false
-        scrollView.drawsBackground = false
-        scrollView.backgroundColor = .clear
+        scrollView.drawsBackground = true
         scrollView.contentView.clipsToBounds = true
-        scrollView.contentView.wantsLayer = false
-        scrollView.contentView.canDrawSubviewsIntoLayer = false
         scrollView.contentView.drawsBackground = false
-        scrollView.contentView.backgroundColor = .clear
-        textView.embedBodyInWindowLayer()
+        textView.clipsToBounds = true
         textView.documentUndoManager = undoManager
         scrollLink.capture = { [weak textView] in
             textView?.scrollAnchor() ?? EditorScrollAnchor(fraction: 0, probe: "", line: 1)
