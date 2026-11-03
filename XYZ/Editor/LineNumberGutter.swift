@@ -136,15 +136,33 @@ final class LineNumberGutter: NSView {
         var height: CGFloat
     }
 
-    /// Visual rows from TextKit. Wrapped continuations keep the source line and hide the digit.
-    /// Without fragments, and with wrapping off, one slot per source line.
+    /// Visual rows from TextKit. A uniform line box is only valid when wrapping is off:
+    /// with wrapping on, that box counts visual rows as source lines.
     private func placedRows(textView: XYZMacTextView, lineCount: Int) -> (rows: [Row], api: String) {
         let fragments = fragmentRows(textView: textView)
         let numbered = fragments.filter { $0.showsNumber && $0.y < bounds.maxY && $0.y + $0.height > 0 }
         if !numbered.isEmpty {
             return (fragments.filter { $0.y < bounds.maxY && $0.y + $0.height > 0 }, "textLineFragments")
         }
+        if textView.style.wraps {
+            textView.textLayoutManager?.textViewportLayoutController.layoutViewport()
+            let laidOut = fragmentRows(textView: textView)
+            let laidNumbered = laidOut.filter { $0.showsNumber && $0.y < bounds.maxY && $0.y + $0.height > 0 }
+            if !laidNumbered.isEmpty {
+                return (laidOut.filter { $0.y < bounds.maxY && $0.y + $0.height > 0 }, "textLineFragments")
+            }
+            return ([], "wrapped-unlaid")
+        }
         return (lineBoxRows(textView: textView, lineCount: lineCount), "lineBox")
+    }
+
+    /// Headless check. Same rows `draw` uses, including ones scrolled just outside the clip.
+    func testingSnapshot() -> (api: String, rows: [(line: Int, shows: Bool, y: CGFloat)]) {
+        let count = lineIndex().count
+        guard let textView else { return ("no-text-view", []) }
+        let placed = placedRows(textView: textView, lineCount: count)
+        let rows = placed.rows.map { (line: $0.line, shows: $0.showsNumber, y: $0.y) }
+        return (placed.api, rows)
     }
 
     private func fragmentRows(textView: XYZMacTextView) -> [Row] {
@@ -161,7 +179,7 @@ final class LineNumberGutter: NSView {
         manager.enumerateTextLayoutFragments(from: start, options: []) { fragment in
             seen += 1
             if seen > 400 { return false }
-            let base = content.offset(from: documentStart, to: fragment.rangeInElement.location)
+            let base = Self.documentOffset(of: fragment.rangeInElement.location, content: content, documentStart: documentStart)
             let lineFragments = fragment.textLineFragments
             if lineFragments.isEmpty {
                 let line = lines.line(at: max(0, base))
@@ -177,24 +195,51 @@ final class LineNumberGutter: NSView {
                 return true
             }
             let frame = fragment.layoutFragmentFrame
-            var cursor = originY + frame.minY - visible.minY
+            let fragmentBase = base
+            let fragmentLength = content.offset(
+                from: fragment.rangeInElement.location,
+                to: fragment.rangeInElement.endLocation
+            )
             for lineFragment in lineFragments {
-                let offset = base + lineFragment.characterRange.location
+                let offset = Self.sourceOffset(
+                    lineFragment: lineFragment,
+                    fragmentBase: fragmentBase,
+                    fragmentLength: fragmentLength
+                )
                 let line = lines.line(at: max(0, offset))
                 let shows = previousLine != line
                 previousLine = line
-                let height = max(lineFragment.typographicBounds.height, 1)
+                let local = lineFragment.typographicBounds
                 rows.append(Row(
                     line: line,
                     showsNumber: shows,
-                    y: cursor,
-                    height: height
+                    y: originY + frame.minY + local.minY - visible.minY,
+                    height: max(local.height, 1)
                 ))
-                cursor += height
             }
             return true
         }
         return rows
+    }
+
+    /// Document offset of a text location.
+    private static func documentOffset(
+        of location: NSTextLocation,
+        content: NSTextContentManager,
+        documentStart: NSTextLocation
+    ) -> Int {
+        content.offset(from: documentStart, to: location)
+    }
+
+    /// `characterRange` is either relative to this fragment or to the whole element.
+    /// A range that fits inside the fragment is relative to the fragment. A range past
+    /// that length is an index in the element, already included in `fragmentBase`.
+    static func sourceOffset(lineFragment: NSTextLineFragment, fragmentBase: Int, fragmentLength: Int) -> Int {
+        let range = lineFragment.characterRange
+        if fragmentLength > 0, range.location + range.length <= fragmentLength {
+            return fragmentBase + range.location
+        }
+        return range.location
     }
 
     /// Same line box the editor uses for source. Does not ask TextKit for fragment frames.

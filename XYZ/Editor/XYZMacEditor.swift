@@ -687,15 +687,21 @@ private struct FindScan {
         drawIndentGuides(in: rect)
     }
 
-    /// Full-width band for the caret line. TextKit 2 often has no fragment here, so this uses the line box, same as the gutter.
+    /// Full-width band for the caret's source line. Wrapping uses the laid-out fragment,
+    /// which covers every visual row of that line. A uniform box is only for an unwrapped file.
     private func drawCurrentLineBand(in rect: NSRect) {
-        let box = lineBoxHeight()
-        let line = EditorScrollAnchor.lineNumber(at: selectedRange().location, in: string)
-        let y = textContainerOrigin.y + CGFloat(max(0, line - 1)) * box
-        let band = NSRect(x: 0, y: y, width: bounds.width, height: box)
+        let band: NSRect
+        if style.wraps, let laid = currentLineBand() {
+            band = laid
+        } else {
+            let box = lineBoxHeight()
+            let line = EditorScrollAnchor.lineNumber(at: selectedRange().location, in: string)
+            let y = textContainerOrigin.y + CGFloat(max(0, line - 1)) * box
+            band = NSRect(x: 0, y: y, width: bounds.width, height: box)
+        }
         guard band.intersects(rect) else { return }
         NSColor.xyzCurrentLine.setFill()
-        band.fill()
+        band.intersection(NSRect(x: 0, y: band.minY, width: bounds.width, height: band.height)).fill()
     }
 
     /// A hairline at each 2-space or tab indent. Editing only. Drawn from the source line, not a layout fragment.

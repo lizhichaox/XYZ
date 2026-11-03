@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.23
+
+- Line wrapping no longer turns visual rows into source line numbers. Editing numbers follow newline boundaries, and only the first fragment of a wrapped line is numbered. The current-line band uses that same fragment.
+- Reading shows the source start line of each rendered block. It does not invent a number for every wrapped row inside a paragraph, list, fence, or table.
+- `-XYZCheckGutter` now prints the numbered lines for a synthetic wrapped document and for a synthetic Reading page. `-XYZDiagnostics` records `evidence=missing` when no gutter labels were drawn.
+
 ## 0.5.22
 
 - Editing always shows line numbers, with wrapping on or off. A wrapped continuation stays blank. The number is the source line.

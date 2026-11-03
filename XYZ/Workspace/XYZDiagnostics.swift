@@ -49,6 +49,9 @@ enum XYZDiagnostics {
         dump(reason: "launch")
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
             dump(reason: "launch+3s")
+            if lastGutterSignature.isEmpty {
+                note("gutter labels mode=none count=0 pairs= evidence=missing")
+            }
         }
     }
 

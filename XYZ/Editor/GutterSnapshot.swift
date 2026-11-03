@@ -1,5 +1,7 @@
 #if os(macOS)
 import AppKit
+import WebKit
+import XYZCore
 
 /// Offscreen check that Editing draws line numbers. CI launches the app with `-XYZCheckGutter`.
 enum GutterSnapshotCheck {
@@ -9,8 +11,12 @@ enum GutterSnapshotCheck {
         guard ProcessInfo.processInfo.arguments.contains(argument) else { return }
         stage("render")
         let rendered = renderEditingGutter()
-        stage(rendered == nil ? "search" : "render-failed")
-        let failure = rendered ?? SearchTypingCheck.run() ?? EscapeCrashCheck.run() ?? SidebarColumnFitCheck.run()
+        stage(rendered == nil ? "wrap" : "render-failed")
+        let wrapped = rendered == nil ? renderWrappedSourceLines() : nil
+        stage(wrapped == nil ? "reading-lines" : "wrap-failed")
+        let reading = wrapped == nil && rendered == nil ? renderReadingSourceLines() : nil
+        stage(reading == nil ? "search" : "reading-lines-failed")
+        let failure = rendered ?? wrapped ?? reading ?? SearchTypingCheck.run() ?? EscapeCrashCheck.run() ?? SidebarColumnFitCheck.run()
         stage("done")
         if let failure {
             print("GUTTER_MISSING \(failure)")
@@ -32,6 +38,161 @@ enum GutterSnapshotCheck {
             if let failure = render(appearance: name, editing: false) { return failure }
             if let failure = render(appearance: name, editing: true) { return failure }
         }
+        return nil
+    }
+
+    /// Narrow editor, known source. Numbered labels must be the newline lines, in order.
+    private static func renderWrappedSourceLines() -> String? {
+        let wrapped = [
+            "one",
+            String(repeating: "wrap ", count: 40),
+            "",
+            "four",
+            String(repeating: "文", count: 40),
+            "emoji " + String(repeating: "😀", count: 16),
+        ].joined(separator: "\n")
+        if let failure = checkEditing(text: wrapped, wraps: true, name: "wrap", requireWrap: true) { return failure }
+        if let failure = checkEditing(text: wrapped, wraps: false, name: "nowrap", requireWrap: false) { return failure }
+        if let failure = checkEditing(text: "a\r\n\r\nb", wraps: true, name: "crlf", requireWrap: false) { return failure }
+        return nil
+    }
+
+    private static func checkEditing(text: String, wraps: Bool, name: String, requireWrap: Bool) -> String? {
+        let expected = Array(1...LineIndex(text).count)
+        guard let snapshot = layoutGutter(text: text, wraps: wraps, width: wraps ? 96 : 420) else {
+            return "\(name): could not lay out the gutter"
+        }
+        let numbered = snapshot.rows.filter(\.shows).map(\.line)
+        let ys = snapshot.rows.filter(\.shows).map(\.y)
+        let pairs = snapshot.rows.filter(\.shows).prefix(8).map { "\($0.line):\(Int($0.y.rounded()))" }.joined(separator: ",")
+        print("GUTTER_EDIT \(name) api=\(snapshot.api) numbered=\(numbered) visual=\(snapshot.rows.count) pairs=\(pairs)")
+        fflush(stdout)
+        if numbered != expected {
+            return "\(name): numbered \(numbered) expected \(expected) api=\(snapshot.api)"
+        }
+        if wraps && snapshot.api != "textLineFragments" {
+            return "\(name): wrap used \(snapshot.api), not the laid-out line fragments"
+        }
+        if requireWrap && snapshot.rows.count <= numbered.count {
+            return "\(name): the long lines did not wrap visual=\(snapshot.rows.count) numbered=\(numbered.count)"
+        }
+        for index in 1..<ys.count where ys[index] <= ys[index - 1] {
+            return "\(name): label y does not increase \(ys)"
+        }
+        let distinct = Set(snapshot.rows.map(\.line))
+        if distinct.count != expected.count {
+            return "\(name): source lines \(distinct.sorted()) expected \(expected)"
+        }
+        return nil
+    }
+
+    private static func layoutGutter(text: String, wraps: Bool, width: CGFloat) -> (api: String, rows: [(line: Int, shows: Bool, y: CGFloat)])? {
+        let pane = EditorPane(frame: NSRect(x: 0, y: 0, width: width, height: 1600))
+        let textView = XYZMacTextView(usingTextLayoutManager: true)
+        textView.isEditable = true
+        textView.isSelectable = true
+        textView.isRichText = true
+        textView.drawsBackground = true
+        textView.isVerticallyResizable = true
+        textView.isHorizontallyResizable = !wraps
+        textView.textContainer?.lineFragmentPadding = 0
+        textView.textContainer?.widthTracksTextView = wraps
+        textView.minSize = NSSize(width: 0, height: 0)
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
+        var style = XYZEditorStyle()
+        style.wraps = wraps
+        style.fontSize = 16
+        style.monospaced = true
+        style.latin = "menlo"
+        style.lineHeight = 1.2
+        textView.style = style
+        pane.attach(textView)
+        textView.string = text
+        let storage = textView.string as NSString
+        let font = NSFont.monospacedSystemFont(ofSize: 16, weight: .regular)
+        textView.textStorage?.setAttributes([
+            .font: font,
+            .foregroundColor: NSColor.labelColor,
+        ], range: NSRange(location: 0, length: storage.length))
+        textView.syncLineNumbers(true)
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: width, height: 1600),
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = pane
+        pane.layoutSubtreeIfNeeded()
+        textView.layoutSubtreeIfNeeded()
+        textView.showViewport()
+        pane.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+        let snapshot = pane.gutter.testingSnapshot()
+        return snapshot
+    }
+
+    /// Reading labels from the real page script. A wrapped paragraph is one source line.
+    private static func renderReadingSourceLines() -> String? {
+        let paragraph = String(repeating: "paragraph ", count: 40)
+        let markdown = "# Title\n\n\(paragraph)\n\n- alpha\n- beta\n\n```\nfence\nline\n```\n\n| a | b |\n| --- | --- |\n| c | d |\n"
+        let html = MarkdownHTML.render(markdown)
+        let sourceLines = LineIndex(markdown).count
+        let page = PreviewPage.shell(css: PreviewStyles.load(), html: html, theme: "light", prefs: PreviewPrefs(lineNumbers: true))
+        let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 280, height: 640))
+        let window = NSWindow(
+            contentRect: web.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = web
+        let waiter = ReadingLineWaiter()
+        web.navigationDelegate = waiter
+        web.loadHTMLString(page, baseURL: nil)
+        let loaded = waiter.wait(seconds: 8)
+        guard loaded else { return "reading: web view did not finish loading" }
+        let script = """
+        xyzLayoutGutter();
+        Array.from(document.querySelectorAll('#xyz-gutter .xyz-ln')).map(function(node) {
+          return node.getAttribute('data-source-line') + ':' + Math.round(parseFloat(node.style.top) || 0);
+        }).join(',');
+        """
+        var output = ""
+        var finished = false
+        web.evaluateJavaScript(script) { value, error in
+            output = value as? String ?? ""
+            if output.isEmpty, let error {
+                output = "error \(error.localizedDescription)"
+            }
+            finished = true
+        }
+        let start = Date()
+        while !finished && Date().timeIntervalSince(start) < 4 {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+        }
+        guard finished else { return "reading: gutter script did not return" }
+        print("GUTTER_READING pairs=\(output) sourceLines=\(sourceLines)")
+        fflush(stdout)
+        if output.hasPrefix("error") { return "reading: \(output)" }
+        let labels = output.split(separator: ",").compactMap { piece -> (Int, Int)? in
+            let parts = piece.split(separator: ":")
+            guard parts.count == 2, let line = Int(parts[0]), let y = Int(parts[1]) else { return nil }
+            return (line, y)
+        }
+        if labels.isEmpty { return "reading: no labels evidence=missing output=\(output)" }
+        var previousY = Int.min
+        for label in labels {
+            if label.0 < 1 || label.0 > sourceLines {
+                return "reading: line \(label.0) is not a source line (1...\(sourceLines))"
+            }
+            if label.1 <= previousY {
+                return "reading: y does not increase \(labels)"
+            }
+            previousY = label.1
+        }
+        let lines = labels.map(\.0)
+        if !lines.contains(1) { return "reading: missing the heading source line 1 in \(lines)" }
+        if lines.count > sourceLines { return "reading: more labels than source lines \(lines)" }
         return nil
     }
 
@@ -238,6 +399,30 @@ enum GutterSnapshotCheck {
             }
         }
         return count
+    }
+}
+
+private final class ReadingLineWaiter: NSObject, WKNavigationDelegate {
+    private var done = false
+
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        done = true
+    }
+
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        done = true
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        done = true
+    }
+
+    func wait(seconds: TimeInterval) -> Bool {
+        let start = Date()
+        while !done, Date().timeIntervalSince(start) < seconds {
+            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
+        }
+        return done
     }
 }
 
