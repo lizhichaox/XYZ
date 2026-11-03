@@ -2077,14 +2077,7 @@ enum GutterSnapshotCheck {
             ? NSPoint(x: target.midX, y: target.midY)
             : NSPoint(x: min(target.maxX - 4, target.minX + 28), y: target.midY)
         let point = outline.convert(local, to: nil)
-        if disclosure {
-            return postUpThenDown(window: window, point: point, clickCount: 1)
-        }
-        guard let down = mouseEvent(.leftMouseDown, at: point, window: window, clickCount: 1, eventNumber: 0),
-              let up = mouseEvent(.leftMouseUp, at: point, window: window, clickCount: 1, eventNumber: 0) else { return false }
-        NSApp.postEvent(up, atStart: true)
-        outline.mouseDown(with: down)
-        return true
+        return postUpThenDown(window: window, point: point, clickCount: 1)
     }
 
     private static func rowVisibility(_ outline: NSOutlineView, _ row: Int) -> String {
