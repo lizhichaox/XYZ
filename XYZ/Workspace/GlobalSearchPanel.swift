@@ -333,8 +333,7 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
                 GlobalFileSearch.match(entries: entries, query: latest, showsHidden: showsHidden)
             }.value
             let content = await session?.searchPanelContents(query: latest) ?? (hits: [], more: 0, capped: false)
-            guard !Task.isCancelled else { return }
-            guard let self, self.generation == token else { return }
+            guard !Task.isCancelled, self.generation == token else { return }
             self.fileHits = files.hits
             self.fileMore = files.more
             self.contentHits = content.hits
