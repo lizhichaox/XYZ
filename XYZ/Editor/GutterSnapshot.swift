@@ -519,6 +519,7 @@ enum GutterSnapshotCheck {
             host.layoutSubtreeIfNeeded()
             pump(0.3)
             host.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
             guard let pane = findPane(in: host), let textView = pane.scrollView.documentView as? XYZMacTextView else {
                 return "window \(label): Editing did not mount the text view evidence=missing"
             }
@@ -527,25 +528,32 @@ enum GutterSnapshotCheck {
             if textView.string != fixture || stored != expected {
                 return "window \(label): editor storage \(stored) expected \(expected)"
             }
+            textView.embedBodyInWindowLayer()
+            textView.needsDisplay = true
+            pane.needsDisplay = true
+            textView.displayIfNeeded()
+            pane.displayIfNeeded()
+            window.displayIfNeeded()
             guard let image = compositedImage(of: textView) else {
                 return "window \(label): the text view has no composited layer evidence=missing"
             }
-            let words = recognizedText(in: image)
-            let shortened = String(words.prefix(180))
-            print("GUTTER_WINDOW label=\(label) words=\(shortened) storage=\(stored) layer=\(textView.layer == nil ? 0 : 1)")
+            guard let windowImage = compositedImage(of: host) else {
+                return "window \(label): the document window has no composited layer evidence=missing"
+            }
+            let bodyWords = recognizedText(in: image)
+            let words = recognizedText(in: windowImage)
+            let viewNames = textView.subviews.map { NSStringFromClass(type(of: $0)) }.joined(separator: ",")
+            print("GUTTER_WINDOW label=\(label) words=\(String(words.prefix(180))) body=\(String(bodyWords.prefix(120))) storage=\(stored) layer=\(textView.layer == nil ? 0 : 1) views=\(viewNames)")
             fflush(stdout)
             saveShot(image, name: "editing-\(label).png")
             if let paneImage = compositedImage(of: pane) {
                 saveShot(paneImage, name: "pane-\(label).png")
             }
-            if let windowImage = compositedImage(of: host) {
-                saveShot(windowImage, name: "window-\(label).png")
-            }
-            let recognized = words.range(of: "Glyphsample", options: .caseInsensitive) != nil
-                && words.range(of: "Secondline", options: .caseInsensitive) != nil
+            saveShot(windowImage, name: "window-\(label).png")
+            let recognized = Self.showsFixture(words)
             if requireBody {
                 if !recognized {
-                    return "window \(label): composited body did not show the fixture words evidence=missing"
+                    return "window \(label): composited window did not show the fixture words evidence=missing body=\(String(bodyWords.prefix(80)))"
                 }
                 let numbers = pane.gutter.testingSnapshot().rows.filter(\.shows).map(\.line)
                 if numbers.first != 1 {
@@ -627,11 +635,17 @@ enum GutterSnapshotCheck {
         return nil
     }
 
+    private static func showsFixture(_ words: String) -> Bool {
+        words.range(of: "Glyphsample", options: .caseInsensitive) != nil
+            && words.range(of: "Secondline", options: .caseInsensitive) != nil
+            && words.range(of: "中文") != nil
+    }
+
     private static func recognizedText(in image: CGImage) -> String {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = false
-        request.recognitionLanguages = ["en-US"]
+        request.recognitionLanguages = ["en-US", "zh-Hans"]
         let handler = VNImageRequestHandler(cgImage: image, options: [:])
         do {
             try handler.perform([request])

@@ -52,23 +52,34 @@ final class XYZMacTextView: NSTextView {
 
     override func changeColor(_ sender: Any?) {}
 
-    /// TextKit 2 draws the body into fragment subviews. A layer-backed document window
-    /// composites this view's layer and leaves those subviews out, so the gutter shows
-    /// and the page stays blank. Flattening the fragments into this layer is what the
-    /// screen displays. `cacheDisplay` never needed it, which is why a bitmap of `draw`
-    /// reported body ink for a blank window.
+    /// TextKit 2 puts glyphs in fragment subviews that have their own layers.
+    /// `canDrawSubviewsIntoLayer` does not draw those subviews into the parent, and it
+    /// also keeps their layers out of the window, so the gutter shows and the page is blank.
+    /// The fragments stay in the layer tree. `draw` also paints them into this view, which
+    /// is the layer the window composites. `cacheDisplay` never needed either one.
     func embedBodyInWindowLayer() {
         wantsLayer = true
-        canDrawSubviewsIntoLayer = true
-        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        canDrawSubviewsIntoLayer = false
+        layerContentsRedrawPolicy = .duringViewResize
         clipsToBounds = false
-        guard let scroll = enclosingScrollView else { return }
-        scroll.wantsLayer = true
-        scroll.canDrawSubviewsIntoLayer = true
-        scroll.contentView.wantsLayer = true
-        scroll.contentView.canDrawSubviewsIntoLayer = true
-        scroll.contentView.drawsBackground = false
-        scroll.contentView.layer?.backgroundColor = nil
+        if let scroll = enclosingScrollView {
+            scroll.wantsLayer = true
+            scroll.canDrawSubviewsIntoLayer = false
+            scroll.contentView.wantsLayer = true
+            scroll.contentView.canDrawSubviewsIntoLayer = false
+            scroll.contentView.drawsBackground = false
+            scroll.contentView.layer?.backgroundColor = nil
+        }
+        guard window != nil else { return }
+        var ancestor: NSView? = superview
+        while let view = ancestor {
+            if view.canDrawSubviewsIntoLayer {
+                view.canDrawSubviewsIntoLayer = false
+            }
+            ancestor = view.superview
+        }
+        textLayoutManager?.textViewportLayoutController.layoutViewport()
+        hideFragmentViews()
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -614,6 +625,49 @@ private struct FindScan {
         }
         editorPane?.noteTextLayout()
         alignIfReady()
+        hideFragmentViews()
+    }
+
+    /// Fragment views stay in the tree for hit testing, but their layers are what a
+    /// SwiftUI window drops. The glyphs painted in `draw` are the ones on screen.
+    private func hideFragmentViews() {
+        for subview in subviews {
+            let name = NSStringFromClass(type(of: subview))
+            guard name.contains("Fragment") || name.contains("Viewport") else { continue }
+            if subview.alphaValue != 0 {
+                subview.alphaValue = 0
+            }
+        }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        paintLaidOutGlyphs(in: dirtyRect)
+    }
+
+    /// Glyphs for the visible viewport, in this view's layer. Fragment subviews are not
+    /// what the document window composites.
+    private func paintLaidOutGlyphs(in dirtyRect: NSRect) {
+        guard let manager = textLayoutManager, let content = manager.textContentManager else { return }
+        guard let context = NSGraphicsContext.current?.cgContext else { return }
+        let viewport = manager.textViewportLayoutController
+        let origin = textContainerOrigin
+        let start = viewport.viewportRange?.location ?? content.documentRange.location
+        var seen = 0
+        manager.enumerateTextLayoutFragments(from: start, options: [.ensuresLayout]) { fragment in
+            seen += 1
+            let frame = fragment.layoutFragmentFrame
+            let rect = NSRect(
+                x: origin.x + frame.minX,
+                y: origin.y + frame.minY,
+                width: max(frame.width, 1),
+                height: max(frame.height, 1)
+            )
+            if rect.intersects(dirtyRect) {
+                fragment.draw(at: NSPoint(x: rect.minX, y: rect.minY), in: context)
+            }
+            return seen < 80 && rect.minY < self.bounds.maxY + rect.height
+        }
     }
 
     /// Turns numbers on or off on this view. Called from SwiftUI updates, including a mode
@@ -993,6 +1047,8 @@ final class EditorPane: NSView {
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
+        wantsLayer = true
+        canDrawSubviewsIntoLayer = false
         gutter.translatesAutoresizingMaskIntoConstraints = true
         scrollView.translatesAutoresizingMaskIntoConstraints = true
         addSubview(gutter)
@@ -1182,13 +1238,14 @@ struct XYZMacEditor: NSViewRepresentable {
         scrollView.horizontalScrollElasticity = .none
         scrollView.contentView.automaticallyAdjustsContentInsets = false
         scrollView.contentView.contentInsets = NSEdgeInsets()
-        // The clip view's background layer sits over TextKit 2 fragments. The text view paints
-        // the canvas itself. Fragment subviews are drawn into these layers; otherwise a
-        // SwiftUI window shows the gutter and a white page. cacheDisplay still calls draw.
+        // The clip view must not paint an opaque layer over the text, and it must not
+        // claim the fragment views: that claim drops their layers from the window.
         scrollView.clipsToBounds = true
-        scrollView.canDrawSubviewsIntoLayer = true
+        scrollView.wantsLayer = true
+        scrollView.canDrawSubviewsIntoLayer = false
         scrollView.contentView.clipsToBounds = true
-        scrollView.contentView.canDrawSubviewsIntoLayer = true
+        scrollView.contentView.wantsLayer = true
+        scrollView.contentView.canDrawSubviewsIntoLayer = false
         scrollView.contentView.drawsBackground = false
         pane.attach(textView)
         textView.syncLineNumbers(lineNumbers)
@@ -1254,7 +1311,11 @@ struct XYZMacEditor: NSViewRepresentable {
         scrollView.contentView.automaticallyAdjustsContentInsets = false
         scrollView.contentView.contentInsets = NSEdgeInsets()
         scrollView.clipsToBounds = true
+        scrollView.wantsLayer = true
+        scrollView.canDrawSubviewsIntoLayer = false
         scrollView.contentView.clipsToBounds = true
+        scrollView.contentView.wantsLayer = true
+        scrollView.contentView.canDrawSubviewsIntoLayer = false
         scrollView.contentView.drawsBackground = false
         textView.embedBodyInWindowLayer()
         textView.documentUndoManager = undoManager
