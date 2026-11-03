@@ -9,7 +9,9 @@ struct SettingsView: View {
     @AppStorage(XYZEditorStyle.fontSizeKey) private var fontSize = XYZEditorStyle.defaultFontSize
     @AppStorage(XYZEditorStyle.readableWidthKey) private var readableWidth = false
     @AppStorage(XYZEditorStyle.lineNumbersKey) private var lineNumbers = true
+    @AppStorage(XYZEditorStyle.wordWrapKey) private var wordWrap = true
     @AppStorage(WordCountSetting.key) private var showsWordCount = false
+    @AppStorage(HiddenFilesSetting.key) private var showsHiddenFiles = true
 
     /// The language this process launched with. A different choice waits for a restart.
     @State private var launchLanguage = AppLanguage.stored
@@ -66,12 +68,22 @@ struct SettingsView: View {
                     Text("Show line numbers")
                     Text("Numbers each line of the file beside Source.")
                 }
+
+                Toggle(isOn: $wordWrap) {
+                    Text("Wrap lines")
+                    Text("Breaks long lines to the width of the editor. Turn this off to scroll sideways.")
+                }
             }
 
             Section("View") {
                 Toggle(isOn: $showsWordCount) {
                     Text("Show word count")
                     Text("Counts Chinese and Japanese by character, other languages by word.")
+                }
+
+                Toggle(isOn: $showsHiddenFiles) {
+                    Text("Show hidden files")
+                    Text("Lists names that start with a dot in the folder sidebar.")
                 }
             }
         }

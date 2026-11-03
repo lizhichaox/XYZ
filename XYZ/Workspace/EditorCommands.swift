@@ -54,6 +54,9 @@ protocol EditorCommandTarget: AnyObject {
     func reloadFile()
     func paletteHeadings() -> [OutlineHeading]
     func revealHeading(line: Int)
+    func revealPosition(line: Int, column: Int)
+    func reopenClosedTab() -> Bool
+    func revealActiveFile()
     func performCustomCommand(_ id: String) -> Bool
 }
 
@@ -74,6 +77,9 @@ extension EditorCommandTarget {
     func reloadFile() {}
     func paletteHeadings() -> [OutlineHeading] { [] }
     func revealHeading(line: Int) {}
+    func revealPosition(line: Int, column: Int) {}
+    func reopenClosedTab() -> Bool { false }
+    func revealActiveFile() {}
     func performCustomCommand(_ id: String) -> Bool { false }
 }
 
@@ -145,6 +151,19 @@ final class EditorCommands: NSObject {
             toggleHidden(nil)
             return true
         }
+        if flags == [.command, .shift] && key.lowercased() == "t" {
+            return target?.reopenClosedTab() == true
+        }
+        if flags == .control && key.lowercased() == "g" {
+            guard target != nil else { return false }
+            goToLine(nil)
+            return true
+        }
+        if flags == [.command, .control] && key.lowercased() == "s" {
+            guard target?.supportsWorkspaceFiles == true else { return false }
+            toggleSidebarVisibility(nil)
+            return true
+        }
         return false
     }
 
@@ -171,12 +190,16 @@ final class EditorCommands: NSObject {
             WorkspaceWindowController.prompt()
         case "file.reveal":
             target?.reveal()
+        case "file.revealInSidebar":
+            target?.revealActiveFile()
         case "file.copyPath":
             target?.copyPath()
         case "file.copyRelativePath":
             target?.copyRelativePath()
         case "tab.close":
             _ = target?.closeActiveTab()
+        case "tab.reopen":
+            _ = target?.reopenClosedTab()
         case "file.reload":
             target?.reloadFile()
         case "view.goToHeading":
@@ -184,6 +207,12 @@ final class EditorCommands: NSObject {
             DispatchQueue.main.async { [weak self] in
                 self?.goToHeading(nil)
             }
+        case "view.goToLine":
+            DispatchQueue.main.async { [weak self] in
+                self?.goToLine(nil)
+            }
+        case "view.wordWrap":
+            toggleWordWrap(nil)
         case "view.outline":
             toggleOutline(nil)
         case "app.about":
@@ -199,6 +228,23 @@ final class EditorCommands: NSObject {
 
     @objc func goToHeading(_ sender: Any?) {
         palette.show(target: target, query: "@")
+    }
+
+    @objc func goToLine(_ sender: Any?) {
+        palette.show(target: target, query: ":")
+    }
+
+    @objc func reopenClosedTab(_ sender: Any?) {
+        _ = target?.reopenClosedTab()
+    }
+
+    @objc func revealActiveFile(_ sender: Any?) {
+        target?.revealActiveFile()
+    }
+
+    @objc func toggleSidebarVisibility(_ sender: Any?) {
+        guard target?.supportsWorkspaceFiles == true else { return }
+        target?.toggleSidebar()
     }
 
     @objc func zoomIn(_ sender: Any?) {
@@ -231,6 +277,12 @@ final class EditorCommands: NSObject {
     @objc func toggleOutline(_ sender: Any?) {
         let defaults = UserDefaults.standard
         defaults.set(!defaults.bool(forKey: OutlineSetting.key), forKey: OutlineSetting.key)
+    }
+
+    @objc func toggleWordWrap(_ sender: Any?) {
+        let defaults = UserDefaults.standard
+        let current = defaults.object(forKey: XYZEditorStyle.wordWrapKey) as? Bool ?? true
+        defaults.set(!current, forKey: XYZEditorStyle.wordWrapKey)
     }
 
     @objc func toggleSource(_ sender: Any?) {
@@ -266,6 +318,14 @@ final class EditorCommands: NSObject {
         case "xyz.lineNumbers":
             menuItem.state = Self.showsLineNumbers ? .on : .off
             return true
+        case "xyz.wordWrap":
+            let wrapped = UserDefaults.standard.object(forKey: XYZEditorStyle.wordWrapKey) as? Bool ?? true
+            menuItem.state = wrapped ? .on : .off
+            return true
+        case "xyz.goToLine":
+            return target != nil
+        case "xyz.tab.reopen", "xyz.file.revealInSidebar", "xyz.workspace.sidebar":
+            return target?.supportsWorkspaceFiles == true
         case "xyz.wordCount":
             menuItem.state = UserDefaults.standard.bool(forKey: WordCountSetting.key) ? .on : .off
             return true
@@ -314,6 +374,10 @@ enum PaletteTitles {
         case "folder.new": return String(localized: "New Folder")
         case "folder.open": return String(localized: "Open Folder")
         case "file.reveal": return String(localized: "Reveal in Finder")
+        case "file.revealInSidebar": return String(localized: "Reveal Active File")
+        case "view.goToLine": return String(localized: "Go to Line")
+        case "tab.reopen": return String(localized: "Reopen Closed Tab")
+        case "view.wordWrap": return String(localized: "Wrap Lines")
         case "file.copyPath": return String(localized: "Copy Path")
         case "file.copyRelativePath": return String(localized: "Copy Relative Path")
         case "tab.close": return String(localized: "Close Tab")
@@ -408,6 +472,7 @@ enum EditorMenuSupport {
         let specs: [(String, String, String, NSEvent.ModifierFlags, Selector)] = [
             ("xyz.commandPalette", String(localized: "Command Palette…"), "p", .command, #selector(EditorCommands.showPalette(_:))),
             ("xyz.goToHeading", String(localized: "Go to Heading…"), "r", .command, #selector(EditorCommands.goToHeading(_:))),
+            ("xyz.goToLine", String(localized: "Go to Line…"), "g", .control, #selector(EditorCommands.goToLine(_:))),
             ("xyz.mode.source", String(localized: "Source"), "", [], #selector(EditorCommands.selectSource(_:))),
             ("xyz.mode.reading", String(localized: "Reading"), "", [], #selector(EditorCommands.selectReading(_:))),
             ("xyz.mode.toggleSource", String(localized: "Source Code Mode"), "/", .command, #selector(EditorCommands.toggleSource(_:))),
@@ -415,6 +480,8 @@ enum EditorMenuSupport {
             ("xyz.zoomOut", String(localized: "Zoom Out"), "-", .command, #selector(EditorCommands.zoomOut(_:))),
             ("xyz.actualSize", String(localized: "Actual Size"), "0", .command, #selector(EditorCommands.actualSize(_:))),
             ("xyz.lineNumbers", String(localized: "Show Line Numbers"), "", [], #selector(EditorCommands.toggleLineNumbers(_:))),
+            ("xyz.wordWrap", String(localized: "Wrap Lines"), "", [], #selector(EditorCommands.toggleWordWrap(_:))),
+            ("xyz.workspace.sidebar", String(localized: "Toggle Sidebar"), "s", [.command, .control], #selector(EditorCommands.toggleSidebarVisibility(_:))),
             ("xyz.wordCount", String(localized: "Show Word Count"), "", [], #selector(EditorCommands.toggleWordCount(_:))),
             ("xyz.outline", String(localized: "Show Outline"), "", [], #selector(EditorCommands.toggleOutline(_:))),
         ]
@@ -443,6 +510,12 @@ enum EditorMenuSupport {
             place(item, after: previous, in: menu)
             previous = item
         }
+        let systemSidebar = NSSelectorFromString("toggleSidebar:")
+        for item in menu.items where item.action == systemSidebar && item.identifier?.rawValue != "xyz.workspace.sidebar" {
+            if item.keyEquivalent.lowercased() == "s" {
+                item.keyEquivalent = ""
+            }
+        }
     }
 
     private static func ensureFileItems(in menu: NSMenu) {
@@ -462,10 +535,28 @@ enum EditorMenuSupport {
             action: #selector(EditorCommands.toggleHidden(_:)),
             in: menu
         )
+        let reopen = item(
+            identifier: "xyz.tab.reopen",
+            title: String(localized: "Reopen Closed Tab"),
+            key: "t",
+            flags: [.command, .shift],
+            action: #selector(EditorCommands.reopenClosedTab(_:)),
+            in: menu
+        )
+        let revealActive = item(
+            identifier: "xyz.file.revealInSidebar",
+            title: String(localized: "Reveal Active File"),
+            key: "",
+            flags: [],
+            action: #selector(EditorCommands.revealActiveFile(_:)),
+            in: menu
+        )
         let anchor = menu.items.first { $0.title == FileMenuSupport.title }
         if let anchor, let index = menu.items.firstIndex(of: anchor) {
             move(filter, to: min(index + 1, menu.items.count), in: menu)
             move(hidden, to: min((menu.items.firstIndex(of: filter) ?? index) + 1, menu.items.count), in: menu)
+            move(reopen, to: min((menu.items.firstIndex(of: hidden) ?? index) + 1, menu.items.count), in: menu)
+            move(revealActive, to: min((menu.items.firstIndex(of: reopen) ?? index) + 1, menu.items.count), in: menu)
         }
     }
 
@@ -828,6 +919,8 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
                 title: highlighted(indent + heading.title, indices: match.characterIndices.map { $0 + offset }, dimDirectory: false),
                 shortcut: "H\(heading.level)"
             )
+        case .line(let position):
+            cell.apply(title: highlighted(Self.lineTitle(position), indices: [], dimDirectory: false), shortcut: "")
         }
         return cell
     }
@@ -859,7 +952,7 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
         panel.isReleasedWhenClosed = false
 
         let search = NSSearchField()
-        search.placeholderString = String(localized: "Go to file, > for commands, @ for headings")
+        search.placeholderString = String(localized: "Go to file, > for commands, @ for headings, : for a line")
         search.delegate = self
         search.controlSize = .regular
         search.focusRingType = .none
@@ -1042,7 +1135,17 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
         case .heading(let heading, _):
             PaletteLog.ranCommand("heading")
             target?.revealHeading(line: heading.line)
+        case .line(let position):
+            PaletteLog.ranCommand("line")
+            target?.revealPosition(line: position.line, column: position.column)
         }
+    }
+
+    private static func lineTitle(_ position: GoToPosition) -> String {
+        if position.column <= 1 {
+            return String(format: String(localized: "Line %lld"), Int64(position.line))
+        }
+        return String(format: String(localized: "Line %lld, Column %lld"), Int64(position.line), Int64(position.column))
     }
 
     private func close() {

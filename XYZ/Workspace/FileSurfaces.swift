@@ -14,14 +14,15 @@ import XYZCore
 struct FileSurface: View {
     var url: URL
     var viewer: FileViewerKind?
+    var onDetail: (String?) -> Void = { _ in }
 
     var body: some View {
         Group {
             switch viewer {
             case .image:
-                ImageSurface(url: url)
+                ImageSurface(url: url, onDetail: onDetail)
             case .pdf:
-                PDFSurface(url: url)
+                PDFSurface(url: url, onDetail: onDetail)
             case .audiovisual:
                 MediaSurface(url: url)
             case nil:
@@ -137,41 +138,64 @@ private struct ReadingAnchorHold: ViewModifier {
 
 private struct ImageSurface: NSViewRepresentable {
     var url: URL
+    var onDetail: (String?) -> Void
 
     func makeNSView(context: Context) -> FitImageView {
         let view = FitImageView()
-        view.image = NSImage(contentsOf: url)
+        view.onDetail = { [weak view] text in
+            let shown = view?.url
+            DispatchQueue.main.async {
+                guard view?.url == shown else { return }
+                onDetail(text)
+            }
+        }
+        view.show(url)
         return view
     }
 
     func updateNSView(_ view: FitImageView, context: Context) {
+        view.onDetail = { [weak view] text in
+            let shown = view?.url
+            DispatchQueue.main.async {
+                guard view?.url == shown else { return }
+                onDetail(text)
+            }
+        }
         if view.url != url {
-            view.url = url
-            view.image = NSImage(contentsOf: url)
+            view.show(url)
         }
     }
 }
 
 private final class FitImageView: NSView {
     var url: URL?
-    var image: NSImage? {
-        didSet { needsDisplay = true }
-    }
+    var onDetail: ((String?) -> Void)?
+    private var image: NSImage?
+    /// `fitting` scales the picture into the pane. Otherwise `magnification` is 1 at the image's own size.
+    private var fitting = true
+    private var magnification: CGFloat = 1
 
     override var isOpaque: Bool { true }
+
+    func show(_ url: URL) {
+        self.url = url
+        image = NSImage(contentsOf: url)
+        fitting = true
+        magnification = 1
+        needsDisplay = true
+        report()
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         NSColor.textBackgroundColor.setFill()
         dirtyRect.fill()
         guard let image, image.size.width > 0, image.size.height > 0 else { return }
-        let canvas = bounds.insetBy(dx: 24, dy: 24)
-        guard canvas.width > 1, canvas.height > 1 else { return }
-        let scale = min(canvas.width / image.size.width, canvas.height / image.size.height)
+        let scale = fitting ? fitScale(for: image) : magnification
         let width = image.size.width * scale
         let height = image.size.height * scale
         let rect = NSRect(
-            x: canvas.midX - width / 2,
-            y: canvas.midY - height / 2,
+            x: bounds.midX - width / 2,
+            y: bounds.midY - height / 2,
             width: width,
             height: height
         )
@@ -179,10 +203,63 @@ private final class FitImageView: NSView {
             .interpolation: NSImageInterpolation.high,
         ])
     }
+
+    override func mouseDown(with event: NSEvent) {
+        guard event.clickCount == 2 else {
+            super.mouseDown(with: event)
+            return
+        }
+        fitting.toggle()
+        if !fitting {
+            magnification = 1
+        }
+        needsDisplay = true
+        report()
+    }
+
+    override func magnify(with event: NSEvent) {
+        guard let image else { return }
+        if fitting {
+            fitting = false
+            magnification = fitScale(for: image)
+        }
+        let next = magnification * (1 + event.magnification)
+        magnification = min(16, max(0.05, next))
+        needsDisplay = true
+        report()
+    }
+
+    private func fitScale(for image: NSImage) -> CGFloat {
+        let canvas = bounds.insetBy(dx: 24, dy: 24)
+        guard canvas.width > 1, canvas.height > 1, image.size.width > 0, image.size.height > 0 else { return 1 }
+        return min(canvas.width / image.size.width, canvas.height / image.size.height)
+    }
+
+    private func report() {
+        guard let image else {
+            onDetail?(nil)
+            return
+        }
+        let pixels = pixelSize(of: image)
+        let mode = fitting ? String(localized: "Fit") : "\(Int((magnification * 100).rounded()))%"
+        onDetail?("\(pixels.0) × \(pixels.1) · \(mode)")
+    }
+
+    private func pixelSize(of image: NSImage) -> (Int, Int) {
+        if let rep = image.representations.first(where: { $0.pixelsWide > 0 && $0.pixelsHigh > 0 }) {
+            return (rep.pixelsWide, rep.pixelsHigh)
+        }
+        return (max(1, Int(image.size.width.rounded())), max(1, Int(image.size.height.rounded())))
+    }
 }
 
 private struct PDFSurface: NSViewRepresentable {
     var url: URL
+    var onDetail: (String?) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
 
     func makeNSView(context: Context) -> PDFView {
         let view = PDFView()
@@ -190,16 +267,67 @@ private struct PDFSurface: NSViewRepresentable {
         view.displayMode = .singlePageContinuous
         view.displaysPageBreaks = false
         view.backgroundColor = .textBackgroundColor
+        context.coordinator.onDetail = onDetail
+        context.coordinator.bind(view)
         view.document = PDFDocument(url: url)
         ScrollElasticityNone.silence(view)
+        context.coordinator.report()
         return view
     }
 
     func updateNSView(_ view: PDFView, context: Context) {
+        context.coordinator.onDetail = onDetail
+        context.coordinator.bind(view)
         if view.document?.documentURL != url {
             view.document = PDFDocument(url: url)
+            context.coordinator.report()
         }
         ScrollElasticityNone.silence(view)
+    }
+
+    final class Coordinator: NSObject {
+        var onDetail: (String?) -> Void = { _ in }
+        private weak var view: PDFView?
+
+        func bind(_ view: PDFView) {
+            guard self.view !== view else { return }
+            if let old = self.view {
+                NotificationCenter.default.removeObserver(self, name: .PDFViewPageChanged, object: old)
+            }
+            self.view = view
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(pageChanged(_:)),
+                name: .PDFViewPageChanged,
+                object: view
+            )
+        }
+
+        @objc func pageChanged(_ notification: Notification) {
+            report()
+        }
+
+        func report() {
+            guard let view, let document = view.document else { return }
+            let count = document.pageCount
+            let index: Int
+            if let page = view.currentPage {
+                index = document.index(for: page) + 1
+            } else {
+                index = count > 0 ? 1 : 0
+            }
+            let text = String(format: String(localized: "Page %lld of %lld"), Int64(max(index, 1)), Int64(max(count, 1)))
+            let send = onDetail
+            let shown = document.documentURL
+            DispatchQueue.main.async { [weak view] in
+                guard view?.document?.documentURL == shown else { return }
+                send(text)
+            }
+        }
+
+        deinit {
+            NotificationCenter.default.removeObserver(self)
+        }
     }
 }
 
@@ -246,7 +374,10 @@ private final class QuickLookHost: NSView {
     override init(frame frameRect: NSRect) {
         preview = QLPreviewView(frame: frameRect, style: .compact)
         super.init(frame: frameRect)
-        guard let preview else { return }
+        guard let preview else {
+            installUnavailable()
+            return
+        }
         preview.autostarts = true
         preview.translatesAutoresizingMaskIntoConstraints = false
         addSubview(preview)
@@ -255,6 +386,20 @@ private final class QuickLookHost: NSView {
             preview.trailingAnchor.constraint(equalTo: trailingAnchor),
             preview.topAnchor.constraint(equalTo: topAnchor),
             preview.bottomAnchor.constraint(equalTo: bottomAnchor),
+        ])
+    }
+
+    private func installUnavailable() {
+        let label = NSTextField(wrappingLabelWithString: String(localized: "XYZ can't preview this file."))
+        label.alignment = .center
+        label.textColor = .secondaryLabelColor
+        label.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(label)
+        NSLayoutConstraint.activate([
+            label.centerXAnchor.constraint(equalTo: centerXAnchor),
+            label.centerYAnchor.constraint(equalTo: centerYAnchor),
+            label.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 24),
+            label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -24),
         ])
     }
 

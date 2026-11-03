@@ -200,10 +200,10 @@ final class XYZMacTextView: NSTextView {
         return EditorScrollAnchor(fraction: fraction, probe: probe, line: line)
     }
 
-    /// Go to Heading: the caret at the start of the line, and the line at the top of the pane.
-    func jump(toLine line: Int) {
+    /// Go to Heading, or Go to Line. The caret sits on that line and column, and the line is at the top.
+    func jump(toLine line: Int, column: Int = 1) {
         let length = (string as NSString).length
-        let location = min(max(0, EditorScrollAnchor.utf16Location(ofLine: line, in: string)), length)
+        let location = min(max(0, GoToPosition.utf16Offset(in: string, line: line, column: column)), length)
         setSelectedRange(NSRange(location: location, length: 0))
         window?.makeFirstResponder(self)
         reveal(EditorScrollAnchor(fraction: 0, probe: "", line: line))
@@ -346,9 +346,6 @@ struct XYZMacEditor: NSViewRepresentable {
         textView.isIncrementalSearchingEnabled = true
         textView.drawsBackground = true
         textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = false
-        textView.autoresizingMask = [.width]
-        textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.lineFragmentPadding = 0
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(
@@ -388,10 +385,7 @@ struct XYZMacEditor: NSViewRepresentable {
         applyChrome(textView: textView, scrollView: scrollView, style: style)
         textView.string = text
         context.coordinator.restyle(edited: nil)
-        textView.textContainer?.containerSize = NSSize(
-            width: scrollView.contentSize.width,
-            height: CGFloat.greatestFiniteMagnitude
-        )
+        applyWrap(textView: textView, scrollView: scrollView, wraps: style.wraps)
         assert(textView.textLayoutManager != nil, "XYZEditor requires TextKit 2")
         return scrollView
     }
@@ -414,6 +408,9 @@ struct XYZMacEditor: NSViewRepresentable {
         }
         scrollLink.revealLine = { [weak textView] line in
             textView?.jump(toLine: line)
+        }
+        scrollLink.revealPosition = { [weak textView] line, column in
+            textView?.jump(toLine: line, column: column)
         }
         scrollLink.focusEditor = { [weak textView] in
             guard let textView, let window = textView.window else { return }
@@ -438,8 +435,8 @@ struct XYZMacEditor: NSViewRepresentable {
         if let anchor = scrollLink.take(for: .source) {
             textView.reveal(anchor)
         }
-        if let line = scrollLink.takeQueuedReveal() {
-            textView.jump(toLine: line)
+        if let queued = scrollLink.takeQueuedEditorReveal() {
+            textView.jump(toLine: queued.line, column: queued.column)
         }
     }
 
@@ -466,9 +463,30 @@ struct XYZMacEditor: NSViewRepresentable {
             .paragraphStyle: paragraph,
         ]
         textView.textContainerInset = NSSize(width: style.horizontalInset, height: style.verticalInset)
+        applyWrap(textView: textView, scrollView: scrollView, wraps: style.wraps)
         scrollView.backgroundColor = .textBackgroundColor
         scrollView.contentView.drawsBackground = true
         scrollView.contentView.backgroundColor = .textBackgroundColor
+    }
+
+    /// Wrap tracks the pane. With wrap off, the line keeps its length and the pane scrolls sideways.
+    private func applyWrap(textView: XYZMacTextView, scrollView: NSScrollView, wraps: Bool) {
+        textView.textContainer?.widthTracksTextView = wraps
+        textView.isHorizontallyResizable = !wraps
+        scrollView.hasHorizontalScroller = !wraps
+        scrollView.horizontalScrollElasticity = .none
+        if wraps {
+            textView.autoresizingMask = [.width]
+            let width = max(scrollView.contentSize.width, 1)
+            textView.setFrameSize(NSSize(width: width, height: max(textView.bounds.height, 1)))
+            textView.textContainer?.containerSize = NSSize(width: width, height: CGFloat.greatestFiniteMagnitude)
+        } else {
+            textView.autoresizingMask = [.width, .height]
+            textView.textContainer?.containerSize = NSSize(
+                width: CGFloat.greatestFiniteMagnitude,
+                height: CGFloat.greatestFiniteMagnitude
+            )
+        }
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate, XYZTextEditing {

@@ -93,6 +93,11 @@ enum WordCountSetting {
     static let key = "xyz.view.wordCount"
 }
 
+/// Whether the folder sidebar lists dotfiles. On unless turned off.
+enum HiddenFilesSetting {
+    static let key = "xyz.workspace.showsHidden"
+}
+
 #if os(macOS)
 /// View → Zoom In, Zoom Out, Actual Size. They change the text size shared by Source and Reading.
 enum TextZoom {

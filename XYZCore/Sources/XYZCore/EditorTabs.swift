@@ -112,3 +112,42 @@ public struct EditorTabStrip: Equatable, Sendable {
         }
     }
 }
+
+/// Paths of tabs closed in one window, most recent first.
+public struct ClosedTabHistory: Equatable, Sendable {
+    public static let limit = 25
+    public private(set) var paths: [String]
+
+    public init(paths: [String] = []) {
+        self.paths = paths
+    }
+
+    public mutating func push(_ path: String) {
+        guard !path.isEmpty else { return }
+        paths.removeAll { $0 == path }
+        paths.insert(path, at: 0)
+        if paths.count > Self.limit {
+            paths.removeLast(paths.count - Self.limit)
+        }
+    }
+
+    public mutating func pop() -> String? {
+        guard !paths.isEmpty else { return nil }
+        return paths.removeFirst()
+    }
+
+    /// A rename of an open item also rewrites paths waiting to be reopened.
+    public mutating func retarget(from old: String, to new: String) {
+        guard !old.isEmpty, old != new else { return }
+        var seen = Set<String>()
+        var next: [String] = []
+        next.reserveCapacity(paths.count)
+        for path in paths {
+            let mapped = WorkspacePaths.replacing(path, from: old, to: new)
+            if seen.insert(mapped).inserted {
+                next.append(mapped)
+            }
+        }
+        paths = next
+    }
+}

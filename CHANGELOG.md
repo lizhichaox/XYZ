@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.2
+
+- ⇧⌘T reopens the last closed tab. ⌃G asks for a line, and optionally a column (`12:4`). View → Reveal Active File selects that file in the sidebar.
+- ⌃⌘S toggles the sidebar. ⌘B stays Bold. View → Wrap Lines, and the same switch in Settings, scrolls long lines sideways instead of breaking them.
+- Settings remembers Show hidden files.
+- A picture shows its pixel size. Double-click switches between fit and actual size, and a pinch zooms. A PDF shows the page in the status bar.
+- When a file with unsaved edits changes on disk, XYZ asks whether to reload or keep yours. A clean file still reloads quietly. Esc leaves the choice on the banner.
+
 ## 0.1.1
 
 - The tab bar keeps the dirty dot in a fixed slot, marks the active tab more clearly, and scrolls the active tab into view when the row overflows.

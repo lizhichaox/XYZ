@@ -24,6 +24,7 @@ struct WorkspaceView: View {
     @ObservedObject var session: WorkspaceSession
     @StateObject private var commands = WorkspaceCommandBridge()
     @State private var columnVisibility = NavigationSplitViewVisibility.all
+    @AppStorage(HiddenFilesSetting.key) private var storedHiddenFiles = true
 
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
@@ -48,6 +49,11 @@ struct WorkspaceView: View {
             }
         )
         .workspaceFolderDrop()
+        .onChange(of: storedHiddenFiles) { _, value in
+            if session.showsHiddenFiles != value {
+                session.showsHiddenFiles = value
+            }
+        }
         .focusedSceneValue(
             \.workspaceActions,
             WorkspaceActions(
@@ -187,6 +193,7 @@ private struct WorkspaceDetail: View {
     @StateObject private var wordCount = WordCountModel()
     @StateObject private var outline = OutlineModel()
     @State private var caret = EditorCaret()
+    @State private var surfaceDetail: String?
     @AppStorage(OutlineSetting.key) private var showsOutline = false
 
     var body: some View {
@@ -226,6 +233,7 @@ private struct WorkspaceDetail: View {
                     typeName: format.label,
                     words: format.isProse ? wordCount.stats : nil,
                     showsReadingTime: showsWordCount && format.isProse,
+                    detail: showsText ? nil : surfaceDetail,
                     onEncoding: showsText ? { session.chooseEncoding($0) } : nil,
                     onLineEnding: showsText ? { session.chooseLineEnding($0) } : nil
                 )
@@ -239,6 +247,7 @@ private struct WorkspaceDetail: View {
         .onChange(of: session.buffer?.editorToken) { _, _ in
             session.previewBridge.send(session.buffer?.text ?? "")
             caret = EditorCaret()
+            surfaceDetail = nil
             countWords(immediate: true)
             refreshOutline(immediate: true)
         }
@@ -266,7 +275,7 @@ private struct WorkspaceDetail: View {
             placeholder(for: buffer)
                 .background(Color.editorBackground)
         } else if let buffer = session.buffer {
-            FileSurface(url: buffer.url, viewer: format.viewer)
+            FileSurface(url: buffer.url, viewer: format.viewer, onDetail: { surfaceDetail = $0 })
                 .id(buffer.editorToken)
                 .background(Color.editorBackground)
         }
@@ -484,6 +493,18 @@ final class WorkspaceCommandBridge: ObservableObject, EditorCommandTarget {
 
     func revealHeading(line: Int) {
         session?.scrollLink.revealLine(line)
+    }
+
+    func reopenClosedTab() -> Bool {
+        session?.reopenClosedTab() ?? false
+    }
+
+    func revealActiveFile() {
+        session?.revealActiveFile()
+    }
+
+    func revealPosition(line: Int, column: Int) {
+        session?.revealPosition(line: line, column: column)
     }
 }
 

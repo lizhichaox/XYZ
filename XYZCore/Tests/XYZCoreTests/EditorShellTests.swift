@@ -147,6 +147,26 @@ final class EditorTabTests: XCTestCase {
         XCTAssertEqual(strip.tabs.map(\.id), ["archive/a.md", "archive/b.md"])
         XCTAssertEqual(strip.activeID, "archive/b.md")
     }
+
+    func testClosedTabHistoryIsNewestFirstAndDropsDuplicates() {
+        var history = ClosedTabHistory()
+        history.push("")
+        history.push("a.md")
+        history.push("b.md")
+        history.push("a.md")
+        XCTAssertEqual(history.paths, ["a.md", "b.md"])
+        XCTAssertEqual(history.pop(), "a.md")
+        XCTAssertEqual(history.pop(), "b.md")
+        XCTAssertNil(history.pop())
+        for index in 0..<30 {
+            history.push("file-\(index).txt")
+        }
+        XCTAssertEqual(history.paths.count, ClosedTabHistory.limit)
+        XCTAssertEqual(history.paths.first, "file-29.txt")
+        XCTAssertEqual(history.paths.last, "file-5.txt")
+        history.retarget(from: "file-29.txt", to: "renamed.txt")
+        XCTAssertEqual(history.paths.first, "renamed.txt")
+    }
 }
 
 final class EditorCaretTests: XCTestCase {
@@ -168,6 +188,29 @@ final class EditorCaretTests: XCTestCase {
         let caret = EditorCaret.measure(text: "one\ntwo\nthree", utf16Location: 0, utf16Length: 9)
         XCTAssertEqual(caret.selectedLines, 3)
         XCTAssertEqual(caret.line, 1)
+    }
+
+    func testGoToPositionParsesLineAndColumn() {
+        XCTAssertEqual(GoToPosition.parse("12"), GoToPosition(line: 12))
+        XCTAssertEqual(GoToPosition.parse("12:4"), GoToPosition(line: 12, column: 4))
+        XCTAssertEqual(GoToPosition.parse("12,4"), GoToPosition(line: 12, column: 4))
+        XCTAssertEqual(GoToPosition.parse("12：4"), GoToPosition(line: 12, column: 4))
+        XCTAssertEqual(GoToPosition.parse(" 12 : 4 "), GoToPosition(line: 12, column: 4))
+        XCTAssertNil(GoToPosition.parse(""))
+        XCTAssertNil(GoToPosition.parse("a"))
+        XCTAssertNil(GoToPosition.parse("0"))
+        XCTAssertNil(GoToPosition.parse("1:0"))
+        XCTAssertNil(GoToPosition.parse("1:2:3"))
+    }
+
+    func testGoToOffsetCountsCharacters() {
+        let text = "ab\n你c"
+        XCTAssertEqual(GoToPosition.utf16Offset(in: text, line: 2, column: 1), 3)
+        XCTAssertEqual(GoToPosition.utf16Offset(in: text, line: 2, column: 2), 4)
+        XCTAssertEqual(GoToPosition.utf16Offset(in: text, line: 9, column: 1), 3)
+        let emoji = "a😀"
+        XCTAssertEqual(GoToPosition.utf16Offset(in: emoji, line: 1, column: 2), 1)
+        XCTAssertEqual(GoToPosition.utf16Offset(in: emoji, line: 1, column: 3), 3)
     }
 }
 

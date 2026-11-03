@@ -107,7 +107,7 @@ public struct PaletteCommand: Equatable, Sendable, Identifiable {
             keywords: ["outline", "toc", "heading", "jump"]
         ),
         PaletteCommand(id: "view.outline", title: "Show Outline", keywords: ["outline", "symbols", "toc"]),
-        PaletteCommand(id: "workspace.toggleSidebar", title: "Toggle Sidebar", keywords: ["sidebar"]),
+        PaletteCommand(id: "workspace.toggleSidebar", title: "Toggle Sidebar", shortcut: "⌃⌘S", keywords: ["sidebar"]),
         PaletteCommand(
             id: "workspace.focusFilter",
             title: "Filter Files",
@@ -123,6 +123,10 @@ public struct PaletteCommand: Equatable, Sendable, Identifiable {
             keywords: ["open", "workspace"]
         ),
         PaletteCommand(id: "file.reveal", title: "Reveal in Finder", keywords: ["finder", "show"]),
+        PaletteCommand(id: "file.revealInSidebar", title: "Reveal Active File", keywords: ["sidebar", "reveal", "active"]),
+        PaletteCommand(id: "view.goToLine", title: "Go to Line", shortcut: "⌃G", keywords: ["line", "column", "jump"]),
+        PaletteCommand(id: "tab.reopen", title: "Reopen Closed Tab", shortcut: "⇧⌘T", keywords: ["reopen", "undo", "close"]),
+        PaletteCommand(id: "view.wordWrap", title: "Wrap Lines", keywords: ["wrap", "word"]),
         PaletteCommand(id: "file.copyPath", title: "Copy Path", keywords: ["path", "clipboard"]),
         PaletteCommand(id: "file.copyRelativePath", title: "Copy Relative Path", keywords: ["path", "relative", "clipboard"]),
         PaletteCommand(id: "tab.close", title: "Close Tab", shortcut: "⌘W", keywords: ["close", "tab"]),
@@ -152,6 +156,7 @@ public enum PaletteRow: Equatable, Sendable, Identifiable {
     case file(PaletteFile, FuzzyMatch)
     case command(PaletteCommand, FuzzyMatch)
     case heading(OutlineHeading, FuzzyMatch)
+    case line(GoToPosition)
 
     public var id: String {
         switch self {
@@ -161,6 +166,8 @@ public enum PaletteRow: Equatable, Sendable, Identifiable {
             return "command:" + command.id
         case .heading(let heading, _):
             return "heading:\(heading.line)"
+        case .line(let position):
+            return "line:\(position.line):\(position.column)"
         }
     }
 
@@ -168,6 +175,8 @@ public enum PaletteRow: Equatable, Sendable, Identifiable {
         switch self {
         case .file(_, let match), .command(_, let match), .heading(_, let match):
             return match
+        case .line:
+            return FuzzyMatch(score: 0, characterIndices: [])
         }
     }
 }
@@ -192,6 +201,9 @@ public enum CommandPalette {
             return commandRows(query: parsed.text, commands: registry.commands, limit: cap)
         case .headings:
             return headingRows(query: parsed.text, headings: headings, limit: max(cap, headings.count))
+        case .line:
+            guard let position = GoToPosition.parse(parsed.text) else { return [] }
+            return [.line(position)]
         }
     }
 
@@ -203,6 +215,10 @@ public enum CommandPalette {
         if rawQuery.first == "@" {
             let text = String(rawQuery.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
             return (.headings, text)
+        }
+        if rawQuery.first == ":" || rawQuery.first == "：" {
+            let text = String(rawQuery.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
+            return (.line, text)
         }
         return (.files, rawQuery.trimmingCharacters(in: .whitespacesAndNewlines))
     }
@@ -289,4 +305,5 @@ public enum PaletteMode: Equatable, Sendable {
     case files
     case commands
     case headings
+    case line
 }

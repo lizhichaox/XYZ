@@ -156,6 +156,8 @@ struct EditorStatusBar: View {
     var typeName: String
     var words: TextStatistics?
     var showsReadingTime: Bool
+    /// Pixel size, zoom, or PDF page. Empty for text.
+    var detail: String? = nil
     var onEncoding: ((TextEncoding) -> Void)?
     var onLineEnding: ((LineEnding) -> Void)?
 
@@ -179,6 +181,10 @@ struct EditorStatusBar: View {
             }
             if let lineEndingValue {
                 endingMenu(lineEndingValue)
+                separator
+            }
+            if let detail, !detail.isEmpty {
+                statusText(detail)
                 separator
             }
             statusText(String(localized: String.LocalizationValue(typeName)))

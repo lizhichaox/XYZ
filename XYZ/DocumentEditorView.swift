@@ -264,5 +264,14 @@ final class DocumentCommandBridge: ObservableObject, EditorCommandTarget {
     func revealHeading(line: Int) {
         scrollLink.revealLine(line)
     }
+
+    func revealPosition(line: Int, column: Int) {
+        if mode != .source {
+            editorSelect(.source, source: "goto")
+            scrollLink.storeQueuedReveal(line, column: column, editorOnly: true)
+        } else {
+            scrollLink.revealPosition(line, column)
+        }
+    }
 }
 #endif

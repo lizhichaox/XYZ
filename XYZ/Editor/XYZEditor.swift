@@ -35,6 +35,8 @@ struct XYZEditorStyle: Equatable {
     var verticalInset: CGFloat = 32
     var monospaced: Bool = false
     var readableWidth: Bool = false
+    /// Long lines break to the editor width. Off scrolls sideways.
+    var wraps: Bool = true
 
     /// Side padding is 5% of the pane, clamped to 24...64 points. The text uses the remaining width.
     static func sideInset(for paneWidth: CGFloat) -> CGFloat {
@@ -56,6 +58,8 @@ struct XYZEditorStyle: Equatable {
     static let readableWidthKey = "xyz.text.readableWidth"
     /// Line numbers beside Source. On unless turned off.
     static let lineNumbersKey = "xyz.editor.lineNumbers"
+    /// Break long lines to the editor width. On unless turned off.
+    static let wordWrapKey = "xyz.editor.wordWrap"
     static let defaultFontSize: Double = 16
     static let fontSizes: ClosedRange<Double> = 12...24
     static let markdown = XYZEditorStyle()
@@ -70,7 +74,7 @@ struct XYZEditorStyle: Equatable {
         paragraph.minimumLineHeight = target
         paragraph.lineSpacing = 0
         paragraph.paragraphSpacing = 0
-        paragraph.lineBreakMode = .byWordWrapping
+        paragraph.lineBreakMode = wraps ? .byWordWrapping : .byClipping
         paragraph.hyphenationFactor = 0
         return paragraph
     }
@@ -102,19 +106,34 @@ final class EditorScrollLink {
     var capture: () -> EditorScrollAnchor = { EditorScrollAnchor(fraction: 0, probe: "") }
     /// Go to Heading. The surface on screen (the editor or Reading) sets this when it updates.
     var revealLine: (Int) -> Void = { _ in }
+    /// Go to Line. The source editor sets this. Reading does not.
+    var revealPosition: (Int, Int) -> Void = { _, _ in }
     private var pending: (anchor: EditorScrollAnchor, destination: EditorViewMode)?
 
-    private var queuedReveal: Int?
+    private struct QueuedCaret {
+        var line: Int
+        var column: Int
+        var editorOnly: Bool
+    }
+
+    private var queuedReveal: QueuedCaret?
 
     /// Remember a source line to show once the editor for that file is on screen.
-    func storeQueuedReveal(_ line: Int) {
-        queuedReveal = line
+    /// `editorOnly` keeps Reading from consuming a Go to Line request.
+    func storeQueuedReveal(_ line: Int, column: Int = 1, editorOnly: Bool = false) {
+        queuedReveal = QueuedCaret(line: line, column: max(1, column), editorOnly: editorOnly)
     }
 
     func takeQueuedReveal() -> Int? {
-        let line = queuedReveal
+        guard let queued = queuedReveal, !queued.editorOnly else { return nil }
         queuedReveal = nil
-        return line
+        return queued.line
+    }
+
+    func takeQueuedEditorReveal() -> (line: Int, column: Int)? {
+        guard let queued = queuedReveal else { return nil }
+        queuedReveal = nil
+        return (queued.line, queued.column)
     }
 
     func clearQueuedReveal() {
@@ -162,6 +181,9 @@ struct XYZEditor: View {
     @AppStorage(XYZEditorStyle.fontSizeKey) private var fontSize = XYZEditorStyle.defaultFontSize
     @AppStorage(XYZEditorStyle.readableWidthKey) private var readableWidth = false
     @AppStorage(XYZEditorStyle.lineNumbersKey) private var lineNumbers = true
+    #if os(macOS)
+    @AppStorage(XYZEditorStyle.wordWrapKey) private var wordWrap = true
+    #endif
 
     var body: some View {
         #if os(macOS)
@@ -173,7 +195,8 @@ struct XYZEditor: View {
             style: XYZEditorStyle(
                 fontSize: CGFloat(XYZEditorStyle.clampedFontSize(fontSize)),
                 monospaced: monospaced || forcesMonospace,
-                readableWidth: readableWidth
+                readableWidth: readableWidth,
+                wraps: wordWrap
             ),
             scrollLink: scrollLink,
             markup: markup,

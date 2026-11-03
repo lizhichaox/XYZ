@@ -12,7 +12,12 @@ final class WorkspaceSession: ObservableObject {
     let bookmark: Data?
     let displayName: String
 
-    @Published var showsHiddenFiles = true
+    @Published var showsHiddenFiles = true {
+        didSet {
+            guard showsHiddenFiles != oldValue else { return }
+            UserDefaults.standard.set(showsHiddenFiles, forKey: HiddenFilesSetting.key)
+        }
+    }
     @Published private(set) var children: [String: [WorkspaceNode]] = [:]
     @Published private(set) var expanded: Set<String> = []
     @Published private(set) var loadErrors: [String: String] = [:]
@@ -39,6 +44,7 @@ final class WorkspaceSession: ObservableObject {
     let previewHost = PreviewWebHost()
     let scrollLink = EditorScrollLink()
     private(set) var recentPaths: [String] = []
+    private var closedTabs = ClosedTabHistory()
 
     private let monitor = DirectoryMonitor()
     private var accessStarted = false
@@ -58,6 +64,9 @@ final class WorkspaceSession: ObservableObject {
         let saved = UserDefaults.standard.string(forKey: Self.viewModeKey(for: rootURL))
         self.viewMode = EditorViewMode.restored(saved)
         self.recentPaths = UserDefaults.standard.stringArray(forKey: Self.recentsKey(for: rootURL)) ?? []
+        if UserDefaults.standard.object(forKey: HiddenFilesSetting.key) != nil {
+            self.showsHiddenFiles = UserDefaults.standard.bool(forKey: HiddenFilesSetting.key)
+        }
     }
 
     func activate() {
@@ -389,7 +398,48 @@ final class WorkspaceSession: ObservableObject {
             selectedPath = nil
             previewBridge.send("")
         }
+        if !force {
+            closedTabs.push(id)
+        }
         return true
+    }
+
+    /// Opens the most recently closed tab that is still a file. ⇧⌘T.
+    @discardableResult
+    func reopenClosedTab() -> Bool {
+        while let path = closedTabs.pop() {
+            let url = url(for: path)
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), !isDirectory.boolValue else {
+                continue
+            }
+            openRelative(path, pin: true)
+            return true
+        }
+        return false
+    }
+
+    /// Expands the folders above the active file and selects it in the sidebar.
+    func revealActiveFile() {
+        guard let path = buffer?.relativePath, !path.isEmpty else { return }
+        if !nameQuery.isEmpty {
+            nameQuery = ""
+        }
+        revealAncestors(of: path)
+        selectedPath = path
+    }
+
+    /// Moves the caret in Source. Reading switches to Source first so the line stays put.
+    func revealPosition(line: Int, column: Int) {
+        guard let buffer, buffer.kind == .markdown || buffer.kind == .plainText else { return }
+        let reading = FileFormats.format(for: buffer.relativePath).reading != .none
+        if viewMode == .reading, reading {
+            selectViewMode(.source, source: "goto")
+            scrollLink.storeQueuedReveal(line, column: column, editorOnly: true)
+        } else {
+            scrollLink.revealPosition(line, column)
+        }
+        focusOpenEditor()
     }
 
     @discardableResult
@@ -490,7 +540,31 @@ final class WorkspaceSession: ObservableObject {
             guard strip.setDirty(id: buffer.relativePath, buffer.isDirty) else { return }
             self.tabStrip = strip
         }
+        open.onConflict = { [weak self] buffer in
+            self?.offerExternalChange(buffer)
+        }
         return open
+    }
+
+    /// A dirty file changed on disk. Reload takes the disk copy. Keep Mine writes the editor over it.
+    /// Esc leaves the choice on the banner, and does not write.
+    private func offerExternalChange(_ buffer: WorkspaceFileBuffer) {
+        guard buffer === self.buffer, buffer.conflictText != nil else { return }
+        buffer.markConflictOffered()
+        let alert = NSAlert()
+        alert.messageText = String(localized: "This file changed on disk.")
+        alert.informativeText = String(localized: "The copy on disk differs from your edits. Reload replaces your edits. Keep Mine writes your edits over the file.")
+        alert.addButton(withTitle: String(localized: "Reload"))
+        alert.addButton(withTitle: String(localized: "Keep Mine"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
+        switch alert.runModalClosingOnEscape() {
+        case .alertFirstButtonReturn:
+            buffer.reloadFromDisk()
+        case .alertSecondButtonReturn:
+            buffer.overwrite()
+        default:
+            break
+        }
     }
 
     private func watchFile(_ open: WorkspaceFileBuffer) {
@@ -529,6 +603,7 @@ final class WorkspaceSession: ObservableObject {
             self.selectedPath = WorkspacePaths.replacing(selectedPath, from: old, to: new)
         }
         recentPaths = recentPaths.map { WorkspacePaths.replacing($0, from: old, to: new) }
+        closedTabs.retarget(from: old, to: new)
         UserDefaults.standard.set(recentPaths, forKey: Self.recentsKey(for: rootURL))
     }
 
@@ -835,6 +910,8 @@ final class WorkspaceFileBuffer: ObservableObject {
     private(set) var lineEnding: LineEnding
     private(set) var mixedLineEndings: Bool
     var onEditorState: ((WorkspaceFileBuffer) -> Void)?
+    var onConflict: ((WorkspaceFileBuffer) -> Void)?
+    private var offeredConflict: String?
     private var lastSaved: String
     private var savedEncoding: TextEncoding
     private var savedLineEnding: LineEnding
@@ -965,7 +1042,7 @@ final class WorkspaceFileBuffer: ObservableObject {
                 case .reload:
                     self.apply(text: decoded.text)
                 case .conflict:
-                    self.conflictText = decoded.text
+                    self.publishConflict(decoded.text)
                 }
                 self.onEditorState?(self)
             }
@@ -976,14 +1053,31 @@ final class WorkspaceFileBuffer: ObservableObject {
         isMissing = true
         if text != lastSaved {
             conflictText = nil
+            offeredConflict = nil
             status = String(localized: "This file was removed. Overwrite to save your edits back.")
         }
+    }
+
+    func markConflictOffered() {
+        offeredConflict = conflictText
+    }
+
+    /// Records a disk copy that disagrees with unsaved edits. The same text is not offered twice.
+    private func publishConflict(_ text: String?) {
+        if text == nil {
+            offeredConflict = nil
+        }
+        let changed = conflictText != text
+        conflictText = text
+        guard changed, let text, text != offeredConflict else { return }
+        onConflict?(self)
     }
 
     private func apply(text: String) {
         self.text = text
         lastSaved = text
         conflictText = nil
+        offeredConflict = nil
         isMissing = false
         status = nil
         reloadToken += 1
@@ -1023,6 +1117,7 @@ final class WorkspaceFileBuffer: ObservableObject {
                 savedEncoding = encoding
                 savedLineEnding = lineEnding
                 conflictText = nil
+                offeredConflict = nil
                 isMissing = false
                 status = nil
                 onEditorState?(self)
@@ -1032,7 +1127,7 @@ final class WorkspaceFileBuffer: ObservableObject {
                     onEditorState?(self)
                 }
             case .conflict:
-                conflictText = disk
+                publishConflict(disk)
                 status = disk == nil ? String(localized: "This file was removed.") : String(localized: "This file changed on disk.")
             }
         } catch TextBytes.EncodingError.unrepresentable {
