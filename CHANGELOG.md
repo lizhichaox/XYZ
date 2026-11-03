@@ -7,7 +7,7 @@
 - Edit → Use Selection for Find (⌘E) is back.
 - An empty folder window centers “No File Open”. The tab bar stays out of the way until a file is open.
 - Launch reopens the last folder. It does not present an Open panel, and it does not leave an untitled window behind.
-- The sidebar filter has space after the magnifier. The file tree fits the sidebar, and the selection follows the open file.
+- The sidebar has no filter field. ⌘K is the folder search: file names and paths, including hidden files when they are shown, and text in the files. The sidebar is Explorer, the folder, then Outline.
 - ⌘K lists more than a handful of matches in one file, and a “more” row when the rest are cut off. The query includes the last character typed.
 - Syntax coloring adds muted colors for strings, numbers, types, and, in config files, section headers and keys.
 

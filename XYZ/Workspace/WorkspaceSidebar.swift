@@ -44,14 +44,6 @@ struct WorkspaceSidebar: NSViewRepresentable {
         outline.menu = menu
         outline.dataSource = context.coordinator
         outline.delegate = context.coordinator
-        column.search.delegate = context.coordinator
-        column.replaceField.delegate = context.coordinator
-        column.includeField.delegate = context.coordinator
-        column.excludeField.delegate = context.coordinator
-        column.replaceAll.target = context.coordinator
-        column.matchCase.target = context.coordinator
-        column.wholeWord.target = context.coordinator
-        column.regex.target = context.coordinator
         context.coordinator.undoManager = undoManager
         context.coordinator.attach(outline: outline, column: column, session: session)
         context.coordinator.reloadIfNeeded(force: true)
@@ -110,9 +102,8 @@ struct WorkspaceSidebar: NSViewRepresentable {
     }
 
     @MainActor
-    final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDelegate, NSSearchFieldDelegate {
+    final class Coordinator: NSObject, NSOutlineViewDataSource, NSOutlineViewDelegate, NSMenuDelegate, NSTextFieldDelegate {
         private weak var outline: SidebarOutlineView?
-        private weak var search: SidebarSearchField?
         private weak var column: SidebarColumnView?
         weak var undoManager: UndoManager?
         var session: WorkspaceSession?
@@ -127,19 +118,12 @@ struct WorkspaceSidebar: NSViewRepresentable {
         fileprivate func attach(outline: SidebarOutlineView, column: SidebarColumnView, session: WorkspaceSession) {
             self.outline = outline
             self.column = column
-            self.search = column.search
             self.session = session
-            column.search.onEscape = { [weak self] in
-                self?.escapeSearch()
-            }
             column.header.onToggle = { [weak self] in
                 self?.toggleRoot()
             }
             column.header.onMenu = { [weak self] event in
                 self?.popRootMenu(event)
-            }
-            session.focusSearchHandler = { [weak self] in
-                self?.focusSearch()
             }
             outline.target = self
             outline.doubleAction = #selector(pinClickedRow(_:))
@@ -147,9 +131,6 @@ struct WorkspaceSidebar: NSViewRepresentable {
 
         func reloadIfNeeded(force: Bool) {
             guard let session else { return }
-            session.focusSearchHandler = { [weak self] in
-                self?.focusSearch()
-            }
             column?.header.onToggle = { [weak self] in
                 self?.toggleRoot()
             }
@@ -171,11 +152,6 @@ struct WorkspaceSidebar: NSViewRepresentable {
             syncSelection(session)
         }
 
-        func focusSearch() {
-            guard let search else { return }
-            search.window?.makeFirstResponder(search)
-        }
-
         private func toggleRoot() {
             session?.rootExpanded.toggle()
         }
@@ -191,32 +167,13 @@ struct WorkspaceSidebar: NSViewRepresentable {
         }
 
         private func syncChrome(_ session: WorkspaceSession) {
-            if let search, search.stringValue != session.nameQuery, search.currentEditor() == nil {
-                search.stringValue = session.nameQuery
-            }
             guard let column else { return }
-            assign(column.replaceField, session.folderReplacement)
-            assign(column.includeField, session.includeGlob)
-            assign(column.excludeField, session.excludeGlob)
-            column.matchCase.state = session.contentMatchCase ? .on : .off
-            column.wholeWord.state = session.contentWholeWord ? .on : .off
-            column.regex.state = session.contentRegex ? .on : .off
             let home = FileManager.default.homeDirectoryForCurrentUser.path
             column.header.show(
                 name: session.displayName,
                 expanded: session.rootExpanded,
                 path: WorkspacePaths.abbreviatedHomePath(session.rootURL.path, home: home)
             )
-            let filtering = !session.nameQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            let editing = session.buffer.map {
-                EditorModeChoice.isEditing(session.viewMode, access: WorkspaceSession.access(of: $0))
-            } ?? false
-            column.setReplaceVisible(filtering && editing)
-        }
-
-        private func assign(_ field: NSTextField, _ value: String) {
-            guard field.stringValue != value, field.currentEditor() == nil else { return }
-            field.stringValue = value
         }
 
         nonisolated func expanded(_ item: Any, _ isExpanded: Bool) {
@@ -384,36 +341,6 @@ struct WorkspaceSidebar: NSViewRepresentable {
             }
         }
 
-        func controlTextDidChange(_ notification: Notification) {
-            guard let field = notification.object as? NSTextField, let session else { return }
-            if field === search {
-                session.nameQuery = field.stringValue
-            } else if field === column?.replaceField {
-                session.folderReplacement = field.stringValue
-            } else if field === column?.includeField {
-                session.includeGlob = field.stringValue
-            } else if field === column?.excludeField {
-                session.excludeGlob = field.stringValue
-            }
-        }
-
-        @objc func toggleMatchCase(_ sender: NSButton) {
-            session?.contentMatchCase = sender.state == .on
-        }
-
-        @objc func toggleWholeWord(_ sender: NSButton) {
-            session?.contentWholeWord = sender.state == .on
-        }
-
-        @objc func toggleRegex(_ sender: NSButton) {
-            session?.contentRegex = sender.state == .on
-        }
-
-        @objc func replaceAllInFolder(_ sender: Any?) {
-            let manager = undoManager ?? outline?.window?.undoManager
-            session?.replaceAllInFolder(undoManager: manager)
-        }
-
         @objc private func revealRoot(_ sender: Any?) {
             guard let session else { return }
             NSWorkspace.shared.activateFileViewerSelecting([session.rootURL])
@@ -432,10 +359,7 @@ struct WorkspaceSidebar: NSViewRepresentable {
         }
 
         func controlTextDidEndEditing(_ notification: Notification) {
-            guard let field = notification.object as? NSTextField, let search, field !== search else { return }
-            if field === column?.replaceField || field === column?.includeField || field === column?.excludeField {
-                return
-            }
+            guard let field = notification.object as? NSTextField else { return }
             guard let session, let path = renamingPath else { return }
             renamingPath = nil
             field.isEditable = false
@@ -512,16 +436,6 @@ struct WorkspaceSidebar: NSViewRepresentable {
         @objc private func newFolder(_ sender: NSMenuItem) {
             guard let session, let parent = sender.representedObject as? String else { return }
             session.createItem(directory: true, in: parent)
-        }
-
-        private func escapeSearch() {
-            guard let session else { return }
-            if session.nameQuery.isEmpty {
-                outline?.window?.makeFirstResponder(outline)
-            } else {
-                session.clearQuery()
-                search?.stringValue = ""
-            }
         }
 
         private func beginRename(_ path: String) {
@@ -736,55 +650,12 @@ struct WorkspaceSidebar: NSViewRepresentable {
 }
 
 fileprivate final class SidebarColumnView: NSView {
-    let search: SidebarSearchField
-    let replaceField = NSTextField()
-    let includeField = NSTextField()
-    let excludeField = NSTextField()
-    let replaceAll = NSButton()
-    let matchCase = NSButton()
-    let wholeWord = NSButton()
-    let regex = NSButton()
     let header = SidebarRootHeader()
     let scroll = NSScrollView()
     let outline = SidebarOutlineView()
-    private var collapsedReplace: NSLayoutConstraint?
-    private var expandedReplace: NSLayoutConstraint?
-    private weak var optionRow: NSView?
 
     override init(frame frameRect: NSRect) {
-        let search = SidebarSearchField()
-        self.search = search
         super.init(frame: frameRect)
-        search.translatesAutoresizingMaskIntoConstraints = false
-        search.placeholderString = String(localized: "Filter")
-        search.sendsSearchStringImmediately = true
-        search.controlSize = .small
-        search.cell = PaddedSearchFieldCell(textCell: "")
-        search.placeholderString = String(localized: "Filter")
-        search.sendsSearchStringImmediately = true
-        search.focusRingType = .none
-        search.setAccessibilityLabel(String(localized: "Filter files"))
-        search.setContentHuggingPriority(.required, for: .vertical)
-        search.setContentCompressionResistancePriority(.required, for: .vertical)
-
-        configure(replaceField, placeholder: String(localized: "Replace"))
-        configure(includeField, placeholder: String(localized: "Include"))
-        configure(excludeField, placeholder: String(localized: "Exclude"))
-        includeField.toolTip = String(localized: "Include files")
-        excludeField.toolTip = String(localized: "Exclude files")
-
-        replaceAll.translatesAutoresizingMaskIntoConstraints = false
-        replaceAll.title = String(localized: "Replace All")
-        replaceAll.bezelStyle = .rounded
-        replaceAll.controlSize = .small
-        replaceAll.font = .systemFont(ofSize: 11)
-        replaceAll.action = #selector(WorkspaceSidebar.Coordinator.replaceAllInFolder(_:))
-        replaceAll.setContentHuggingPriority(.required, for: .horizontal)
-
-        configureToggle(matchCase, title: "Aa", action: #selector(WorkspaceSidebar.Coordinator.toggleMatchCase(_:)), help: String(localized: "Match Case"))
-        configureToggle(wholeWord, title: "W", action: #selector(WorkspaceSidebar.Coordinator.toggleWholeWord(_:)), help: String(localized: "Whole Word"))
-        configureToggle(regex, title: ".*", action: #selector(WorkspaceSidebar.Coordinator.toggleRegex(_:)), help: String(localized: "Regex"))
-
         let explorer = NSTextField(labelWithString: "")
         explorer.translatesAutoresizingMaskIntoConstraints = false
         explorer.attributedStringValue = NSAttributedString(
@@ -807,19 +678,7 @@ fileprivate final class SidebarColumnView: NSView {
         scroll.automaticallyAdjustsContentInsets = true
         scroll.documentView = outline
 
-        let options = NSStackView(views: [matchCase, wholeWord, regex])
-        options.orientation = .horizontal
-        options.spacing = 8
-        options.translatesAutoresizingMaskIntoConstraints = false
-        options.setContentHuggingPriority(.required, for: .vertical)
-
         addSubview(explorer)
-        addSubview(search)
-        addSubview(replaceField)
-        addSubview(replaceAll)
-        addSubview(includeField)
-        addSubview(excludeField)
-        addSubview(options)
         addSubview(header)
         addSubview(scroll)
 
@@ -827,37 +686,15 @@ fileprivate final class SidebarColumnView: NSView {
             explorer.topAnchor.constraint(equalTo: topAnchor, constant: 8),
             explorer.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             explorer.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -12),
-            search.topAnchor.constraint(equalTo: explorer.bottomAnchor, constant: 4),
-            search.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
-            search.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
-            header.topAnchor.constraint(equalTo: search.bottomAnchor, constant: 4),
+            header.topAnchor.constraint(equalTo: explorer.bottomAnchor, constant: 4),
             header.leadingAnchor.constraint(equalTo: leadingAnchor),
             header.trailingAnchor.constraint(equalTo: trailingAnchor),
             header.heightAnchor.constraint(equalToConstant: 22),
-            replaceField.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 4),
-            replaceField.leadingAnchor.constraint(equalTo: search.leadingAnchor),
-            replaceAll.leadingAnchor.constraint(equalTo: replaceField.trailingAnchor, constant: 6),
-            replaceAll.trailingAnchor.constraint(equalTo: search.trailingAnchor),
-            replaceAll.centerYAnchor.constraint(equalTo: replaceField.centerYAnchor),
-            includeField.topAnchor.constraint(equalTo: replaceField.bottomAnchor, constant: 4),
-            includeField.leadingAnchor.constraint(equalTo: search.leadingAnchor),
-            excludeField.leadingAnchor.constraint(equalTo: includeField.trailingAnchor, constant: 6),
-            excludeField.trailingAnchor.constraint(equalTo: search.trailingAnchor),
-            excludeField.centerYAnchor.constraint(equalTo: includeField.centerYAnchor),
-            excludeField.widthAnchor.constraint(equalTo: includeField.widthAnchor),
-            options.topAnchor.constraint(equalTo: includeField.bottomAnchor, constant: 4),
-            options.leadingAnchor.constraint(equalTo: search.leadingAnchor),
+            scroll.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 2),
             scroll.leadingAnchor.constraint(equalTo: leadingAnchor),
             scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
             scroll.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
-        optionRow = options
-        let collapsed = scroll.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 2)
-        let expanded = scroll.topAnchor.constraint(equalTo: options.bottomAnchor, constant: 4)
-        collapsed.isActive = true
-        collapsedReplace = collapsed
-        expandedReplace = expanded
-        setReplaceVisible(false)
     }
 
     override func layout() {
@@ -869,47 +706,6 @@ fileprivate final class SidebarColumnView: NSView {
             column.maxWidth = width
             column.width = width
         }
-    }
-
-    /// Replace, include, and exclude stay out of the way until the filter has a query.
-    func setReplaceVisible(_ visible: Bool) {
-        replaceField.isHidden = !visible
-        replaceAll.isHidden = !visible
-        includeField.isHidden = !visible
-        excludeField.isHidden = !visible
-        optionRow?.isHidden = !visible
-        if visible {
-            collapsedReplace?.isActive = false
-            expandedReplace?.isActive = true
-        } else {
-            expandedReplace?.isActive = false
-            collapsedReplace?.isActive = true
-        }
-    }
-
-    private func configure(_ field: NSTextField, placeholder: String) {
-        field.translatesAutoresizingMaskIntoConstraints = false
-        field.placeholderString = placeholder
-        field.isBezeled = true
-        field.bezelStyle = .roundedBezel
-        field.controlSize = .small
-        field.font = .systemFont(ofSize: NSFont.systemFontSize(for: .small))
-        field.focusRingType = .none
-        field.lineBreakMode = .byTruncatingTail
-        field.setAccessibilityLabel(placeholder)
-        field.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        field.setContentCompressionResistancePriority(.required, for: .vertical)
-    }
-
-    private func configureToggle(_ button: NSButton, title: String, action: Selector, help: String) {
-        button.translatesAutoresizingMaskIntoConstraints = false
-        button.setButtonType(.switch)
-        button.title = title
-        button.controlSize = .small
-        button.font = .systemFont(ofSize: 11)
-        button.action = action
-        button.toolTip = help
-        button.setAccessibilityLabel(help)
     }
 
     @available(*, unavailable)
@@ -981,24 +777,6 @@ fileprivate final class SidebarRootHeader: NSView {
 
     override func rightMouseDown(with event: NSEvent) {
         onMenu?(event)
-    }
-}
-
-/// A little space between the magnifier and the placeholder.
-fileprivate final class PaddedSearchFieldCell: NSSearchFieldCell {
-    override func searchTextRect(forBounds rect: NSRect) -> NSRect {
-        var text = super.searchTextRect(forBounds: rect)
-        text.origin.x += 6
-        text.size.width = max(0, text.width - 6)
-        return text
-    }
-}
-
-fileprivate final class SidebarSearchField: NSSearchField {
-    var onEscape: (() -> Void)?
-
-    override func cancelOperation(_ sender: Any?) {
-        onEscape?()
     }
 }
 

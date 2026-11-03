@@ -133,7 +133,7 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
             let cell = reusedText(tableView, id: "file")
             cell.apply(
                 title: emphasized(hit.name, indices: hit.nameIndices, size: 13),
-                detail: emphasized(parentPath(hit.relativePath), indices: [], size: 11, color: .secondaryLabelColor),
+                detail: pathDetail(hit),
                 icon: icon(for: hit.relativePath)
             )
             return cell
@@ -550,6 +550,12 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
         let parent = parentPath(path)
         guard !parent.isEmpty else { return nil }
         return plain(parent, size: 11, color: .secondaryLabelColor)
+    }
+
+    private func pathDetail(_ hit: GlobalFileHit) -> NSAttributedString? {
+        let path = hit.relativePath
+        guard path != hit.name else { return nil }
+        return emphasized(path, indices: hit.pathIndices, size: 11, color: .secondaryLabelColor)
     }
 
     private func parentPath(_ path: String) -> String {

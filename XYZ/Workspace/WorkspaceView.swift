@@ -90,7 +90,7 @@ struct WorkspaceView: View {
             WorkspaceActions(
                 showsHidden: session.showsHiddenFiles,
                 toggleHidden: { session.showsHiddenFiles.toggle() },
-                focusSearch: { session.focusSearch() }
+                focusSearch: { EditorCommands.shared.focusFilter(nil) }
             )
         )
     }
@@ -334,7 +334,7 @@ private struct WorkspaceDetail: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            if !session.tabStrip.tabs.isEmpty {
+            if session.buffer != nil {
                 EditorTabBar(session: session)
                 if let path = activePath {
                     EditorBreadcrumb(rootName: session.displayName, relativePath: path) { crumb in
