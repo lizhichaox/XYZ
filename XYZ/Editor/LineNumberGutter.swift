@@ -263,28 +263,60 @@ final class LineNumberGutter: NSView {
 
     /// Source lines from the layout manager that already draws the body. The first fragment
     /// of a newline line is numbered. A soft-wrapped continuation is not.
+    ///
+    /// Noncontiguous layout can report a later source line inside the visible band. When the
+    /// visible numbers skip, measure once with contiguous layout and restore the flag. The
+    /// text storage is left alone.
     private func layoutManagerRows(textView: XYZMacTextView) -> [Row]? {
         guard let layout = textView.layoutManager, let container = textView.textContainer else { return nil }
-        layout.ensureLayout(for: container)
+        let first = lineFragmentRows(textView: textView, layout: layout, container: container)
+        let numbered = first.filter(\.showsNumber).count
+        if Self.isSourceRun(first), first.count > numbered { return first }
+        guard layout.allowsNonContiguousLayout else { return first }
+        layout.allowsNonContiguousLayout = false
+        let length = (textView.string as NSString).length
+        if length > 0 {
+            layout.ensureLayout(forCharacterRange: NSRange(location: 0, length: length))
+        }
+        let second = lineFragmentRows(textView: textView, layout: layout, container: container)
+        layout.allowsNonContiguousLayout = true
+        return second
+    }
+
+    /// Visible numbers are a contiguous source run, and a wrapped note has a continuation row.
+    private static func isSourceRun(_ rows: [Row]) -> Bool {
+        let numbered = rows.filter(\.showsNumber).map(\.line)
+        guard let first = numbered.first, !numbered.isEmpty else { return false }
+        return numbered == Array(first..<(first + numbered.count))
+    }
+
+    private func lineFragmentRows(
+        textView: XYZMacTextView,
+        layout: NSLayoutManager,
+        container: NSTextContainer
+    ) -> [Row] {
+        let length = (textView.string as NSString).length
+        guard length > 0 else { return [] }
+        layout.ensureLayout(forCharacterRange: NSRange(location: 0, length: length))
         let lines = lineIndex()
         let visible = textView.visibleRect
         let origin = textView.textContainerOrigin
         let glyphs = layout.glyphRange(for: container)
         var rows: [Row] = []
         var previous: Int?
-        layout.enumerateLineFragments(forGlyphRange: glyphs) { _, usedRect, _, glyphRange, _ in
+        layout.enumerateLineFragments(forGlyphRange: glyphs) { rect, _, _, glyphRange, _ in
             guard glyphRange.length > 0 else { return }
             let index = layout.characterIndexForGlyph(at: glyphRange.location)
-            let top = origin.y + usedRect.minY
-            guard top + usedRect.height > visible.minY - 1, top < visible.maxY + 1 else { return }
             let line = lines.line(at: max(0, index))
             let shows = previous != line
             previous = line
+            let top = origin.y + rect.minY
+            guard top + rect.height > visible.minY - 1, top < visible.maxY + 1 else { return }
             rows.append(Row(
                 line: line,
                 showsNumber: shows,
                 y: top - visible.minY,
-                height: max(usedRect.height, 1)
+                height: max(rect.height, 1)
             ))
         }
         return rows

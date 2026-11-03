@@ -2,7 +2,7 @@
 
 ## 0.5.28
 
-- Editing shows source line numbers beside the note. A wrapped continuation has no number. Reading has no line numbers. The note stays in the real text view.
+- Editing shows source line numbers beside the note. A wrapped continuation has no number, and the visible numbers stay a continuous run. Reading has no line numbers. The note stays in the real text view.
 - The empty outline column keeps a usable width. Double-click fit still uses the measured names.
 - 0.5.27 remains the installed build that restored the note.
 
