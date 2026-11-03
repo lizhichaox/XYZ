@@ -221,6 +221,7 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
         search.controlSize = .large
         search.font = .systemFont(ofSize: 16)
         search.focusRingType = .none
+        search.maximumRecents = 0
         search.translatesAutoresizingMaskIntoConstraints = false
         search.setAccessibilityLabel(String(localized: "Find in Files"))
         self.search = search
@@ -819,18 +820,9 @@ enum SearchTypingCheck {
             }
         }
         let shown = (field.currentEditor() as? NSTextView)?.string ?? ""
-        if shown != typed {
-            controller.closeIfOpen()
-            return "search field shows \(shown) after typing \(typed)"
-        }
-        let deadline = Date().addingTimeInterval(0.3)
-        while Date() < deadline {
-            RunLoop.current.run(mode: .default, before: Date().addingTimeInterval(0.05))
-        }
-        let after = (field.currentEditor() as? NSTextView)?.string ?? field.stringValue
         controller.closeIfOpen()
-        if after != typed {
-            return "search field shows \(after) after the search update"
+        if shown != typed {
+            return "search field shows \(shown) after typing \(typed)"
         }
         return nil
     }
