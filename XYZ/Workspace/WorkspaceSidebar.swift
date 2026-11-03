@@ -722,20 +722,37 @@ fileprivate final class SidebarColumnView: NSView {
         fitRowsToSidebar()
     }
 
+    override func setFrameSize(_ newSize: NSSize) {
+        super.setFrameSize(newSize)
+        fitRowsToSidebar()
+    }
+
     /// The outline's own fitting width is wider than the clip until the editor lays out.
     /// Pin the column to the sidebar before the first paint, including when no file is open.
     private func fitRowsToSidebar() {
-        let visible = scroll.contentSize.width > 1 ? scroll.contentSize.width : scroll.bounds.width
+        let clip = scroll.contentView.bounds.width
+        let visible = clip > 1 ? clip : bounds.width
         guard visible > 1, let column = outline.tableColumns.first else { return }
-        if abs(column.width - visible) > 0.5 || column.minWidth != visible || column.maxWidth != visible {
-            column.minWidth = visible
-            column.maxWidth = visible
+        column.minWidth = 80
+        column.maxWidth = 8_000
+        let changed = abs(column.width - visible) > 0.5
+        if changed {
             column.width = visible
         }
         if abs(outline.frame.width - visible) > 0.5 {
             var frame = outline.frame
             frame.size.width = visible
             outline.frame = frame
+        }
+        outline.enumerateAvailableRowViews { row, _ in
+            guard abs(row.frame.width - visible) > 0.5 else { return }
+            var frame = row.frame
+            frame.size.width = visible
+            row.frame = frame
+            row.needsLayout = true
+        }
+        if changed {
+            XYZDiagnostics.note(String(format: "sidebar column=%.1f view=%.1f clip=%.1f", column.width, bounds.width, clip))
         }
     }
 
@@ -772,7 +789,7 @@ fileprivate final class SidebarRootHeader: NSView {
             chevron.widthAnchor.constraint(equalToConstant: 12),
             chevron.heightAnchor.constraint(equalToConstant: 12),
             label.leadingAnchor.constraint(equalTo: chevron.trailingAnchor, constant: 4),
-            label.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -8),
+            label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -8),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
         ])
     }
@@ -780,6 +797,11 @@ fileprivate final class SidebarRootHeader: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         nil
+    }
+
+    override func layout() {
+        super.layout()
+        label.preferredMaxLayoutWidth = max(0, label.bounds.width)
     }
 
     func show(name: String, expanded: Bool, path: String) {
@@ -1163,6 +1185,11 @@ fileprivate final class SidebarRowCell: NSTableCellView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         nil
+    }
+
+    override func layout() {
+        super.layout()
+        label.preferredMaxLayoutWidth = max(0, label.bounds.width)
     }
 
     private var rowNode: SidebarNode?

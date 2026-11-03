@@ -20,6 +20,140 @@ extension FocusedValues {
     }
 }
 
+/// Sidebar and editor. The divider is 6 points to grab and draws as a 1 point line.
+private struct WorkspaceSplit<Sidebar: View, Detail: View>: NSViewRepresentable {
+    var showsSidebar: Bool
+    var sidebar: Sidebar
+    var detail: Detail
+
+    init(showsSidebar: Bool, @ViewBuilder sidebar: () -> Sidebar, @ViewBuilder detail: () -> Detail) {
+        self.showsSidebar = showsSidebar
+        self.sidebar = sidebar()
+        self.detail = detail()
+    }
+
+    func makeNSView(context: Context) -> XYZSplitView {
+        let split = XYZSplitView()
+        let side = NSHostingView(rootView: sidebar)
+        let main = NSHostingView(rootView: detail)
+        side.sizingOptions = [.minSize]
+        main.sizingOptions = [.minSize]
+        context.coordinator.side = side
+        context.coordinator.detail = main
+        split.install(sidebar: side, detail: main, showsSidebar: showsSidebar)
+        return split
+    }
+
+    func updateNSView(_ split: XYZSplitView, context: Context) {
+        context.coordinator.side?.rootView = sidebar
+        context.coordinator.detail?.rootView = detail
+        split.setSidebarShown(showsSidebar)
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    final class Coordinator {
+        var side: NSHostingView<Sidebar>?
+        var detail: NSHostingView<Detail>?
+    }
+}
+
+final class XYZSplitView: NSSplitView {
+    private var sidebar: NSView?
+    private var detail: NSView?
+    private var savedPosition: CGFloat = 260
+    private var sidebarShown = true
+    private var loggedDivider = NSRect.null
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        isVertical = true
+        dividerStyle = .thin
+        delegate = self
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    /// Wide enough to grab. The drawn line stays 1 point.
+    override var dividerThickness: CGFloat { sidebarShown ? 6 : 0 }
+
+    override func drawDivider(in rect: NSRect) {
+        NSColor.separatorColor.setFill()
+        NSRect(x: rect.midX - 0.5, y: rect.minY, width: 1, height: rect.height).fill()
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        guard sidebarShown, subviews.count > 1 else { return }
+        let left = subviews[0].frame
+        let rect = NSRect(x: left.maxX, y: 0, width: dividerThickness, height: bounds.height)
+        addCursorRect(rect, cursor: .resizeLeftRight)
+        if abs(rect.origin.x - loggedDivider.origin.x) > 0.5 || abs(rect.width - loggedDivider.width) > 0.5 {
+            loggedDivider = rect
+            XYZDiagnostics.note(String(format: "divider frame=(%.1f,%.1f %.1fx%.1f) cursor=resizeLeftRight", rect.origin.x, rect.origin.y, rect.width, rect.height))
+        }
+    }
+
+    func install(sidebar: NSView, detail: NSView, showsSidebar: Bool) {
+        self.sidebar = sidebar
+        self.detail = detail
+        sidebarShown = showsSidebar
+        rebuild()
+        if showsSidebar {
+            setPosition(savedPosition, ofDividerAt: 0)
+        }
+    }
+
+    func setSidebarShown(_ shown: Bool) {
+        guard shown != sidebarShown else { return }
+        if sidebarShown, subviews.count > 1 {
+            savedPosition = subviews[0].frame.width
+        }
+        sidebarShown = shown
+        rebuild()
+        if shown {
+            setPosition(min(max(savedPosition, 220), max(220, bounds.width - 480)), ofDividerAt: 0)
+        }
+        window?.invalidateCursorRects(for: self)
+    }
+
+    private func rebuild() {
+        sidebar?.removeFromSuperview()
+        detail?.removeFromSuperview()
+        if sidebarShown, let sidebar {
+            addSubview(sidebar)
+        }
+        if let detail {
+            addSubview(detail)
+        }
+        window?.invalidateCursorRects(for: self)
+    }
+}
+
+extension XYZSplitView: NSSplitViewDelegate {
+    func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
+        220
+    }
+
+    func splitView(_ splitView: NSSplitView, constrainMaxCoordinate proposedMaximumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
+        max(220, splitView.bounds.width - 480)
+    }
+
+    func splitView(_ splitView: NSSplitView, constrainSplitPosition proposedPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {
+        min(max(proposedPosition, 220), max(220, splitView.bounds.width - 480))
+    }
+
+    func splitViewDidResizeSubviews(_ notification: Notification) {
+        sidebar?.needsLayout = true
+        detail?.needsLayout = true
+    }
+}
+
 struct WorkspaceView: View {
     @ObservedObject var session: WorkspaceSession
     @Environment(\.undoManager) private var undoManager
@@ -34,24 +168,22 @@ struct WorkspaceView: View {
             // A top padding on the full-height host pushes the editor past the window.
             // This row is the title-bar overlap, so the status bar stays inside the frame.
             Color.clear.frame(height: titlebarInset)
-            HSplitView {
-                if columnVisibility != .detailOnly {
-                    VStack(spacing: 0) {
-                        WorkspaceSidebar(session: session, undoManager: undoManager)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        SidebarOutlineDock(session: session, outline: outline)
-                    }
-                    .frame(minWidth: 220, idealWidth: 260, maxWidth: 420)
-                    .background(Color.sidebarBackground)
+            WorkspaceSplit(showsSidebar: columnVisibility != .detailOnly) {
+                VStack(spacing: 0) {
+                    WorkspaceSidebar(session: session, undoManager: undoManager)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    SidebarOutlineDock(session: session, outline: outline)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color.sidebarBackground)
+            } detail: {
                 WorkspaceDetail(
                     session: session,
                     outline: outline,
                     find: commands.findModel
                 )
-                    .frame(minWidth: 480, maxWidth: .infinity, maxHeight: .infinity)
-                    .layoutPriority(1)
-                    .background(Color.editorBackground)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(Color.editorBackground)
             }
             if session.buffer != nil {
                 EditorStatusBar(
