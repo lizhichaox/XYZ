@@ -59,9 +59,11 @@ private struct WorkspaceSplit<Sidebar: View, Detail: View, Outline: View>: NSVie
         let side = NSHostingView(rootView: sidebar)
         let main = NSHostingView(rootView: detail)
         let outlineHost = NSHostingView(rootView: outline)
-        side.sizingOptions = [.minSize]
-        main.sizingOptions = [.minSize]
-        outlineHost.sizingOptions = [.minSize]
+        // Minimum size here is the SwiftUI ideal. The sidebar then takes the whole
+        // window and the open file has no column.
+        side.sizingOptions = []
+        main.sizingOptions = []
+        outlineHost.sizingOptions = []
         context.coordinator.side = side
         context.coordinator.detail = main
         context.coordinator.outline = outlineHost
@@ -173,15 +175,22 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
             return
         }
         adjusting = true
-        if !chromeAnimating, !dividerDrag, sidebarShown, let sidebar, sidebar.superview != nil {
-            let target = clampedSidebarWidth()
-            if abs(sidebar.frame.width - target) > 2 {
-                panes.setPosition(target, ofDividerAt: 0)
-            }
-        }
-        applyOutlineWidthIfNeeded()
+        enforceColumns()
         adjusting = false
         placeDividers()
+    }
+
+    /// The file column stays on screen. A hosting view that reports the whole window as its
+    /// width leaves the sidebar full-bleed and the open note with nowhere to draw.
+    private func enforceColumns() {
+        guard !chromeAnimating, !dividerDrag, bounds.width > 1 else { return }
+        guard sidebarShown, let sidebar, sidebar.superview === panes, panes.subviews.count > 1 else { return }
+        let target = clampedSidebarWidth()
+        let detailWidth = detail?.frame.width ?? 0
+        if abs(sidebar.frame.width - target) > 2 || detailWidth < 200 {
+            panes.setPosition(target, ofDividerAt: 0)
+        }
+        applyOutlineWidthIfNeeded()
     }
 
     override func viewDidMoveToWindow() {
@@ -373,6 +382,14 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
         placeDividers()
     }
 
+    func testingSidebarFrame() -> NSRect {
+        sidebar?.frame ?? .zero
+    }
+
+    func testingDetailFrame() -> NSRect {
+        detail?.frame ?? .zero
+    }
+
     func testingDoubleClick(left: Bool) {
         if left {
             leftDivider.fitContent()
@@ -455,6 +472,10 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
 
     private func isRightDivider(_ dividerIndex: Int, in splitView: NSSplitView) -> Bool {
         outlineShown && dividerIndex == splitView.subviews.count - 2
+    }
+
+    func splitView(_ splitView: NSSplitView, canCollapseSubview subview: NSView) -> Bool {
+        false
     }
 
     func splitView(_ splitView: NSSplitView, constrainMinCoordinate proposedMinimumPosition: CGFloat, ofSubviewAt dividerIndex: Int) -> CGFloat {

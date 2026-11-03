@@ -518,16 +518,21 @@ enum GutterSnapshotCheck {
             if !waitForBuffer(session, containing: fixture, seconds: 4) {
                 return "window \(label): the file binding did not load storage=\((session.buffer?.text as NSString?)?.length ?? -1)"
             }
+            var readingFailure: String?
             if checkReading {
-                pump(1.2)
+                let page = waitForReadingText(in: host, needle: "Glyphsample", seconds: 4)
                 window.displayIfNeeded()
-                guard let shot = shownImage(of: window, content: host) else {
-                    return "window \(label): Reading capture is missing evidence=missing"
-                }
-                saveShot(shot, name: "window-\(label)-reading.png")
-                let heard = recognizedText(in: shot)
-                if !Self.showsFixture(heard) {
-                    return "window \(label): Reading did not show the open file evidence=missing words=\(String(heard.prefix(80)))"
+                let columns = columnFrames(in: host)
+                if let shot = shownImage(of: window, content: host) {
+                    saveShot(shot, name: "window-\(label)-reading.png")
+                    let heard = recognizedText(in: shot)
+                    print("GUTTER_WINDOW label=\(label)-reading words=\(String(heard.prefix(120))) page=\(String(page.prefix(80))) columns=\(columns)")
+                    fflush(stdout)
+                    if !Self.showsFixture(heard) {
+                        readingFailure = "window \(label): Reading did not show the open file evidence=missing words=\(String(heard.prefix(80))) page=\(String(page.prefix(40))) columns=\(columns)"
+                    }
+                } else {
+                    readingFailure = "window \(label): Reading capture is missing evidence=missing columns=\(columns)"
                 }
             }
             session.selectViewMode(.source, source: "check")
@@ -585,7 +590,7 @@ enum GutterSnapshotCheck {
                 return "window \(label): blank document was accepted as a readable body"
             }
             session.shutdown()
-            return nil
+            return readingFailure
         }
         return failure
     }
@@ -658,6 +663,52 @@ enum GutterSnapshotCheck {
             session.shutdown()
             return nil
         }
+    }
+
+    private static func columnFrames(in root: NSView) -> String {
+        guard let split = findSplit(in: root) else { return "no-split" }
+        let side = split.testingSidebarFrame()
+        let main = split.testingDetailFrame()
+        return "side=\(Int(side.width))x\(Int(side.height)) detail=\(Int(main.width))x\(Int(main.height)) split=\(Int(split.bounds.width))x\(Int(split.bounds.height))"
+    }
+
+    private static func findSplit(in view: NSView) -> XYZSplitView? {
+        if let split = view as? XYZSplitView { return split }
+        for child in view.subviews {
+            if let found = findSplit(in: child) { return found }
+        }
+        return nil
+    }
+
+    /// The rendered note, from the page itself. Empty when the web view never got the file.
+    private static func waitForReadingText(in root: NSView, needle: String, seconds: TimeInterval) -> String {
+        let start = Date()
+        var latest = ""
+        while Date().timeIntervalSince(start) < seconds {
+            let web = findWebView(in: root)
+            if let web {
+                var done = false
+                web.evaluateJavaScript("document.body ? document.body.innerText : ''") { value, _ in
+                    latest = value as? String ?? ""
+                    done = true
+                }
+                let spin = Date()
+                while !done && Date().timeIntervalSince(spin) < 0.4 {
+                    pump(0.05)
+                }
+                if latest.contains(needle) { return latest }
+            }
+            pump(0.1)
+        }
+        return latest
+    }
+
+    private static func findWebView(in view: NSView) -> WKWebView? {
+        if let web = view as? WKWebView { return web }
+        for child in view.subviews {
+            if let found = findWebView(in: child) { return found }
+        }
+        return nil
     }
 
     /// The window server's picture of this window, or the composited content layer.
