@@ -9,13 +9,12 @@ struct WorkspaceSidebar: NSViewRepresentable {
     var undoManager: UndoManager?
 
     func makeNSView(context: Context) -> NSView {
-        let reduceTransparency = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
-        let usesGlass = Self.glassSearch(reduceTransparency: reduceTransparency)
         let column = SidebarColumnView()
         let outline = column.outline
         outline.headerView = nil
         outline.style = .plain
         outline.selectionHighlightStyle = .none
+        outline.usesAlternatingRowBackgroundColors = false
         outline.floatsGroupRows = false
         outline.indentationPerLevel = 16
         outline.rowHeight = 22
@@ -64,25 +63,8 @@ struct WorkspaceSidebar: NSViewRepresentable {
             coordinator?.activateSelection()
         }
 
-        if #available(macOS 26, *), usesGlass {
-            column.wantsLayer = true
-            column.layer?.backgroundColor = NSColor.clear.cgColor
-            return column
-        }
-        let effect = NSVisualEffectView()
-        effect.material = .sidebar
-        effect.blendingMode = .behindWindow
-        effect.state = .followsWindowActiveState
-        effect.isEmphasized = !reduceTransparency
-        column.translatesAutoresizingMaskIntoConstraints = false
-        effect.addSubview(column)
-        NSLayoutConstraint.activate([
-            column.leadingAnchor.constraint(equalTo: effect.leadingAnchor),
-            column.trailingAnchor.constraint(equalTo: effect.trailingAnchor),
-            column.topAnchor.constraint(equalTo: effect.topAnchor),
-            column.bottomAnchor.constraint(equalTo: effect.bottomAnchor),
-        ])
-        return effect
+        column.applySidebarTint()
+        return column
     }
 
     func updateNSView(_ view: NSView, context: Context) {
@@ -97,14 +79,6 @@ struct WorkspaceSidebar: NSViewRepresentable {
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSView, context: Context) -> CGSize? {
         CGSize(width: proposal.width ?? 260, height: proposal.height ?? 600)
-    }
-
-    private static func glassSearch(reduceTransparency: Bool) -> Bool {
-        guard !reduceTransparency else { return false }
-        if #available(macOS 26, *) {
-            return true
-        }
-        return false
     }
 
     @MainActor
@@ -706,6 +680,19 @@ fileprivate final class SidebarColumnView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         needsLayout = true
+        applySidebarTint()
+    }
+
+    override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        applySidebarTint()
+    }
+
+    func applySidebarTint() {
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.xyzSidebar.cgColor
+        outline.backgroundColor = .xyzSidebar
+        outline.enclosingScrollView?.drawsBackground = false
     }
 
     override func viewWillDraw() {
@@ -956,6 +943,65 @@ fileprivate final class SidebarOutlineView: NSOutlineView {
         }
     }
 
+    private var hoveredRow = -1
+    private var hoverTracking: NSTrackingArea?
+
+    var hoveredRowIndex: Int { hoveredRow }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let hoverTracking {
+            removeTrackingArea(hoverTracking)
+        }
+        let area = NSTrackingArea(
+            rect: bounds,
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        hoverTracking = area
+        addTrackingArea(area)
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        super.mouseMoved(with: event)
+        updateHover(event)
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        super.mouseEntered(with: event)
+        updateHover(event)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        super.mouseExited(with: event)
+        setHoveredRow(-1)
+    }
+
+    override func reloadData() {
+        hoveredRow = -1
+        super.reloadData()
+    }
+
+    private func updateHover(_ event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        let row = row(at: point)
+        setHoveredRow(row)
+    }
+
+    private func setHoveredRow(_ row: Int) {
+        let next = row >= 0 && row < numberOfRows ? row : -1
+        guard next != hoveredRow else { return }
+        let previous = hoveredRow
+        hoveredRow = next
+        if previous >= 0, let view = rowView(atRow: previous, makeIfNecessary: false) {
+            view.needsDisplay = true
+        }
+        if next >= 0, let view = rowView(atRow: next, makeIfNecessary: false) {
+            view.needsDisplay = true
+        }
+    }
+
     override func keyDown(with event: NSEvent) {
         switch event.keyCode {
         case 36, 76:
@@ -1004,14 +1050,15 @@ fileprivate enum SidebarCell {
     static let columnID = NSUserInterfaceItemIdentifier("name")
 }
 
-/// Full-width row highlight. The system source-list highlight is a rounded pill; this one is a flat grey bar.
+/// One selected row, and a hover fill only while the pointer is on that row.
 fileprivate final class SidebarRowView: NSTableRowView {
     static let identifier = NSUserInterfaceItemIdentifier("sidebar.row")
-    private var hovering = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         identifier = Self.identifier
+        selectionHighlightStyle = .none
+        super.backgroundColor = .clear
     }
 
     @available(*, unavailable)
@@ -1019,38 +1066,32 @@ fileprivate final class SidebarRowView: NSTableRowView {
         nil
     }
 
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        for area in trackingAreas {
-            removeTrackingArea(area)
-        }
-        let area = NSTrackingArea(
-            rect: bounds,
-            options: [.mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
-            owner: self,
-            userInfo: nil
-        )
-        addTrackingArea(area)
+    override func draw(_ dirtyRect: NSRect) {
+        drawBackground(in: dirtyRect)
     }
 
-    override func mouseEntered(with event: NSEvent) {
-        hovering = true
-        needsDisplay = true
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        hovering = false
-        needsDisplay = true
-    }
+    override func drawSelection(in dirtyRect: NSRect) {}
 
     override func drawBackground(in dirtyRect: NSRect) {
-        if isSelected {
+        guard let outline = enclosingOutline else { return }
+        let row = outline.row(for: self)
+        guard row >= 0 else { return }
+        if outline.selectedRow == row {
             NSColor.labelColor.withAlphaComponent(0.12).setFill()
             bounds.fill()
-        } else if hovering {
+        } else if outline.hoveredRowIndex == row {
             NSColor.labelColor.withAlphaComponent(0.06).setFill()
             bounds.fill()
         }
+    }
+
+    private var enclosingOutline: SidebarOutlineView? {
+        var view: NSView? = superview
+        while let current = view {
+            if let outline = current as? SidebarOutlineView { return outline }
+            view = current.superview
+        }
+        return nil
     }
 }
 

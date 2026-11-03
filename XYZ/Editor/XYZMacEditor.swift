@@ -22,27 +22,27 @@ final class XYZMacTextView: NSTextView {
     var showsLineNumbers = false {
         didSet {
             guard showsLineNumbers != oldValue else { return }
-            gutter.isHidden = !showsLineNumbers
             if showsLineNumbers {
-                if gutter.superview == nil {
-                    addSubview(gutter)
-                }
                 gutter.invalidateLines()
+                installGutter()
             } else {
                 gutter.removeFromSuperview()
+                gutter.isHidden = true
             }
             needsLayout = true
         }
+    }
+    /// The live gutter, for the offscreen snapshot. Nil until line numbers are turned on.
+    var lineNumberGutter: LineNumberGutter? {
+        showsLineNumbers && gutter.superview != nil && !gutter.isHidden ? gutter : nil
     }
     private lazy var gutter: LineNumberGutter = {
         let view = LineNumberGutter()
         view.textView = self
         view.isHidden = true
-        view.autoresizingMask = [.height]
-        view.wantsLayer = true
-        view.layer?.zPosition = 5
         return view
     }()
+    private var gutterScrollObserver: NSObjectProtocol?
     /// Restored once, after the view is in a window and the inset matches the pane.
     private var pendingAnchor: EditorScrollAnchor?
     private var isAligning = false
@@ -464,9 +464,19 @@ private struct FindScan {
             return
         }
         if showsLineNumbers {
-            placeGutter()
+            installGutter()
         }
         alignIfReady()
+    }
+
+    /// Turns numbers on or off on this view. Called from SwiftUI updates, including a mode
+    /// change on a text view that is already on screen.
+    func syncLineNumbers(_ show: Bool) {
+        if showsLineNumbers != show {
+            showsLineNumbers = show
+        } else if show {
+            installGutter()
+        }
     }
 
     /// The side padding from Settings, widened when line numbers need more room.
@@ -478,24 +488,33 @@ private struct FindScan {
         return NSSize(width: side, height: style.verticalInset)
     }
 
-    /// The gutter covers the left padding. TextKit 2 adds fragment views after layout, so the gutter is put back on top.
-    private func placeGutter() {
-        let width = max(textContainerInset.width, 28)
-        let frame = NSRect(x: 0, y: 0, width: width, height: bounds.height)
-        if gutter.frame != frame {
-            gutter.frame = frame
-            gutter.needsDisplay = true
+    /// Hosts the gutter on the scroll view, above the clip view, so TextKit 2 fragment views cannot cover it.
+    private func installGutter() {
+        gutter.isHidden = false
+        let width = max(textContainerInset.width, 36)
+        if let scroll = enclosingScrollView {
+            gutter.place(on: scroll, width: width)
+            watchGutterScroll(of: scroll)
+        } else if gutter.superview !== self {
+            addSubview(gutter)
         }
-        if gutter.superview !== self || subviews.last !== gutter {
-            gutter.removeFromSuperview()
-            addSubview(gutter, positioned: .above, relativeTo: nil)
-        }
+        gutter.needsDisplay = true
     }
 
-    override func didAddSubview(_ subview: NSView) {
-        super.didAddSubview(subview)
-        guard showsLineNumbers, subview !== gutter, gutter.superview === self, subviews.last !== gutter else { return }
-        addSubview(gutter, positioned: .above, relativeTo: nil)
+    private func watchGutterScroll(of scrollView: NSScrollView) {
+        let clip = scrollView.contentView
+        clip.postsBoundsChangedNotifications = true
+        guard gutterScrollObserver == nil else { return }
+        gutterScrollObserver = NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification,
+            object: clip,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { () -> Void in
+                guard let self, self.showsLineNumbers else { return }
+                self.installGutter()
+            }
+        }
     }
 
     /// The text changed: renumber, and widen the padding when the count gains a digit.
@@ -791,7 +810,7 @@ struct XYZMacEditor: NSViewRepresentable {
         context.coordinator.style = style
         context.coordinator.syntax = syntax
         textView.allowsMarkup = markup
-        textView.showsLineNumbers = lineNumbers
+        textView.syncLineNumbers(lineNumbers)
         textView.delegate = context.coordinator
         textView.documentUndoManager = undoManager
         textView.onAppearanceChange = { [weak coordinator = context.coordinator] in
@@ -839,7 +858,7 @@ struct XYZMacEditor: NSViewRepresentable {
         if textView.isContinuousSpellCheckingEnabled != spellCheck {
             textView.isContinuousSpellCheckingEnabled = spellCheck
         }
-        textView.showsLineNumbers = lineNumbers
+        textView.syncLineNumbers(lineNumbers)
         textView.textContainer?.lineFragmentPadding = 0
         scrollView.automaticallyAdjustsContentInsets = false
         scrollView.contentInsets = NSEdgeInsets()

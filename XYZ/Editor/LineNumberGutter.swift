@@ -4,10 +4,9 @@ import XYZCore
 
 /// Line numbers in the editor's left padding, right-aligned against the text.
 ///
-/// One number per source line; a wrapped line keeps its number on its first row. The view is a
-/// subview of the text view, so it scrolls with the text and draws only the rows in view. Each
-/// TextKit 2 layout fragment is a paragraph, which is a source line, so the number sits on the
-/// baseline of the fragment's first line. The caret's line is a shade darker.
+/// The gutter is a subview of the scroll view, above the clip view. TextKit 2 draws line
+/// fragments as subviews of the text view, and those cover a gutter that lives inside it.
+/// Fragments come from `textLayoutManager`, not from `layoutManager` (TextKit 1), which is nil here.
 final class LineNumberGutter: NSView {
     weak var textView: XYZMacTextView?
     private var index: LineIndex?
@@ -41,51 +40,97 @@ final class LineNumberGutter: NSView {
         return ceil(digit * CGFloat(digits))
     }
 
+    /// Pins the gutter over the visible left edge of `scrollView`.
+    func place(on scrollView: NSScrollView, width: CGFloat) {
+        if superview !== scrollView {
+            removeFromSuperview()
+            scrollView.addSubview(self, positioned: .above, relativeTo: scrollView.contentView)
+        }
+        let clip = scrollView.contentView
+        let visible = clip.convert(clip.bounds, to: scrollView)
+        let next = NSRect(
+            x: visible.minX,
+            y: visible.minY,
+            width: min(max(width, 28), max(visible.width, 28)),
+            height: max(visible.height, 1)
+        )
+        if frame != next {
+            frame = next
+        }
+        isHidden = false
+    }
+
     private func lineIndex() -> LineIndex {
         if let index { return index }
+        if let cached = textView?.cachedLineIndex() {
+            index = cached
+            return cached
+        }
         let built = LineIndex(textView?.string ?? "")
         index = built
         return built
     }
 
     override func draw(_ dirtyRect: NSRect) {
+        NSColor.textBackgroundColor.setFill()
+        dirtyRect.fill()
         guard let textView,
               let manager = textView.textLayoutManager,
-              let content = manager.textContentManager else { return }
+              let content = manager.textContentManager,
+              bounds.width > 1, bounds.height > 1 else { return }
         let lines = lineIndex()
+        guard lines.count > 0 else { return }
         let font = Self.font(textView.style.fontSize)
         let caretLine = lines.line(at: textView.selectedRange().location)
         let origin = textView.textContainerOrigin
-        let right = textView.textContainerInset.width - Self.gap
+        let scrollY = textView.visibleRect.minY
         let plain: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.tertiaryLabelColor]
         let current: [NSAttributedString.Key: Any] = [.font: font, .foregroundColor: NSColor.labelColor]
-        // This view shares the text view's coordinates. Layout fragments use the container's.
-        let top = CGPoint(x: 0, y: max(0, dirtyRect.minY - origin.y))
-        // Start at the viewport. Ensuring layout from the document start lays out every line above the fold on each scroll.
-        let start = manager.textViewportLayoutController.viewportRange?.location
-            ?? manager.textLayoutFragment(for: top)?.rangeInElement.location
-        guard let start else { return }
+        guard let start = visibleStart(manager: manager, origin: origin, scrollY: scrollY) else { return }
+        let right = bounds.width - Self.gap
+        var seen = 0
         manager.enumerateTextLayoutFragments(from: start, options: []) { fragment in
-            let frame = fragment.layoutFragmentFrame
-            if frame.minY + origin.y > dirtyRect.maxY { return false }
+            seen += 1
+            if seen > 400 { return false }
+            let fragmentFrame = fragment.layoutFragmentFrame
+            let top = origin.y + fragmentFrame.minY - scrollY
+            if top > bounds.maxY { return false }
+            if top + fragmentFrame.height < 0 { return true }
             let offset = content.offset(from: content.documentRange.location, to: fragment.rangeInElement.location)
             let line = lines.line(at: offset)
             let baseline: CGFloat
             if let first = fragment.textLineFragments.first {
-                baseline = origin.y + frame.minY + first.typographicBounds.minY + first.glyphOrigin.y
+                baseline = top + first.typographicBounds.minY + first.glyphOrigin.y
             } else {
-                baseline = origin.y + frame.minY + font.ascender
+                baseline = top + font.ascender
             }
             if line == caretLine {
                 NSColor.labelColor.withAlphaComponent(0.045).setFill()
-                NSRect(x: 0, y: origin.y + frame.minY, width: bounds.width, height: frame.height).fill()
+                NSRect(x: 0, y: top, width: bounds.width, height: fragmentFrame.height).fill()
             }
             let label = String(line) as NSString
             let attributes = line == caretLine ? current : plain
             let width = label.size(withAttributes: attributes).width
-            label.draw(at: NSPoint(x: right - width, y: baseline - font.ascender), withAttributes: attributes)
+            let point = NSPoint(x: right - width, y: baseline - font.ascender)
+            if point.y < bounds.maxY && point.y + font.ascender > bounds.minY - font.descender {
+                label.draw(at: point, withAttributes: attributes)
+            }
             return true
         }
+    }
+
+    /// The first fragment on screen. Lays out only that screen, not the rest of a large file.
+    private func visibleStart(manager: NSTextLayoutManager, origin: CGPoint, scrollY: CGFloat) -> NSTextLocation? {
+        let viewport = manager.textViewportLayoutController
+        viewport.layoutViewport()
+        if let location = viewport.viewportRange?.location {
+            return location
+        }
+        guard let content = manager.textContentManager else { return nil }
+        let height = max(bounds.height, 1)
+        let rect = CGRect(x: 0, y: max(0, scrollY - origin.y), width: max(bounds.width, 1), height: height)
+        manager.ensureLayout(for: rect)
+        return content.documentRange.location
     }
 }
 #endif

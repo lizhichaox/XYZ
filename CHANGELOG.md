@@ -2,6 +2,8 @@
 
 ## 0.5.2
 
+- Editing shows line numbers. They sit above the text, including on a file that was already open when you switch to Editing.
+- Sidebar rows have no fill except the open file and the row under the pointer. The sidebar itself is one flat tint.
 - Launch no longer leaves a hidden 500×500 window. Settings opens only when you ask for it.
 - Find, replace, and Go to Line stay disabled until a file is open.
 - Sidebar rows fit the sidebar from the start, before a file is opened.

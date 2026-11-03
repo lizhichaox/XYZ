@@ -454,6 +454,7 @@ final class XYZAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        GutterSnapshotCheck.finishIfRequested()
         FolderOpening.installLate()
         FileMenuSupport.install()
         MainActor.assumeIsolated {
