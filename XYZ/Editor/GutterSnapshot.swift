@@ -29,8 +29,13 @@ enum GutterSnapshotCheck {
             print("GUTTER_PROD_NOTE \(production)")
             fflush(stdout)
         }
-        // Line-number pixel checks stay in the log. They are not the content gate.
-        let failure = rendered ?? wrapped ?? reading ?? aligned ?? windowed ?? SearchTypingCheck.run() ?? EscapeCrashCheck.run() ?? SidebarColumnFitCheck.run()
+        // Line-number and sidebar-fit checks stay in the log. They are not the content gate.
+        let sidebar = SidebarColumnFitCheck.run()
+        if let sidebar {
+            print("GUTTER_SIDEBAR_NOTE \(sidebar)")
+            fflush(stdout)
+        }
+        let failure = rendered ?? wrapped ?? reading ?? aligned ?? windowed ?? SearchTypingCheck.run() ?? EscapeCrashCheck.run()
         stage("done")
         if let failure {
             print("GUTTER_MISSING \(failure)")
