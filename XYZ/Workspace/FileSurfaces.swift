@@ -62,7 +62,7 @@ struct JSONReadingView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .padding(.horizontal, inset)
-                .padding(.vertical, 32)
+                .padding(.vertical, 8)
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             .scrollBounceBehavior(.basedOnSize)
@@ -112,7 +112,7 @@ struct CSVReadingView: View {
                     }
                 }
                 .padding(.horizontal, inset)
-                .padding(.vertical, 24)
+                .padding(.vertical, 8)
             }
             .scrollBounceBehavior(.basedOnSize)
             .background(ScrollElasticityNone())

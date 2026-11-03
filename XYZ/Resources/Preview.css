@@ -79,7 +79,7 @@ body {
 
 article {
   margin: 0;
-  padding: clamp(36px, 5vw, 64px) clamp(24px, 5vw, 64px) 96px;
+  padding: 8px clamp(24px, 5vw, 64px) 48px;
   hanging-punctuation: first last;
 }
 

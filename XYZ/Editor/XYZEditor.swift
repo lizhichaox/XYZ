@@ -32,7 +32,7 @@ struct XYZEditorStyle: Equatable {
     /// on every line, so this is a minimum line height rather than spacing between wraps.
     var lineHeight: CGFloat = 1.7
     var horizontalInset: CGFloat = 24
-    var verticalInset: CGFloat = 32
+    var verticalInset: CGFloat = 8
     var monospaced: Bool = false
     var readableWidth: Bool = false
     /// Long lines break to the editor width. Off scrolls sideways.

@@ -104,7 +104,10 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
             self?.moveTabToNewWindow(id)
         }
         guard let window else { return }
-        window.contentViewController = NSHostingController(rootView: WorkspaceView(session: session))
+        let host = NSHostingController(rootView: WorkspaceView(session: session))
+        // The title bar stays, but it must not push the tabs and the filter down a second row.
+        host.safeAreaRegions = []
+        window.contentViewController = host
         WorkspaceChrome.apply(to: window, title: session.displayName, subtitle: "", representedFile: nil)
     }
 

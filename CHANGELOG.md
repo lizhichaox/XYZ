@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1
+
+- The tab bar sits in the title-bar row, level with the traffic lights. The filter sits just under that row. The path, the status bar, and the space above the first line are shorter.
+
 ## 0.3.0
 
 - ⌘F finds in the current file from a bar above the editor. ⌥⌘F adds Replace and Replace All. The bar can match case, whole words, or a regular expression, and shows “n of m”. ⌘G and ⇧⌘G move through the matches. ⌘E still uses the selection as the query.

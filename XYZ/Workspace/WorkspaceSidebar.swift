@@ -18,7 +18,7 @@ struct WorkspaceSidebar: NSViewRepresentable {
         outline.selectionHighlightStyle = .sourceList
         outline.floatsGroupRows = false
         outline.indentationPerLevel = 16
-        outline.rowHeight = 22
+        outline.rowHeight = 20
         outline.intercellSpacing = NSSize(width: 0, height: 0)
         outline.allowsMultipleSelection = false
         outline.allowsEmptySelection = true
@@ -275,8 +275,8 @@ struct WorkspaceSidebar: NSViewRepresentable {
         }
 
         func outlineView(_ outlineView: NSOutlineView, heightOfRowByItem item: Any) -> CGFloat {
-            if item is SidebarSection || item is SidebarMessage { return 20 }
-            return 22
+            if item is SidebarSection || item is SidebarMessage { return 18 }
+            return 20
         }
 
         func outlineView(_ outlineView: NSOutlineView, viewFor tableColumn: NSTableColumn?, item: Any) -> NSView? {
@@ -727,6 +727,7 @@ fileprivate final class SidebarColumnView: NSView {
     private var collapsedReplace: NSLayoutConstraint?
     private var expandedReplace: NSLayoutConstraint?
     private weak var optionRow: NSView?
+    private var filterTop: NSLayoutConstraint?
 
     override init(frame frameRect: NSRect) {
         let search = SidebarSearchField()
@@ -784,18 +785,16 @@ fileprivate final class SidebarColumnView: NSView {
         addSubview(header)
         addSubview(scroll)
 
-        let belowLights = search.topAnchor.constraint(greaterThanOrEqualTo: topAnchor, constant: 36)
-        let belowSafeArea = search.topAnchor.constraint(equalTo: safeAreaLayoutGuide.topAnchor, constant: 8)
-        belowSafeArea.priority = .defaultHigh
+        let filterTop = search.topAnchor.constraint(equalTo: topAnchor, constant: 34)
+        self.filterTop = filterTop
         NSLayoutConstraint.activate([
             search.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 10),
             search.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -10),
-            belowLights,
-            belowSafeArea,
-            header.topAnchor.constraint(equalTo: search.bottomAnchor, constant: 6),
+            filterTop,
+            header.topAnchor.constraint(equalTo: search.bottomAnchor, constant: 4),
             header.leadingAnchor.constraint(equalTo: leadingAnchor),
             header.trailingAnchor.constraint(equalTo: trailingAnchor),
-            header.heightAnchor.constraint(equalToConstant: 22),
+            header.heightAnchor.constraint(equalToConstant: 20),
             replaceField.topAnchor.constraint(equalTo: header.bottomAnchor, constant: 4),
             replaceField.leadingAnchor.constraint(equalTo: search.leadingAnchor),
             replaceAll.leadingAnchor.constraint(equalTo: replaceField.trailingAnchor, constant: 6),
@@ -820,6 +819,23 @@ fileprivate final class SidebarColumnView: NSView {
         collapsedReplace = collapsed
         expandedReplace = expanded
         setReplaceVisible(false)
+    }
+
+    override func layout() {
+        super.layout()
+        let next = trafficClearance()
+        if let filterTop, abs(filterTop.constant - next) > 0.5 {
+            filterTop.constant = next
+        }
+    }
+
+    /// Just under the traffic-light row. A view that already starts below the lights only needs a few points.
+    private func trafficClearance() -> CGFloat {
+        guard let window, let button = window.standardWindowButton(.closeButton) else { return 34 }
+        let frame = button.convert(button.bounds, to: self)
+        let fromTop = bounds.maxY - frame.minY
+        if fromTop <= 1 { return 6 }
+        return fromTop + 5
     }
 
     /// Replace, include, and exclude stay out of the way until the filter has a query.

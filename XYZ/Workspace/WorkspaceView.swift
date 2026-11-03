@@ -31,6 +31,7 @@ struct WorkspaceView: View {
     var body: some View {
         NavigationSplitView(columnVisibility: $columnVisibility) {
             WorkspaceSidebar(session: session, undoManager: undoManager)
+                .ignoresSafeArea(edges: .top)
                 .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 420)
         } detail: {
             WorkspaceDetail(
@@ -38,12 +39,11 @@ struct WorkspaceView: View {
                 tabLeading: columnVisibility == .detailOnly ? trafficInset : 0,
                 find: commands.findModel
             )
+                .ignoresSafeArea(edges: .top)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .background(Color.editorBackground.ignoresSafeArea())
         }
         .navigationSplitViewStyle(.balanced)
-        .toolbarRole(.editor)
-        .toolbarBackground(.hidden, for: .windowToolbar)
         .ignoresSafeArea(edges: .top)
         .frame(minWidth: 880, minHeight: 520)
         .background(WorkspaceWindowChrome(
@@ -173,6 +173,7 @@ enum WorkspaceChrome {
         window.titlebarAppearsTransparent = true
         window.titlebarSeparatorStyle = .none
         window.toolbarStyle = .unifiedCompact
+        window.toolbar?.showsBaselineSeparator = false
         if !window.styleMask.contains(.fullSizeContentView) {
             window.styleMask.insert(.fullSizeContentView)
         }

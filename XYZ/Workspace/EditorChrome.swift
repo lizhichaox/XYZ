@@ -143,8 +143,7 @@ struct EditorTabBar: View {
                         .id(tab.id)
                     }
                 }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
+                .padding(.horizontal, 6)
             }
             .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
             .layoutPriority(1)
@@ -159,7 +158,7 @@ struct EditorTabBar: View {
                 }
             }
         }
-        .frame(height: 38)
+        .frame(height: 30)
         .background(WindowDragRegion())
         .background(Color.editorBackground)
         .overlay(alignment: .bottom) {
@@ -206,7 +205,7 @@ private struct EditorTabItem: View {
         .padding(.leading, 8)
         .padding(.trailing, 4)
         .frame(minWidth: 120, maxWidth: 200)
-        .frame(height: 28)
+        .frame(height: 22)
         .background(
             RoundedRectangle(cornerRadius: 6, style: .continuous)
                 .fill(active ? Color.primary.opacity(0.08) : Color.clear)
@@ -273,10 +272,10 @@ struct EditorBreadcrumb: View {
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 12)
+            .padding(.horizontal, 10)
         }
         .scrollBounceBehavior(.basedOnSize, axes: .horizontal)
-        .frame(height: 26)
+        .frame(height: 22)
         .background(Color.editorBackground)
         .background(ScrollElasticityNone())
     }
@@ -325,8 +324,8 @@ struct EditorStatusBar: View {
             }
             statusText(String(localized: String.LocalizationValue(typeName)))
         }
-        .padding(.horizontal, 10)
-        .frame(height: 24)
+        .padding(.horizontal, 8)
+        .frame(height: 22)
         .frame(maxWidth: .infinity)
         .background(Color.editorBackground)
         .overlay(alignment: .top) {
