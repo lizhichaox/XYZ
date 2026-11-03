@@ -3,7 +3,7 @@
 ## 0.5.26
 
 - Editing draws the document text in the real window, not only into an offscreen bitmap. TextKit 2 puts the body in fragment subviews. A layer-backed SwiftUI window was compositing the text view's layer without those subviews, so the gutter showed and the page stayed white. `cacheDisplay` still called `draw` and counted that ink.
-- The folder window keeps the size it was given. The editor's flexible height is no longer written back into the window frame on every layout pass.
+- The folder window keeps the size it was given. The SwiftUI view fills that frame. It is no longer a constraint-based content controller that wrote the editor's flexible height back into the window on every layout pass.
 - Reading has no line numbers. The Reading setting and its gutter are gone, and a saved "on" value does not bring them back. Editing numbers are the source lines. Wrapping does not change them: only the first fragment of a source line is numbered.
 - A one-pixel hairline runs under the title bar, across the sidebar and the editor. Light stays white. The line is the same divider used between the other surfaces.
 - The Explorer header no longer shows a file count. New File, New Folder, Refresh, and Collapse All sit at its trailing edge. Collapse All closes nested folders and does not open them again for the file that is already open.

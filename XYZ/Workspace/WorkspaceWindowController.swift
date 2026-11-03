@@ -104,13 +104,13 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
             self?.moveTabToNewWindow(id)
         }
         guard let window else { return }
-        let host = WorkspaceHostingController(rootView: WorkspaceView(session: session))
-        // The title bar stays, but it must not push the tabs and the filter down a second row.
-        // Only the minimum size is offered back to the window. The flexible editor height
-        // must not become the window's height, or each layout pass grows the frame.
-        host.safeAreaRegions = []
-        host.sizingOptions = [.minSize]
-        window.contentViewController = host
+        // A hosting controller is constraint-based and writes the editor's flexible
+        // height back into the window. Each pass then gets taller until AppKit aborts.
+        // The window frame stays the user's. This view fills that frame.
+        let root = WorkspaceRootView(session: session)
+        root.frame = window.contentRect(forFrameRect: window.frame)
+        root.autoresizingMask = [.width, .height]
+        window.contentView = root
         WorkspaceChrome.apply(to: window, title: session.displayName, subtitle: "", representedFile: nil)
     }
 
@@ -468,20 +468,31 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
     }
 }
 
-/// The workspace fills the window the user sized. SwiftUI's ideal height is unbounded
-/// because the editor uses the full frame, and feeding that back into the window makes
-/// every layout pass taller until AppKit aborts the constraint update.
-private final class WorkspaceHostingController<Content: View>: NSHostingController<Content> {
-    override var preferredContentSize: NSSize {
-        get {
-            guard let window = view.window, window.frame.width > 1, window.frame.height > 1 else {
-                return super.preferredContentSize
-            }
-            return window.contentRect(forFrameRect: window.frame).size
-        }
-        set {
-            guard view.window == nil else { return }
-            super.preferredContentSize = newValue
+/// Fills the titled window. The hosting view does not offer a new window size.
+private final class WorkspaceRootView: NSView {
+    let host: NSHostingView<WorkspaceView>
+
+    init(session: WorkspaceSession) {
+        let host = NSHostingView(rootView: WorkspaceView(session: session))
+        host.safeAreaRegions = []
+        host.sizingOptions = []
+        host.translatesAutoresizingMaskIntoConstraints = true
+        host.autoresizingMask = [.width, .height]
+        self.host = host
+        super.init(frame: .zero)
+        autoresizesSubviews = true
+        addSubview(host)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    override func layout() {
+        super.layout()
+        if host.frame != bounds {
+            host.frame = bounds
         }
     }
 }
