@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.6
+
+- The sidebar in light mode is a step off white (`#F8F8F8`), not a murky grey. Dark mode stays a step under the editor (`#181818`). Expanding a folder lists its children after the click, or shows nothing only when the folder is empty.
+
 ## 0.5.5
 
 - A tab’s menu can close it, close the others, close the tabs to the right, copy its path, or reveal it in Finder. A breadcrumb opens the files and folders beside that segment.

@@ -254,14 +254,14 @@ extension Color {
 
 #if os(macOS)
 extension NSColor {
-    /// One flat sidebar tint. A vibrant material made rows look highlighted as the pointer moved.
+    /// Flat sidebar. Light is a step off white (`#F8F8F8`). Dark is `#181818`, a step under the editor.
     static var xyzSidebar: NSColor {
         NSColor(name: "xyz.sidebar") { appearance in
             let dark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
             if dark {
-                return NSColor(srgbRed: 0.09, green: 0.09, blue: 0.09, alpha: 1)
+                return NSColor(srgbRed: 24.0 / 255.0, green: 24.0 / 255.0, blue: 24.0 / 255.0, alpha: 1)
             }
-            return NSColor(srgbRed: 0.945, green: 0.945, blue: 0.945, alpha: 1)
+            return NSColor(srgbRed: 248.0 / 255.0, green: 248.0 / 255.0, blue: 248.0 / 255.0, alpha: 1)
         }
     }
 }

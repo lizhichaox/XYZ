@@ -124,12 +124,29 @@ struct WorkspaceSidebar: NSViewRepresentable {
             }
             let next = Snapshot(session)
             let treeChanged = force || next != snapshot
-            snapshot = next
             if treeChanged {
-                rebuild(session)
-                applyTree(session)
+                // Reloading inside the disclosure-click stack drops the new children.
+                queueApply()
+            } else {
+                syncSelection(session)
             }
-            syncSelection(session)
+        }
+
+        private var applyQueued = false
+
+        /// Rebuild after the outline finishes the click that expanded a folder.
+        private func queueApply() {
+            guard !applyQueued else { return }
+            applyQueued = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.applyQueued = false
+                guard let session = self.session else { return }
+                self.snapshot = Snapshot(session)
+                self.rebuild(session)
+                self.applyTree(session)
+                self.syncSelection(session)
+            }
         }
 
         private func toggleRoot() {
@@ -900,6 +917,13 @@ fileprivate final class SidebarNode: NSObject {
         self.model = model
         self.highlights = highlights
     }
+
+    override func isEqual(_ object: Any?) -> Bool {
+        guard let other = object as? SidebarNode else { return false }
+        return other.relativePath == relativePath
+    }
+
+    override var hash: Int { relativePath.hashValue }
 }
 
 fileprivate final class SidebarOutlineView: NSOutlineView {
@@ -1182,14 +1206,13 @@ fileprivate final class SidebarRowCell: NSTableCellView {
             )
             icon.image = Self.image(symbol)
             let base: NSColor = node.isHidden ? .secondaryLabelColor : .labelColor
-            let quiet: NSColor = .tertiaryLabelColor
-            icon.contentTintColor = node.isHidden ? .tertiaryLabelColor : .secondaryLabelColor
+            icon.contentTintColor = node.isHidden ? .secondaryLabelColor : .secondaryLabelColor
             label.attributedStringValue = Self.nameText(
                 node.name,
                 base: base,
-                quiet: quiet,
+                quiet: base,
                 highlights: node.highlights,
-                dimExtension: true
+                dimExtension: false
             )
             return
         }
