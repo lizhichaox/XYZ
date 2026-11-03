@@ -811,10 +811,14 @@ private struct FindScan {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        embedBodyInWindowLayer()
         guard window != nil else { return }
         layoutSubtreeIfNeeded()
         alignIfReady()
+        // Layer hosting dirties constraints. Doing it inside this layout pass makes the
+        // window ask for another constraint update until AppKit aborts.
+        DispatchQueue.main.async { [weak self] in
+            self?.embedBodyInWindowLayer()
+        }
     }
 
     func scrollAnchor() -> EditorScrollAnchor {

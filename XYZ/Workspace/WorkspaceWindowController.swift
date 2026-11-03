@@ -10,13 +10,9 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
     private static var isTerminating = false
 
     private(set) var session: WorkspaceSession
-    /// The line-number check pins the frame. SwiftUI otherwise resizes this window
-    /// until AppKit aborts the constraint pass. Production windows keep the default.
-    private let fixedFrame: Bool
 
-    init(session: WorkspaceSession, fixedFrame: Bool = false) {
+    init(session: WorkspaceSession) {
         self.session = session
-        self.fixedFrame = fixedFrame
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 1100, height: 720),
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
@@ -108,12 +104,12 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
             self?.moveTabToNewWindow(id)
         }
         guard let window else { return }
-        let host = NSHostingController(rootView: WorkspaceView(session: session))
+        let host = WorkspaceHostingController(rootView: WorkspaceView(session: session))
         // The title bar stays, but it must not push the tabs and the filter down a second row.
+        // Only the minimum size is offered back to the window. The flexible editor height
+        // must not become the window's height, or each layout pass grows the frame.
         host.safeAreaRegions = []
-        if fixedFrame {
-            host.sizingOptions = []
-        }
+        host.sizingOptions = [.minSize]
         window.contentViewController = host
         WorkspaceChrome.apply(to: window, title: session.displayName, subtitle: "", representedFile: nil)
     }
@@ -469,6 +465,24 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
             return PersistedWorkspaceWindow(bookmark: bookmark, state: controller.session.windowState())
         }
         WorkspaceLibrary.shared.syncWindows(stored)
+    }
+}
+
+/// The workspace fills the window the user sized. SwiftUI's ideal height is unbounded
+/// because the editor uses the full frame, and feeding that back into the window makes
+/// every layout pass taller until AppKit aborts the constraint update.
+private final class WorkspaceHostingController<Content: View>: NSHostingController<Content> {
+    override var preferredContentSize: NSSize {
+        get {
+            guard let window = view.window, window.frame.width > 1, window.frame.height > 1 else {
+                return super.preferredContentSize
+            }
+            return window.contentRect(forFrameRect: window.frame).size
+        }
+        set {
+            guard view.window == nil else { return }
+            super.preferredContentSize = newValue
+        }
     }
 }
 

@@ -503,20 +503,12 @@ enum GutterSnapshotCheck {
         }
         let failure = MainActor.assumeIsolated { () -> String? in
             let session = WorkspaceSession(rootURL: root, bookmark: nil)
-            let host = NSHostingView(rootView: WorkspaceView(session: session))
-            host.sizingOptions = []
-            host.safeAreaRegions = []
-            let frame = NSRect(x: 0, y: 0, width: 1100, height: 720)
-            host.frame = frame
-            let window = NSWindow(
-                contentRect: frame,
-                styleMask: [.borderless],
-                backing: .buffered,
-                defer: false
-            )
+            let controller = WorkspaceWindowController(session: session)
+            guard let window = controller.window, let host = window.contentView else {
+                return "window \(label): the document window was not created"
+            }
             window.appearance = NSAppearance(named: appearance)
             window.title = "XYZ"
-            window.contentView = host
             host.appearance = window.appearance
             session.openRelative(fileName)
             if !waitForBuffer(session, containing: fixture, seconds: 4) {
