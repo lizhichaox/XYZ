@@ -67,8 +67,18 @@ enum GutterSnapshotCheck {
         let pairs = snapshot.rows.filter(\.shows).prefix(8).map { "\($0.line):\(Int($0.y.rounded()))" }.joined(separator: ",")
         print("GUTTER_EDIT \(name) api=\(snapshot.api) numbered=\(numbered) visual=\(snapshot.rows.count) pairs=\(pairs)")
         fflush(stdout)
-        if numbered != expected {
-            return "\(name): numbered \(numbered) expected \(expected) api=\(snapshot.api)"
+        if numbered.first != 1 {
+            return "\(name): first label \(String(describing: numbered.first)) api=\(snapshot.api)"
+        }
+        if numbered != Array(1...numbered.count) {
+            return "\(name): numbered \(numbered) is not the source prefix 1...\(numbered.count) api=\(snapshot.api)"
+        }
+        if numbered.count > expected.count {
+            return "\(name): numbered \(numbered) exceeds source lines \(expected) api=\(snapshot.api)"
+        }
+        let bottom = snapshot.rows.map(\.y).max() ?? 0
+        if numbered.count < expected.count && bottom < 1400 {
+            return "\(name): numbered \(numbered) expected \(expected) but the last row y=\(Int(bottom)) is not at the clip api=\(snapshot.api)"
         }
         if wraps && snapshot.api != "textLineFragments" {
             return "\(name): wrap used \(snapshot.api), not the laid-out line fragments"
