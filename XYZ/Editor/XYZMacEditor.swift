@@ -52,34 +52,32 @@ final class XYZMacTextView: NSTextView {
 
     override func changeColor(_ sender: Any?) {}
 
-    /// The scroll view's own layer was an opaque page over the text. The gutter is drawn
-    /// into the pane, so the numbers showed and every file's body stayed blank. The clip
-    /// only clips. This view's layer sits in that clip, geometry-flipped like the text.
+    /// Line numbers are drawn into the pane, and that is the layer the window shows.
+    /// A text-view layer holds the glyphs and never joins that pane, so the numbers show
+    /// and the file does not. This view draws into the pane instead. The TextKit surfaces
+    /// keep their own layers, which the window drops, so they stay hidden.
     func embedBodyInWindowLayer() {
         clipsToBounds = true
-        wantsLayer = true
+        wantsLayer = false
         canDrawSubviewsIntoLayer = false
-        layerContentsRedrawPolicy = .duringViewResize
         if let scroll = enclosingScrollView {
             scroll.wantsLayer = false
             scroll.canDrawSubviewsIntoLayer = false
             scroll.drawsBackground = false
             scroll.backgroundColor = .clear
             let clip = scroll.contentView
-            clip.wantsLayer = true
+            clip.wantsLayer = false
             clip.canDrawSubviewsIntoLayer = false
             clip.drawsBackground = false
             clip.backgroundColor = .clear
-            clip.layer?.backgroundColor = nil
-            clip.layer?.isOpaque = false
-            clip.layer?.isGeometryFlipped = clip.isFlipped
         }
-        layer?.isGeometryFlipped = isFlipped
         editorPane?.wantsLayer = true
-        editorPane?.canDrawSubviewsIntoLayer = false
+        editorPane?.canDrawSubviewsIntoLayer = true
+        hideFragmentViews()
         guard window != nil else { return }
         textLayoutManager?.textViewportLayoutController.layoutViewport()
         needsDisplay = true
+        editorPane?.needsDisplay = true
     }
 
     override func viewDidChangeEffectiveAppearance() {
@@ -628,14 +626,17 @@ private struct FindScan {
         hideFragmentViews()
     }
 
-    /// Fragment views stay in the tree for hit testing, but their layers are what a
-    /// SwiftUI window drops. The glyphs painted in `draw` are the ones on screen.
+    /// These surfaces have their own layers. The window shows the pane's drawing, not those layers.
     private func hideFragmentViews() {
         for subview in subviews {
             let name = NSStringFromClass(type(of: subview))
-            guard name.contains("Fragment") || name.contains("Viewport") else { continue }
-            if subview.alphaValue != 0 {
-                subview.alphaValue = 0
+            let surface = name.contains("Fragment")
+                || name.contains("Viewport")
+                || name.contains("Content")
+                || name.contains("RenderingSurface")
+            guard surface else { continue }
+            if !subview.isHidden {
+                subview.isHidden = true
             }
         }
     }
@@ -1048,7 +1049,7 @@ final class EditorPane: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        canDrawSubviewsIntoLayer = false
+        canDrawSubviewsIntoLayer = true
         gutter.translatesAutoresizingMaskIntoConstraints = true
         scrollView.translatesAutoresizingMaskIntoConstraints = true
         addSubview(gutter)
@@ -1239,13 +1240,13 @@ struct XYZMacEditor: NSViewRepresentable {
         scrollView.horizontalScrollElasticity = .none
         scrollView.contentView.automaticallyAdjustsContentInsets = false
         scrollView.contentView.contentInsets = NSEdgeInsets()
-        // The scroll view must not take an opaque layer. That layer is what the window
-        // shows instead of the text. The clip view only clips a clear layer.
+        // The body is drawn into the pane, with the line numbers. A layer on the clip
+        // covers that drawing with an empty page.
         scrollView.clipsToBounds = true
         scrollView.wantsLayer = false
         scrollView.canDrawSubviewsIntoLayer = false
         scrollView.contentView.clipsToBounds = true
-        scrollView.contentView.wantsLayer = true
+        scrollView.contentView.wantsLayer = false
         scrollView.contentView.canDrawSubviewsIntoLayer = false
         scrollView.contentView.drawsBackground = false
         scrollView.contentView.backgroundColor = .clear
@@ -1318,7 +1319,7 @@ struct XYZMacEditor: NSViewRepresentable {
         scrollView.drawsBackground = false
         scrollView.backgroundColor = .clear
         scrollView.contentView.clipsToBounds = true
-        scrollView.contentView.wantsLayer = true
+        scrollView.contentView.wantsLayer = false
         scrollView.contentView.canDrawSubviewsIntoLayer = false
         scrollView.contentView.drawsBackground = false
         scrollView.contentView.backgroundColor = .clear

@@ -702,7 +702,9 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate, WKScriptMessa
 private enum PreviewWebChrome {
     static func apply(to webView: WKWebView) {
         #if os(macOS)
-        webView.setValue(false, forKey: "drawsBackground")
+        // Leaving drawsBackground off kept the web process layer out of the window,
+        // so Reading had the HTML and showed an empty page.
+        webView.setValue(true, forKey: "drawsBackground")
         webView.underPageBackgroundColor = .textBackgroundColor
         webView.layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
         silence(webView)

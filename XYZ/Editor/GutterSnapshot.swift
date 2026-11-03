@@ -521,6 +521,11 @@ enum GutterSnapshotCheck {
             var readingFailure: String?
             if checkReading {
                 let page = waitForReadingText(in: host, needle: "Glyphsample", seconds: 4)
+                if let web = findWebView(in: host) {
+                    print("GUTTER_WINDOW web=\(Int(web.frame.width))x\(Int(web.frame.height)) hidden=\(web.isHidden ? 1 : 0) superview=\(web.superview == nil ? 0 : 1)")
+                    fflush(stdout)
+                }
+                pump(0.4)
                 window.displayIfNeeded()
                 let columns = columnFrames(in: host)
                 if let shot = shownImage(of: window, content: host) {
