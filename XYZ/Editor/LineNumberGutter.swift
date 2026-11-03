@@ -34,8 +34,24 @@ final class LineNumberGutter: NSView {
 
     func invalidateLines() {
         cachedIndex = nil
+        geometryKey = ""
         needsDisplay = true
     }
+
+    /// Redraw only when the scroll, the line count, or the caret line changed.
+    func noteGeometryChanged() {
+        let origin = textView?.visibleRect.origin.y ?? -1
+        let count = lineIndex().count
+        let length = (textView?.string as NSString?)?.length ?? 0
+        let caret = textView.map { lineIndex().line(at: min(max(0, $0.selectedRange().location), length)) } ?? 0
+        let wrap = textView?.style.wraps == true
+        let key = "\(Int(origin.rounded())):\(count):\(caret):\(wrap):\(Int(bounds.height.rounded()))"
+        guard key != geometryKey else { return }
+        geometryKey = key
+        needsDisplay = true
+    }
+
+    private var geometryKey = ""
 
     private var cachedIndex: LineIndex?
 
@@ -76,6 +92,7 @@ final class LineNumberGutter: NSView {
         var drawn = 0
         var first = 0
         var last = 0
+        var pairs: [String] = []
         for (index, row) in placed.rows.enumerated() {
             if row.y > bounds.maxY || row.y + row.height < 0 { continue }
             if highlight.indices.contains(index), highlight[index] {
@@ -92,6 +109,9 @@ final class LineNumberGutter: NSView {
             label.draw(at: NSPoint(x: x, y: textY), withAttributes: attributes)
             if drawn == 0 { first = row.line }
             last = row.line
+            if pairs.count < 6 {
+                pairs.append("\(row.line):\(Int(textY.rounded()))")
+            }
             drawn += 1
         }
         XYZDiagnostics.gutterDraw(
@@ -101,7 +121,10 @@ final class LineNumberGutter: NSView {
             first: first,
             last: last,
             color: Self.colorDescription(plainColor),
-            api: placed.api
+            api: placed.api,
+            pairs: pairs.joined(separator: ","),
+            wrap: textView.style.wraps,
+            mode: "editing"
         )
     }
 
@@ -117,12 +140,9 @@ final class LineNumberGutter: NSView {
     /// Without fragments, and with wrapping off, one slot per source line.
     private func placedRows(textView: XYZMacTextView, lineCount: Int) -> (rows: [Row], api: String) {
         let fragments = fragmentRows(textView: textView)
-        let visible = fragments.filter { $0.y < bounds.maxY && $0.y + $0.height > 0 }
-        if !visible.isEmpty {
-            return (visible, "textLineFragments")
-        }
-        if textView.style.wraps {
-            return ([], "wrapped-unlaid")
+        let numbered = fragments.filter { $0.showsNumber && $0.y < bounds.maxY && $0.y + $0.height > 0 }
+        if !numbered.isEmpty {
+            return (fragments.filter { $0.y < bounds.maxY && $0.y + $0.height > 0 }, "textLineFragments")
         }
         return (lineBoxRows(textView: textView, lineCount: lineCount), "lineBox")
     }
@@ -156,19 +176,21 @@ final class LineNumberGutter: NSView {
                 ))
                 return true
             }
+            let frame = fragment.layoutFragmentFrame
+            var cursor = originY + frame.minY - visible.minY
             for lineFragment in lineFragments {
                 let offset = base + lineFragment.characterRange.location
                 let line = lines.line(at: max(0, offset))
                 let shows = previousLine != line
                 previousLine = line
-                let bounds = lineFragment.typographicBounds
-                let frame = fragment.layoutFragmentFrame
+                let height = max(lineFragment.typographicBounds.height, 1)
                 rows.append(Row(
                     line: line,
                     showsNumber: shows,
-                    y: originY + frame.minY + bounds.minY - visible.minY,
-                    height: max(bounds.height, 1)
+                    y: cursor,
+                    height: height
                 ))
+                cursor += height
             }
             return true
         }

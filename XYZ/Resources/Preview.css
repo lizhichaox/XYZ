@@ -335,7 +335,7 @@ html[data-lines="true"] body {
   left: 0;
   top: 0;
   width: 3em;
-  height: 0;
+  overflow: visible;
   pointer-events: none;
   color: var(--muted);
   font-size: 0.75em;

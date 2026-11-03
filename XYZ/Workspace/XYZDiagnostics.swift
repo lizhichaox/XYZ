@@ -67,6 +67,8 @@ enum XYZDiagnostics {
         note(editorTree())
     }
 
+    private static var lastGutterSignature = ""
+
     static func gutterDraw(
         dirty: NSRect,
         bounds: NSRect,
@@ -74,12 +76,22 @@ enum XYZDiagnostics {
         first: Int,
         last: Int,
         color: String,
-        api: String
+        api: String,
+        pairs: String = "",
+        wrap: Bool = false,
+        mode: String = "editing"
     ) {
         guard enabled else { return }
+        _ = dirty
+        _ = bounds
+        _ = first
+        _ = last
+        _ = color
+        let signature = "\(mode)|\(wrap ? 1 : 0)|\(lines)|\(pairs)|\(api)"
+        guard signature != lastGutterSignature else { return }
+        lastGutterSignature = signature
         drawLogs += 1
-        if drawLogs > 80 && drawLogs % 30 != 0 { return }
-        note("gutter draw #\(drawLogs) dirty=\(rect(dirty)) bounds=\(rect(bounds)) lines=\(lines) first=\(first) last=\(last) color=\(color) api=\(api)")
+        note("gutter labels mode=\(mode) wrap=\(wrap ? 1 : 0) count=\(lines) pairs=\(pairs) api=\(api)")
     }
 
     static func keyDown(code: UInt16, before: Int, after: Int) {

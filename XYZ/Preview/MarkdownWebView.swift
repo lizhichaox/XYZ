@@ -27,6 +27,7 @@ final class PreviewWebHost {
         coordinator.openFile = { [weak self] url in self?.openFile?(url) }
         created.navigationDelegate = coordinator
         created.configuration.userContentController.add(coordinator, name: "xyzAnchor")
+        created.configuration.userContentController.add(coordinator, name: "xyzGutter")
         storage = created
         coordinatorStorage = coordinator
         PreviewLog.logger.notice("webview created")
@@ -471,6 +472,25 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate, WKScriptMessa
     private var pendingReadingAlign: Int?
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        if message.name == "xyzGutter" {
+            let body = message.body as? [String: Any]
+            let count = Self.intValue(body?["count"])
+            let pairs = body?["pairs"] as? String ?? ""
+            let wrap = Self.intValue(body?["wrap"]) == 1
+            XYZDiagnostics.gutterDraw(
+                dirty: .zero,
+                bounds: .zero,
+                lines: count,
+                first: 0,
+                last: 0,
+                color: "reading",
+                api: "webview",
+                pairs: pairs,
+                wrap: wrap,
+                mode: "reading"
+            )
+            return
+        }
         guard message.name == "xyzAnchor" else { return }
         let body = message.body as? [String: Any]
         let line = Self.intValue(body?["line"])
@@ -846,7 +866,8 @@ private enum PreviewPage {
           xyzPinned = 0;
           xyzPinUntil = 0;
           xyzDecorate();
-          if (typeof xyzLayoutGutter === "function") xyzLayoutGutter();
+          xyzGutterSignature = "";
+          if (typeof xyzScheduleGutter === "function") xyzScheduleGutter();
         }
         function setBase(href) {
           var base = document.getElementById("xyz-base");
@@ -958,30 +979,27 @@ private enum PreviewPage {
           }
           requestAnimationFrame(function() { requestAnimationFrame(place); });
         }
-        function xyzBlockLabels(start, end, visualRows) {
-          if (visualRows < 1) return [];
-          start = Math.max(1, start | 0);
-          end = Math.max(start, end | 0);
-          var logical = end - start + 1;
-          var rows = [];
-          if (visualRows <= logical) {
-            for (var i = 0; i < visualRows; i++) rows.push(start + i);
-            return rows;
-          }
-          var extra = visualRows - logical;
-          var share = Math.floor(extra / logical);
-          var remainder = extra % logical;
-          for (var offset = 0; offset < logical; offset++) {
-            rows.push(start + offset);
-            var blanks = share;
-            if (remainder > 0) { blanks += 1; remainder -= 1; }
-            for (var b = 0; b < blanks; b++) rows.push(null);
-          }
-          return rows;
-        }
+        var xyzGutterTimer = 0;
+        var xyzGutterSignature = "";
         function setLineNumbers(on) {
           document.documentElement.setAttribute("data-lines", on ? "true" : "false");
-          xyzLayoutGutter();
+          xyzScheduleGutter();
+        }
+        function xyzScheduleGutter() {
+          if (xyzGutterTimer) return;
+          xyzGutterTimer = setTimeout(function() {
+            xyzGutterTimer = 0;
+            xyzLayoutGutter();
+          }, 80);
+        }
+        function xyzLeafBlocks(content) {
+          var all = content.querySelectorAll("[data-line]");
+          var leaves = [];
+          for (var i = 0; i < all.length; i++) {
+            if (all[i].querySelector("[data-line]")) continue;
+            leaves.push(all[i]);
+          }
+          return leaves;
         }
         function xyzLayoutGutter() {
           var host = document.getElementById("xyz-gutter");
@@ -990,35 +1008,52 @@ private enum PreviewPage {
             host.id = "xyz-gutter";
             document.body.appendChild(host);
           }
-          host.textContent = "";
-          if (document.documentElement.getAttribute("data-lines") !== "true") return;
+          if (document.documentElement.getAttribute("data-lines") !== "true") {
+            if (xyzGutterSignature !== "off") {
+              xyzGutterSignature = "off";
+              host.textContent = "";
+            }
+            return;
+          }
           var content = document.getElementById("content");
           if (!content) return;
-          var lineH = parseFloat(getComputedStyle(document.body).lineHeight);
-          if (!lineH || lineH < 1) lineH = 24;
-          var blocks = content.querySelectorAll("[data-line]");
-          var gutterTop = host.getBoundingClientRect().top + window.scrollY;
-          for (var i = 0; i < blocks.length; i++) {
-            var block = blocks[i];
-            var start = parseInt(block.getAttribute("data-line"), 10) || 0;
+          var gutterRect = host.getBoundingClientRect();
+          var leaves = xyzLeafBlocks(content);
+          var placed = [];
+          var lastY = -100000;
+          var gap = 12;
+          for (var i = 0; i < leaves.length; i++) {
+            var start = parseInt(leaves[i].getAttribute("data-line"), 10) || 0;
             if (start < 1) continue;
-            var end = parseInt(block.getAttribute("data-end"), 10) || start;
-            if (end < start) end = start;
-            var rect = block.getBoundingClientRect();
-            var visual = Math.max(1, Math.round(rect.height / lineH));
-            var labels = xyzBlockLabels(start, end, visual);
-            var top = rect.top + window.scrollY;
-            for (var row = 0; row < labels.length; row++) {
-              if (labels[row] == null) continue;
-              var label = document.createElement("div");
-              label.className = "xyz-ln";
-              label.setAttribute("data-source-line", String(labels[row]));
-              label.textContent = String(labels[row]);
-              label.style.top = (top - gutterTop + row * lineH) + "px";
-              host.appendChild(label);
-            }
+            var rect = leaves[i].getBoundingClientRect();
+            if (rect.height < 1 && rect.width < 1) continue;
+            var y = Math.round(rect.top - gutterRect.top);
+            if (y < lastY + gap) continue;
+            placed.push({line: start, y: y});
+            lastY = y;
+          }
+          var parts = [];
+          for (var p = 0; p < Math.min(placed.length, 6); p++) parts.push(placed[p].line + ":" + placed[p].y);
+          var signature = placed.length + "|" + parts.join(",");
+          if (signature === xyzGutterSignature) {
+            xyzMarkCurrentLine();
+            return;
+          }
+          xyzGutterSignature = signature;
+          host.textContent = "";
+          for (var n = 0; n < placed.length; n++) {
+            var label = document.createElement("div");
+            label.className = "xyz-ln";
+            label.setAttribute("data-source-line", String(placed[n].line));
+            label.textContent = String(placed[n].line);
+            label.style.top = placed[n].y + "px";
+            host.appendChild(label);
           }
           xyzMarkCurrentLine();
+          var handlers = window.webkit && window.webkit.messageHandlers;
+          if (handlers && handlers.xyzGutter) {
+            handlers.xyzGutter.postMessage({count: placed.length, pairs: parts.join(","), wrap: 1, mode: "reading"});
+          }
         }
         function xyzMarkCurrentLine() {
           var host = document.getElementById("xyz-gutter");
@@ -1037,6 +1072,7 @@ private enum PreviewPage {
           var images = root.querySelectorAll("img");
           for (var i = 0; i < images.length; i++) {
             images[i].addEventListener("error", xyzMissingImage, {once: true});
+            images[i].addEventListener("load", xyzScheduleGutter, {once: true});
           }
           if (!window.hljs) return;
           var blocks = root.querySelectorAll("pre code[class*='language-']");
@@ -1051,6 +1087,7 @@ private enum PreviewPage {
           label.className = "missing-image";
           label.textContent = image.getAttribute("alt") || image.getAttribute("src") || "";
           image.replaceWith(label);
+          if (typeof xyzScheduleGutter === "function") xyzScheduleGutter();
         }
         // #fragment links scroll to the heading. The page's <base> would otherwise turn them into a navigation.
         document.addEventListener("click", function(event) {
@@ -1167,7 +1204,7 @@ private enum PreviewPage {
           xyzReport();
         }
         window.addEventListener("scroll", function() { xyzReport(); if (typeof xyzMarkCurrentLine === "function") xyzMarkCurrentLine(); }, {passive: true});
-        window.addEventListener("resize", function() { if (typeof xyzLayoutGutter === "function") xyzLayoutGutter(); });
+        window.addEventListener("resize", function() { if (typeof xyzScheduleGutter === "function") xyzScheduleGutter(); });
         function xyzUnpin() { xyzPinned = 0; xyzPinUntil = 0; }
         window.addEventListener("wheel", xyzUnpin, {passive: true});
         window.addEventListener("touchmove", xyzUnpin, {passive: true});

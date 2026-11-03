@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.22
+
+- Editing always shows line numbers, with wrapping on or off. A wrapped continuation stays blank. The number is the source line.
+- Reading line numbers sit on the block they belong to. A list item, code fence, or table row uses its own source line. A block that cannot be split shows only its start line, and a number that would overlap the one above it is left off.
+- Gutter diagnostics log how many labels were drawn and the first line and y pairs. Repeated draws with the same labels are skipped.
+
 ## 0.5.21
 
 - Clicking the pin on a pinned tab unpins it. The pin sits in the close slot. Hovering it shows Unpin, and an accent tint. Middle-click still does not close a pinned tab.

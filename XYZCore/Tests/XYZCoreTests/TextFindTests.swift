@@ -102,6 +102,27 @@ final class LogicalLineGutterTests: XCTestCase {
         XCTAssertEqual(LogicalLineGutter.blockLabels(start: 8, end: 9, visualRows: 4), [8, nil, 9, nil])
     }
 
+    func testEditingGutterLabelsLineOne() {
+        let plain = LogicalLineGutter.editingLabels(text: "a\nb", fragmentLines: nil)
+        XCTAssertFalse(plain.isEmpty)
+        XCTAssertEqual(plain.compactMap { $0 }.first, Optional(1))
+        let wrapped = LogicalLineGutter.editingLabels(text: "alpha beta\nsecond", fragmentLines: [1, 1, 2])
+        XCTAssertEqual(wrapped.compactMap { $0 }.first, Optional(1))
+        XCTAssertFalse(wrapped.compactMap { $0 }.isEmpty)
+    }
+
+    func testReadingLabelYsStrictlyIncrease() {
+        let placed = LogicalLineGutter.placedReading(
+            blocks: [(line: 1, y: 10), (line: 4, y: 10), (line: 8, y: 40), (line: 9, y: 44), (line: 12, y: 90)],
+            minimumGap: 8
+        )
+        XCTAssertEqual(placed.map(\.line), [1, 8, 12])
+        let ys = placed.map(\.y)
+        for index in 1..<ys.count {
+            XCTAssertGreaterThan(ys[index], ys[index - 1])
+        }
+    }
+
     func testCurrentLineHighlightFollowsTheLogicalLine() {
         XCTAssertEqual(
             LogicalLineGutter.highlighted(sourceLines: [1, 1, 2, 3, 3], caret: 1),

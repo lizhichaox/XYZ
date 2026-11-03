@@ -24,6 +24,46 @@ public enum LogicalLineGutter {
         sourceLines.map { $0 == caret }
     }
 
+    /// Labels for Editing. Fragment lines mark wrapped continuations blank.
+    /// With no fragments, every source line is labeled, including line 1. Never empty.
+    public static func editingLabels(text: String, fragmentLines: [Int]?) -> [Int?] {
+        if let fragmentLines, !fragmentLines.isEmpty {
+            var previous: Int?
+            return fragmentLines.map { raw in
+                let line = max(1, raw)
+                if previous == line { return nil }
+                previous = line
+                return line
+            }
+        }
+        let count = max(1, LineIndex(text).count)
+        return (1...count).map { Optional($0) }
+    }
+
+    public struct ReadingLabel: Equatable, Sendable {
+        public var line: Int
+        public var y: CGFloat
+
+        public init(line: Int, y: CGFloat) {
+            self.line = line
+            self.y = y
+        }
+    }
+
+    /// One number per rendered block, at that block's top.
+    /// A label that would not sit strictly below the previous one is skipped.
+    public static func placedReading(blocks: [(line: Int, y: CGFloat)], minimumGap: CGFloat) -> [ReadingLabel] {
+        var placed: [ReadingLabel] = []
+        let gap = max(0, minimumGap)
+        for block in blocks where block.line > 0 {
+            if let last = placed.last, block.y < last.y + gap {
+                continue
+            }
+            placed.append(ReadingLabel(line: block.line, y: block.y))
+        }
+        return placed
+    }
+
     /// One rendered block. `start` and `end` are inclusive 1-based source lines.
     public struct Block: Equatable, Sendable {
         public var start: Int

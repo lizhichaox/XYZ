@@ -967,7 +967,7 @@ final class EditorPane: NSView {
             queue: .main
         ) { [weak self] _ in
             MainActor.assumeIsolated { () -> Void in
-                self?.gutter.needsDisplay = true
+                self?.gutter.noteGeometryChanged()
             }
         }
         needsLayout = true
@@ -975,7 +975,7 @@ final class EditorPane: NSView {
 
     func noteTextLayout() {
         // Display only. Marking the pane dirty from the text view's layout never finishes.
-        gutter.needsDisplay = true
+        gutter.noteGeometryChanged()
     }
 
     override func layout() {
@@ -994,9 +994,12 @@ final class EditorPane: NSView {
         }
         let gutterFrame = NSRect(x: 0, y: 0, width: width, height: bounds.height)
         let scrollFrame = NSRect(x: width, y: 0, width: max(1, bounds.width - width), height: bounds.height)
+        let frameChanged = gutter.frame != gutterFrame || scrollView.frame != scrollFrame
         if gutter.frame != gutterFrame { gutter.frame = gutterFrame }
         if scrollView.frame != scrollFrame { scrollView.frame = scrollFrame }
-        gutter.needsDisplay = true
+        if frameChanged {
+            gutter.noteGeometryChanged()
+        }
     }
 
     /// The hosting view includes the status bar. Keep this pane above that bar.
