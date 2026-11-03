@@ -31,16 +31,17 @@ struct XYZEditorStyle: Equatable {
     /// Line box height relative to the font size. Markdown source stores a hard return
     /// on every line, so this is a minimum line height rather than spacing between wraps.
     var lineHeight: CGFloat = 1.7
-    var horizontalInset: CGFloat = 24
+    var horizontalInset: CGFloat = 13
     var verticalInset: CGFloat = 8
     var monospaced: Bool = false
     var readableWidth: Bool = false
     /// Long lines break to the editor width. Off scrolls sideways.
     var wraps: Bool = true
 
-    /// Side padding is 5% of the pane, clamped to 24...64 points. The text uses the remaining width.
+    /// A small fixed side margin. Line numbers widen the left side on their own.
     static func sideInset(for paneWidth: CGFloat) -> CGFloat {
-        min(64, max(24, floor(paneWidth * 0.05)))
+        _ = paneWidth
+        return 13
     }
 
     /// With a readable width, wide panes add padding so a line holds about 42 em: 42 Chinese

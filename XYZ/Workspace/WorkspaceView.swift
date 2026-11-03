@@ -44,6 +44,9 @@ struct WorkspaceView: View {
                 .background(Color.editorBackground.ignoresSafeArea())
         }
         .navigationSplitViewStyle(.balanced)
+        .toolbarRole(.editor)
+        .toolbarBackground(.hidden, for: .windowToolbar)
+        .toolbar(.hidden, for: .windowToolbar)
         .ignoresSafeArea(edges: .top)
         .frame(minWidth: 880, minHeight: 520)
         .background(WorkspaceWindowChrome(
@@ -162,7 +165,7 @@ final class WorkspaceChromeView: NSView {
     private func reportTrafficInset() {
         guard let window else { return }
         let lights = window.standardWindowButton(.zoomButton)?.frame.maxX ?? 70
-        onTrafficInset(lights + 36)
+        onTrafficInset(lights + 12)
     }
 }
 
@@ -174,6 +177,11 @@ enum WorkspaceChrome {
         window.titlebarSeparatorStyle = .none
         window.toolbarStyle = .unifiedCompact
         window.toolbar?.showsBaselineSeparator = false
+        // The split view's toolbar is only the sidebar button, and it paints over the tabs.
+        // ⌃⌘S and View → Toggle Sidebar remain.
+        if window.toolbar != nil {
+            window.toolbar = nil
+        }
         if !window.styleMask.contains(.fullSizeContentView) {
             window.styleMask.insert(.fullSizeContentView)
         }

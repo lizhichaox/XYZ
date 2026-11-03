@@ -79,13 +79,13 @@ body {
 
 article {
   margin: 0;
-  padding: 8px clamp(24px, 5vw, 64px) 48px;
+  padding: 8px 13px 48px;
   hanging-punctuation: first last;
 }
 
 /* Settings → Limit line width: about 42 em of text, the editor's measure. */
 :root[data-readable="true"] article {
-  max-width: calc(42em + 2 * clamp(24px, 5vw, 64px));
+  max-width: calc(42em + 26px);
   margin-inline: auto;
 }
 

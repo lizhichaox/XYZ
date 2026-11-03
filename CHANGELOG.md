@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.2
+
+- The window toolbar no longer covers the tabs. The tab row is visible and clickable, level with the traffic lights. With the sidebar collapsed, the tabs start just after the lights. ⌃⌘S still toggles the sidebar.
+- Source text starts about 13 points from the pane edge. Line numbers still widen that side when they are on.
+
 ## 0.3.1
 
 - The tab bar sits in the title-bar row, level with the traffic lights. The filter sits just under that row. The path, the status bar, and the space above the first line are shorter.
