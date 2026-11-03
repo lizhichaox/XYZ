@@ -600,12 +600,13 @@ private struct FindScan {
     /// Turns numbers on or off on this view. Called from SwiftUI updates, including a mode
     /// change on a text view that is already on screen.
     func syncLineNumbers(_ show: Bool) {
-        let turnedOn = showsLineNumbers != show
-        showsLineNumbers = show
-        if turnedOn {
+        if showsLineNumbers != show {
+            showsLineNumbers = show
             showViewport()
+        } else if show {
+            editorPane?.needsLayout = true
+            editorPane?.gutter.needsDisplay = true
         }
-        editorPane?.revealGutter()
     }
 
     /// TextKit 2 only draws the laid-out viewport. A mode change has to ask for it again.
@@ -613,30 +614,6 @@ private struct FindScan {
         textLayoutManager?.textViewportLayoutController.layoutViewport()
         needsDisplay = true
         enclosingScrollView?.needsDisplay = true
-    }
-
-    /// Gives the gutter a real wrap width and a viewport. The clip width is the wrap measure.
-    /// `contentSize` is the laid-out text, which is already one long row before wrapping is applied.
-    /// Does not read `layoutManager`: that TextKit 1 property replaces `textLayoutManager`.
-    /// Does not change the text view's height. A height of 1 hides the body while the gutter still numbers.
-    func prepareLineNumberLayout() {
-        guard showsLineNumbers, let manager = textLayoutManager else { return }
-        guard let scroll = enclosingScrollView else { return }
-        let clip = max(scroll.contentView.bounds.width, scroll.bounds.width)
-        guard clip > 1 else { return }
-        var widthChanged = false
-        if style.wraps {
-            textContainer?.widthTracksTextView = true
-            let next = max(1, clip - 1)
-            if abs((textContainer?.containerSize.width ?? 0) - next) > 0.5 {
-                textContainer?.containerSize = NSSize(width: next, height: CGFloat.greatestFiniteMagnitude)
-                widthChanged = true
-            }
-        }
-        let viewport = manager.textViewportLayoutController
-        if widthChanged || viewport.viewportRange == nil {
-            viewport.layoutViewport()
-        }
     }
 
     /// The side padding from Settings. Line numbers live in the sibling gutter, not in this inset.
@@ -1013,12 +990,6 @@ final class EditorPane: NSView {
         clamping = true
         clampAboveStatusBar()
         clamping = false
-        revealGutter()
-    }
-
-    /// Puts the gutter beside the text and above the scroll view. A scroll view that still
-    /// fills the pane covers the numbers, which is what the standalone harness never did.
-    func revealGutter() {
         let show = gutter.textView?.showsLineNumbers == true
         gutter.isHidden = !show
         let width: CGFloat
@@ -1029,25 +1000,12 @@ final class EditorPane: NSView {
         }
         let gutterFrame = NSRect(x: 0, y: 0, width: width, height: bounds.height)
         let scrollFrame = NSRect(x: width, y: 0, width: max(1, bounds.width - width), height: bounds.height)
+        let frameChanged = gutter.frame != gutterFrame || scrollView.frame != scrollFrame
         if gutter.frame != gutterFrame { gutter.frame = gutterFrame }
         if scrollView.frame != scrollFrame { scrollView.frame = scrollFrame }
-        if gutter.superview === self, subviews.last !== gutter {
-            addSubview(gutter, positioned: .above, relativeTo: scrollView)
+        if frameChanged {
+            gutter.noteGeometryChanged()
         }
-        scrollView.layoutSubtreeIfNeeded()
-        gutter.textView?.prepareLineNumberLayout()
-        gutter.noteGeometryChanged()
-        let layout = gutter.textView?.textLayoutManager == nil ? "textkit1" : "textkit2"
-        XYZDiagnostics.gutterMount(
-            wrap: gutter.textView?.style.wraps == true,
-            enabled: show,
-            attached: gutter.superview != nil,
-            hidden: gutter.isHidden,
-            width: gutter.frame.width,
-            height: gutter.frame.height,
-            scrollX: scrollView.frame.minX,
-            layout: layout
-        )
     }
 
     /// The hosting view includes the status bar. Keep this pane above that bar.
@@ -1116,6 +1074,7 @@ struct XYZMacEditor: NSViewRepresentable {
         textView.usesFindBar = false
         textView.isIncrementalSearchingEnabled = true
         textView.drawsBackground = true
+        // The clip view's background layer sits over TextKit 2 fragments once the gutter is added.
         textView.clipsToBounds = true
         textView.usesAdaptiveColorMappingForDarkAppearance = false
         textView.isVerticallyResizable = true
@@ -1153,6 +1112,8 @@ struct XYZMacEditor: NSViewRepresentable {
         scrollView.horizontalScrollElasticity = .none
         scrollView.contentView.automaticallyAdjustsContentInsets = false
         scrollView.contentView.contentInsets = NSEdgeInsets()
+        // The clip view's background layer sits over TextKit 2 fragments. The text view paints
+        // the canvas itself.
         scrollView.clipsToBounds = true
         scrollView.contentView.clipsToBounds = true
         scrollView.contentView.drawsBackground = false
@@ -1164,17 +1125,9 @@ struct XYZMacEditor: NSViewRepresentable {
         context.coordinator.restyle(edited: nil)
         context.coordinator.observeScroll(of: scrollView)
         applyWrap(textView: textView, scrollView: scrollView, wraps: style.wraps)
-        // Same construction as 0147da3, the last revision whose folder window showed the note.
         textView.layoutManager?.allowsNonContiguousLayout = true
-        noteHostedTextSystem(textView, stage: "make")
+        assert(textView.textLayoutManager != nil, "XYZEditor requires TextKit 2")
         return pane
-    }
-
-    private func noteHostedTextSystem(_ textView: XYZMacTextView, stage: String) {
-        guard ProcessInfo.processInfo.arguments.contains(GutterSnapshotCheck.argument) else { return }
-        let path = textView.textLayoutManager == nil ? "textkit1" : "textkit2"
-        print("GUTTER_PROD stage=\(stage) path=\(path) numbers=\(lineNumbers ? 1 : 0) wrap=\(style.wraps ? 1 : 0)")
-        fflush(stdout)
     }
 
     func updateNSView(_ pane: EditorPane, context: Context) {
@@ -1205,10 +1158,8 @@ struct XYZMacEditor: NSViewRepresentable {
         scrollView.contentView.automaticallyAdjustsContentInsets = false
         scrollView.contentView.contentInsets = NSEdgeInsets()
         scrollView.clipsToBounds = true
-        scrollView.drawsBackground = true
         scrollView.contentView.clipsToBounds = true
         scrollView.contentView.drawsBackground = false
-        textView.clipsToBounds = true
         textView.documentUndoManager = undoManager
         scrollLink.capture = { [weak textView] in
             textView?.scrollAnchor() ?? EditorScrollAnchor(fraction: 0, probe: "", line: 1)
@@ -1686,17 +1637,11 @@ enum EditorTypography {
         keepViewportLayout(textView, displayViewport: true)
     }
 
-    /// Keeps viewport layout after an attribute edit. TextKit 1 uses `allowsNonContiguousLayout`.
-    /// Reading `layoutManager` on a TextKit 2 view installs TextKit 1, so that read stays on the
-    /// TextKit 1 branch.
+    /// `setAttributes` can clear `allowsNonContiguousLayout`. Put it back so scrolling stays on the viewport.
     private static func keepViewportLayout(_ textView: NSTextView, displayViewport: Bool = false) {
-        if let manager = textView.textLayoutManager {
-            if displayViewport {
-                manager.textViewportLayoutController.layoutViewport()
-            }
-            return
-        }
         textView.layoutManager?.allowsNonContiguousLayout = true
+        guard displayViewport, let manager = textView.textLayoutManager else { return }
+        manager.textViewportLayoutController.layoutViewport()
     }
 
     /// Muted colors in the spirit of VS Code Dark Modern and Light Modern.
