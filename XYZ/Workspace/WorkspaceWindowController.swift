@@ -126,6 +126,17 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
         nil
     }
 
+    /// Closing the last tab of a window is not closing the window; closing a window
+    /// saves every open file first. The window stays open when a save fails and the
+    /// user chooses to keep editing.
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        if Self.isTerminating { return true }
+        let unsaved = session.unsavedForClose()
+        guard !unsaved.isEmpty else { return true }
+        session.presentForClose(unsaved[0])
+        return Self.confirmUnsaved(unsaved, action: "Close Anyway")
+    }
+
     nonisolated func windowWillClose(_ notification: Notification) {
         MainActor.assumeIsolated {
             session.shutdown()
@@ -243,6 +254,9 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
         let controller = WorkspaceWindowController(session: session)
         controllers.append(controller)
         if let tabs {
+            // The reads land later. The session calls `onTabsChanged` when the
+            // restore is done, and that is what writes the window list. Writing
+            // it here would save the empty strip over the list being restored.
             session.restoreTabs(tabs)
         }
         controller.showWindow(nil)
@@ -251,7 +265,9 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
         if let data {
             WorkspaceLibrary.shared.remember(name: resolved.lastPathComponent, data: data, url: resolved)
         }
-        persistOpenWindows()
+        if tabs == nil {
+            persistOpenWindows()
+        }
         return controller
     }
 
@@ -442,12 +458,44 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
         return opened
     }
 
-    static func prepareForQuit() {
+    /// Saves every open folder window before the app goes away. Returns false when the
+    /// user chooses to keep editing after a file could not be saved.
+    @discardableResult
+    static func prepareForQuit() -> Bool {
+        var unsaved: [WorkspaceFileBuffer] = []
+        var firstFailure: (WorkspaceWindowController, WorkspaceFileBuffer)?
+        for controller in controllers {
+            let dirty = controller.session.unsavedForClose()
+            if firstFailure == nil, let open = dirty.first {
+                firstFailure = (controller, open)
+            }
+            unsaved += dirty
+        }
+        if !unsaved.isEmpty {
+            if let failure = firstFailure {
+                failure.0.session.presentForClose(failure.1)
+            }
+            guard confirmUnsaved(unsaved, action: "Quit Anyway") else { return false }
+        }
         isTerminating = true
         for controller in controllers {
             controller.session.shutdown()
         }
         persistOpenWindows()
+        return true
+    }
+
+    /// One alert for every file that did not save. The first button keeps the app or
+    /// window open, which is the safe choice; Escape and Return take it.
+    private static func confirmUnsaved(_ buffers: [WorkspaceFileBuffer], action: String) -> Bool {
+        let names = buffers.map(\.relativePath).sorted()
+        let shown = names.prefix(12).joined(separator: "\n")
+        let alert = NSAlert()
+        alert.messageText = String(localized: "Some files have unsaved changes.")
+        alert.informativeText = names.count > 12 ? shown + "\n…" : shown
+        alert.addButton(withTitle: String(localized: "Keep Editing"))
+        alert.addButton(withTitle: String(localized: String.LocalizationValue(action)))
+        return alert.runModalClosingOnEscape() == .alertSecondButtonReturn
     }
 
     /// Backup for Esc when the key is not already consumed by the window monitor.
@@ -650,10 +698,10 @@ final class XYZAppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        MainActor.assumeIsolated {
+        let shouldQuit = MainActor.assumeIsolated {
             WorkspaceWindowController.prepareForQuit()
         }
-        return .terminateNow
+        return shouldQuit ? .terminateNow : .terminateCancel
     }
 }
 

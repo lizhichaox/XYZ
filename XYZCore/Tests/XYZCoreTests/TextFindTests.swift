@@ -148,6 +148,8 @@ final class TextTransformTests: XCTestCase {
         let plain = apply(TextTransforms.toggleComment(in: commented, selection: range(0, commented.utf16.count), prefix: "// "), to: commented)
         XCTAssertEqual(plain, "a\nb")
         XCTAssertNil(TextTransforms.lineComment(for: .markdown))
+        XCTAssertNil(TextTransforms.lineComment(for: .json))
+        XCTAssertNil(TextTransforms.lineComment(for: .css))
         XCTAssertEqual(TextTransforms.lineComment(for: .swift), "// ")
         XCTAssertEqual(TextTransforms.lineComment(for: .python), "# ")
         let html = apply(

@@ -17,12 +17,24 @@ enum PreviewLog {
 final class PreviewWebHost {
     private var storage: WKWebView?
     private var coordinatorStorage: PreviewWebCoordinator?
+    private var assetHandler: LocalAssetSchemeHandler?
+    private var allowedRoot: URL?
     /// Opens a file a relative link in Reading points at, such as another note in the folder.
     var openFile: ((URL) -> Void)?
 
+    /// The folder relative pictures may come from. Called before the page asks for
+    /// one, and again when the folder window switches to a note in another folder.
+    func setRoot(_ url: URL?) {
+        let root = url?.standardizedFileURL.resolvingSymlinksInPath()
+        guard root != allowedRoot else { return }
+        allowedRoot = root
+        assetHandler?.setRoot(root)
+    }
+
     var webView: WKWebView {
         if let storage { return storage }
-        let created = PreviewWebViewFactory.make()
+        let handler = LocalAssetSchemeHandler(root: allowedRoot)
+        let created = PreviewWebViewFactory.make(schemeHandler: handler)
         let coordinator = PreviewWebCoordinator()
         coordinator.openFile = { [weak self] url in self?.openFile?(url) }
         created.navigationDelegate = coordinator
@@ -30,6 +42,7 @@ final class PreviewWebHost {
         created.configuration.userContentController.add(coordinator, name: "xyzGutter")
         storage = created
         coordinatorStorage = coordinator
+        assetHandler = handler
         PreviewLog.logger.notice("webview created")
         return created
     }
@@ -51,6 +64,8 @@ struct PreviewPrefs: Equatable {
     var lineNumbers = false
     /// `<base href>` for the note's folder. Set before the content, so its pictures resolve.
     var baseHref = ""
+    /// What `xyz-asset` may read, in absolute path form. The base href is the URL form.
+    var rootPath = ""
 
     var script: String {
         let size = Int(XYZEditorStyle.clampedFontSize(fontSize))
@@ -108,7 +123,8 @@ struct MarkdownWebView: View {
             cjk: cjkFont,
             readableWidth: readableWidth,
             lineNumbers: false,
-            baseHref: LocalAssets.baseHref(for: baseDirectory)
+            baseHref: LocalAssets.baseHref(for: baseDirectory),
+            rootPath: baseDirectory?.standardizedFileURL.resolvingSymlinksInPath().path ?? ""
         )
         #if os(macOS)
         MacMarkdownWebView(html: html, theme: colorScheme == .dark ? "dark" : "light", prefs: prefs, host: host, scrollLink: scrollLink)
@@ -128,6 +144,7 @@ private struct MacMarkdownWebView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> ReadingSurface {
         let surface = ReadingSurface()
+        host.setRoot(prefs.rootPath.isEmpty ? nil : URL(fileURLWithPath: prefs.rootPath))
         if let webView = claim(host.webView) as? XYZPreviewWebView {
             surface.install(webView)
             host.coordinator.update(webView: webView, html: html, theme: theme, prefs: prefs, scrollLink: scrollLink)
@@ -136,6 +153,7 @@ private struct MacMarkdownWebView: NSViewRepresentable {
     }
 
     func updateNSView(_ surface: ReadingSurface, context: Context) {
+        host.setRoot(prefs.rootPath.isEmpty ? nil : URL(fileURLWithPath: prefs.rootPath))
         guard let webView = host.webView as? XYZPreviewWebView else { return }
         surface.install(webView)
         host.coordinator.update(webView: webView, html: html, theme: theme, prefs: prefs, scrollLink: scrollLink)
@@ -403,12 +421,14 @@ private struct IOSMarkdownWebView: UIViewRepresentable {
     var scrollLink: EditorScrollLink
 
     func makeUIView(context: Context) -> WKWebView {
+        host.setRoot(prefs.rootPath.isEmpty ? nil : URL(fileURLWithPath: prefs.rootPath))
         let webView = claim(host.webView)
         host.coordinator.update(webView: webView, html: html, theme: theme, prefs: prefs, scrollLink: scrollLink)
         return webView
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
+        host.setRoot(prefs.rootPath.isEmpty ? nil : URL(fileURLWithPath: prefs.rootPath))
         host.coordinator.update(webView: webView, html: html, theme: theme, prefs: prefs, scrollLink: scrollLink)
     }
 
@@ -430,10 +450,10 @@ private func claim(_ webView: WKWebView) -> WKWebView {
 }
 
 private enum PreviewWebViewFactory {
-    static func make() -> WKWebView {
+    static func make(schemeHandler: LocalAssetSchemeHandler) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
-        configuration.setURLSchemeHandler(LocalAssetSchemeHandler.shared, forURLScheme: LocalAssets.scheme)
+        configuration.setURLSchemeHandler(schemeHandler, forURLScheme: LocalAssets.scheme)
         #if os(macOS)
         let webView = XYZPreviewWebView(frame: .zero, configuration: configuration)
         #else

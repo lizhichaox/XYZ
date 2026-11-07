@@ -1,6 +1,7 @@
 import Foundation
 import UniformTypeIdentifiers
 import WebKit
+import XYZCore
 
 /// Pictures and video next to a note.
 ///
@@ -40,15 +41,29 @@ enum LocalAssets {
 /// WebKit calls `start` and `stop` on the main thread. Files are read off it, and every answer
 /// goes back to the main thread, where `active` lives.
 final class LocalAssetSchemeHandler: NSObject, WKURLSchemeHandler {
-    static let shared = LocalAssetSchemeHandler()
+    /// The note's folder. A page may read pictures and media from it and below it,
+    /// never from a sibling folder that another window happens to have open.
+    private var allowedRoot: URL?
+
+    init(root: URL?) {
+        self.allowedRoot = root?.standardizedFileURL.resolvingSymlinksInPath()
+        super.init()
+    }
+
+    /// Called on the main thread when the page moves to another note folder.
+    func setRoot(_ root: URL?) {
+        allowedRoot = root?.standardizedFileURL.resolvingSymlinksInPath()
+    }
 
     /// Tasks WebKit has not stopped. Answering a stopped task raises an exception.
     private var active = Set<ObjectIdentifier>()
 
     func webView(_ webView: WKWebView, start urlSchemeTask: WKURLSchemeTask) {
-        guard let requestURL = urlSchemeTask.request.url,
+        guard let root = allowedRoot,
+              let requestURL = urlSchemeTask.request.url,
               let file = LocalAssets.fileURL(for: requestURL),
-              let type = LocalAssets.mediaType(of: file) else {
+              let type = LocalAssets.mediaType(of: file),
+              Self.isInside(root: root, file: file) else {
             urlSchemeTask.didFailWithError(URLError(.unsupportedURL))
             return
         }
@@ -77,5 +92,11 @@ final class LocalAssetSchemeHandler: NSObject, WKURLSchemeHandler {
 
     func webView(_ webView: WKWebView, stop urlSchemeTask: WKURLSchemeTask) {
         active.remove(ObjectIdentifier(urlSchemeTask))
+    }
+
+    /// A relative image resolves under the note folder. Absolute paths outside it are
+    /// not served, and a symbolic link that leaves the folder counts as outside.
+    private static func isInside(root: URL, file: URL) -> Bool {
+        WorkspacePathScope.contains(root: root, file: file)
     }
 }

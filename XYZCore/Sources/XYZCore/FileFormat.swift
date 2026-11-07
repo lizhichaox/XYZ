@@ -190,7 +190,13 @@ public enum FileFormats {
         let file = (name as NSString).lastPathComponent.lowercased()
         if textualBasenames.contains(file) { return true }
         let ext = pathExtension(of: name)
-        if ext.isEmpty { return false }
+        if ext.isEmpty {
+            // Foundation reports no path extension for a dotfile. `.gitignore`,
+            // `.editorconfig`, and `.env` still come from the text lists; an
+            // unknown dotfile (`.DS_Store`) stays binary.
+            guard file.hasPrefix("."), file.count > 1 else { return false }
+            return textualExtensions.contains(String(file.dropFirst()))
+        }
         if viewerKind(forExtension: ext) != nil { return false }
         return textualExtensions.contains(ext)
     }

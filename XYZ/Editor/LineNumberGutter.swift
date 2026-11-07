@@ -289,11 +289,17 @@ final class LineNumberGutter: NSView {
         return second
     }
 
+    /// The box the source lines use. A number belongs to a source line, so it follows
+    /// the text view's font and line height, not the smaller gutter typeface.
+    private static func lineBox(for textView: XYZMacTextView) -> CGFloat {
+        let font = textView.font ?? NSFont.systemFont(ofSize: textView.style.fontSize)
+        let natural = font.ascender - font.descender + font.leading
+        return max(1, textView.style.paragraphStyle(naturalLineHeight: natural).minimumLineHeight)
+    }
+
     /// An empty note is one source line. Wrapping does not remove that number.
     private func emptyRow(textView: XYZMacTextView) -> Row {
-        let font = Self.font(textView.style.fontSize)
-        let natural = font.ascender - font.descender + font.leading
-        let box = max(1, textView.style.paragraphStyle(naturalLineHeight: natural).minimumLineHeight)
+        let box = Self.lineBox(for: textView)
         let visible = textView.visibleRect
         return Row(
             line: 1,
@@ -344,9 +350,7 @@ final class LineNumberGutter: NSView {
 
     /// Same line box the editor uses for source. Does not ask TextKit for fragment frames.
     private func lineBoxRows(textView: XYZMacTextView, lineCount: Int) -> [Row] {
-        let font = Self.font(textView.style.fontSize)
-        let natural = font.ascender - font.descender + font.leading
-        let box = max(1, textView.style.paragraphStyle(naturalLineHeight: natural).minimumLineHeight)
+        let box = Self.lineBox(for: textView)
         let visible = textView.visibleRect
         let originY = textView.textContainerOrigin.y
         let first = max(1, Int(floor((visible.minY - originY) / box)) + 1)

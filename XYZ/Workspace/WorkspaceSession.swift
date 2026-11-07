@@ -2,6 +2,7 @@
 import AppKit
 import Combine
 import CryptoKit
+import Darwin
 import Foundation
 import XYZCore
 
@@ -21,6 +22,9 @@ final class WorkspaceSession: ObservableObject {
         didSet {
             guard showsHiddenFiles != oldValue else { return }
             UserDefaults.standard.set(showsHiddenFiles, forKey: HiddenFilesSetting.key)
+            if !contentQuery.pattern.isEmpty {
+                scheduleContentSearch()
+            }
         }
     }
     @Published private(set) var children: [String: [WorkspaceNode]] = [:]
@@ -116,6 +120,9 @@ final class WorkspaceSession: ObservableObject {
     private var didStart = false
     private var buffers: [String: WorkspaceFileBuffer] = [:]
     private var pendingRevealLine: Int?
+    /// True while closing or quitting is flushing every buffer. The window shows one
+    /// combined alert, so the per-file conflict alert stays quiet.
+    private var suppressingConflictAlerts = false
     /// Last line seen for a path in this session, restored when that file is opened again.
     private var scrollMemory: [String: Int] = [:]
     private var pendingRevealNeedle: String?
@@ -123,8 +130,11 @@ final class WorkspaceSession: ObservableObject {
     private var loadGeneration: [String: Int] = [:]
     /// One open of a path. A slower read from an earlier open must not replace the buffer.
     private var openRequest: [String: Int] = [:]
-    /// The latest open the user asked for. An older read must not publish a tab.
+    /// The latest open the user asked for. An older read may add a tab, but it must
+    /// not bring the editor forward.
     private var openSerial = 0
+    /// The background task that rebuilds the saved tabs, so closing the window stops it.
+    private var restoreTask: Task<Void, Never>?
     private var indexTask: Task<Void, Never>?
     private var contentTask: Task<Void, Never>?
     private var indexGeneration = 0
@@ -208,10 +218,37 @@ final class WorkspaceSession: ObservableObject {
         scheduleIndex()
     }
 
-    func shutdown() {
+    /// Writes every buffer that changed, then says which ones still hold edits.
+    /// A quit or a window close uses the list to ask instead of dropping changes.
+    ///
+    /// The per-file conflict alert is suppressed here: the caller shows one alert that
+    /// lists every file, and a second modal inside a close would be a double prompt.
+    func unsavedForClose() -> [WorkspaceFileBuffer] {
+        suppressingConflictAlerts = true
         for open in buffers.values {
             open.flush()
         }
+        suppressingConflictAlerts = false
+        return buffers.values.filter { $0.isDirty }
+    }
+
+    /// Shows the first file that could not be saved, so the user can see the banner.
+    func presentForClose(_ open: WorkspaceFileBuffer) {
+        var strip = tabStrip
+        _ = strip.open(open.relativePath, pin: true)
+        tabStrip = strip
+        show(open)
+        focusOpenEditor()
+    }
+
+    func shutdown() {
+        suppressingConflictAlerts = true
+        for open in buffers.values {
+            open.flush()
+        }
+        suppressingConflictAlerts = false
+        restoreTask?.cancel()
+        restoreTask = nil
         monitor.stop()
         reloadTasks.values.forEach { $0.cancel() }
         indexTask?.cancel()
@@ -407,51 +444,97 @@ final class WorkspaceSession: ObservableObject {
         ), pin: pin, line: line)
     }
 
+    /// Creates a new empty file or folder.
+    ///
+    /// The name is chosen again at the moment of creation, and creation itself never
+    /// overwrites. The default APFS volume compares names without case, so a tree
+    /// listing alone cannot prove that `Untitled.md` is a free name while `untitled.md`
+    /// exists. `Data.write(.withoutOverwriting)` and `createDirectory` fail instead.
     func createItem(directory: Bool, in parent: String) {
-        let listed = Set((children[parent] ?? []).map(\.name))
-        let onDisk = Set(
-            (try? FileManager.default.contentsOfDirectory(at: url(for: parent), includingPropertiesForKeys: nil))?
-                .map(\.lastPathComponent) ?? []
-        )
-        let names = listed.union(onDisk)
+        let parentURL = url(for: parent)
+        let listed = (children[parent] ?? []).map(\.name)
         let preferred = directory ? "Untitled Folder" : "Untitled.md"
-        let name = WorkspaceItemName.unique(preferred: preferred, existing: names)
-        let relative = WorkspacePaths.child(parent: parent, name: name)
-        let destination = url(for: relative)
         if !parent.isEmpty {
-            expanded.insert(parent)
-            rememberExpansion()
-            if children[parent] == nil {
-                load(parent: parent)
-                watchDirectory(parent)
-            }
+            Self.makeParentVisible(parent: parent, session: self)
         }
         Task { [weak self] in
-            do {
-                if directory {
-                    try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: false)
-                } else {
-                    try Data().write(to: destination, options: .atomic)
-                }
-            } catch {
-                await MainActor.run { self?.actionFailed(String(localized: "Couldn't create this item.")) }
-                return
-            }
+            let created = Self.createItemExclusively(
+                directory: directory,
+                preferred: preferred,
+                listed: listed,
+                parent: parent,
+                parentURL: parentURL
+            )
             await MainActor.run {
                 guard let self else { return }
-                self.pendingEditPath = relative
+                guard let created else {
+                    self.actionFailed(String(localized: "Couldn't create this item."))
+                    return
+                }
+                self.pendingEditPath = created.relativePath
                 if !directory {
                     self.openFile(WorkspaceNode(
-                        name: name,
-                        relativePath: relative,
+                        name: created.name,
+                        relativePath: created.relativePath,
                         isDirectory: false,
-                        isHidden: name.hasPrefix(".")
+                        isHidden: created.name.hasPrefix(".")
                     ), pin: true)
                 }
                 self.scheduleReload(parent)
                 self.scheduleIndex()
             }
         }
+    }
+
+    @MainActor
+    private static func makeParentVisible(parent: String, session: WorkspaceSession) {
+        session.expanded.insert(parent)
+        session.rememberExpansion()
+        if session.children[parent] == nil {
+            session.load(parent: parent)
+            session.watchDirectory(parent)
+        }
+    }
+
+    /// Creates the item, retrying with the next free name when the file system reports
+    /// that the chosen path already exists. Returns nil for any other error.
+    private static func createItemExclusively(
+        directory: Bool,
+        preferred: String,
+        listed: [String],
+        parent: String,
+        parentURL: URL
+    ) -> (name: String, relativePath: String)? {
+        var existing = Set(listed)
+        for _ in 0..<20 {
+            let onDisk = Set(
+                (try? FileManager.default.contentsOfDirectory(at: parentURL, includingPropertiesForKeys: nil))?
+                    .map(\.lastPathComponent) ?? []
+            )
+            existing.formUnion(onDisk)
+            let name = WorkspaceItemName.unique(preferred: preferred, existing: existing)
+            let destination = parentURL.appendingPathComponent(name, isDirectory: directory)
+            do {
+                if directory {
+                    try FileManager.default.createDirectory(at: destination, withIntermediateDirectories: false)
+                } else {
+                    try Data().write(to: destination, options: .withoutOverwriting)
+                }
+                return (name, WorkspacePaths.child(parent: parent, name: name))
+            } catch {
+                guard itemAlreadyExists(error) else { return nil }
+                existing.insert(name)
+            }
+        }
+        return nil
+    }
+
+    private static func itemAlreadyExists(_ error: Error) -> Bool {
+        let ns = error as NSError
+        if ns.domain == NSCocoaErrorDomain {
+            return ns.code == CocoaError.fileWriteFileExists.rawValue
+        }
+        return ns.domain == NSPOSIXErrorDomain && ns.code == Int(EEXIST)
     }
 
     /// Nil when the rename landed. A string is a message safe to show in an alert.
@@ -512,16 +595,20 @@ final class WorkspaceSession: ObservableObject {
         nameQuery = ""
     }
 
+    /// Opens a file. Returns the task that installs it when the read has to happen,
+    /// so a window restore can wait for one tab before opening the next.
+    @discardableResult
     func openFile(
         _ node: WorkspaceNode,
         pin: Bool = false,
         line: Int? = nil,
         mode: EditorViewMode = .reading,
-        adoptExisting: Bool = true
-    ) {
-        guard !node.isDirectory else { return }
+        adoptExisting: Bool = true,
+        activate: Bool = true
+    ) -> Task<Void, Never>? {
+        guard !node.isDirectory else { return nil }
         if adoptExisting, claimExistingFile?(node.relativePath) == true {
-            return
+            return nil
         }
         let path = node.relativePath
         if buffer?.relativePath != path {
@@ -539,16 +626,16 @@ final class WorkspaceSession: ObservableObject {
         openSerial += 1
         let serial = openSerial
         if let existing = buffers[path] {
-            present(path, pin: pin, mode: mode, buffer: existing)
-            return
+            present(path, pin: pin, mode: mode, buffer: existing, activate: activate)
+            return nil
         }
         openRequest[path, default: 0] += 1
         let request = openRequest[path] ?? 0
         let url = url(for: path)
-        Task { [weak self] in
+        return Task { [weak self] in
             let loaded = await Self.readForEditing(url: url, name: node.name)
             await MainActor.run {
-                guard let self, self.openSerial == serial else { return }
+                guard let self else { return }
                 let latest = self.openRequest[path] ?? 0
                 guard WorkspaceFilePolicy.shouldInstallRead(
                     request: request,
@@ -559,20 +646,41 @@ final class WorkspaceSession: ObservableObject {
                 self.buffers[path] = open
                 self.watchFile(open)
                 self.noteRecent(path)
-                self.present(path, pin: pin, mode: mode, buffer: open)
+                // A tab still lands for every open. Only the latest request the user
+                // asked for brings the editor forward; an older read that finishes
+                // later must not steal the file the user is already looking at.
+                let isLatest = self.openSerial == serial
+                self.present(path, pin: pin, mode: mode, buffer: open, activate: activate && isLatest)
             }
         }
     }
 
     /// The tab and the buffer land together. A tab published first shows the previous note under the new name.
-    private func present(_ path: String, pin: Bool, mode: EditorViewMode, buffer: WorkspaceFileBuffer) {
+    ///
+    /// `activate` is false for tabs that should be restored in the background: the tab
+    /// still appears, but the editor keeps the file it already shows.
+    private func present(
+        _ path: String,
+        pin: Bool,
+        mode: EditorViewMode,
+        buffer: WorkspaceFileBuffer,
+        activate: Bool
+    ) {
+        let previousActive = tabStrip.activeID
         var strip = tabStrip
-        let replaced = strip.open(path, pin: pin, mode: mode)
+        // A tab that lands after a newer open must not replace the clean preview tab
+        // the user is on, and must not switch the editor. Keep it as a normal tab;
+        // the next click on it opens it.
+        let replaced = strip.open(path, pin: activate ? pin : true, mode: mode)
+        if !activate, let previousActive, previousActive != path, strip.contains(previousActive) {
+            strip.setActive(previousActive)
+        }
         tabStrip = strip
         onTabsChanged?()
         if let replaced, replaced != path {
             release(replaced, save: true)
         }
+        guard activate else { return }
         selectedPath = path
         show(buffer)
     }
@@ -717,38 +825,60 @@ final class WorkspaceSession: ObservableObject {
     func windowState() -> WorkspaceWindowState {
         WorkspaceWindowState(
             tabs: tabStrip.tabs.map {
-                WorkspaceTabState(path: $0.id, isPreview: $0.isPreview, mode: .reading, isPinned: $0.isPinned)
+                WorkspaceTabState(path: $0.id, isPreview: $0.isPreview, mode: $0.mode, isPinned: $0.isPinned)
             },
             activePath: tabStrip.activeID
         ).normalized()
     }
 
-    /// Opens the saved tabs. Does not steal a file that this call itself is restoring.
+    /// Opens the saved tabs one after another, then ends on the saved active tab.
+    ///
+    /// The restore used to call `openFile` for every tab in one run loop turn. Each call
+    /// took a new global serial, and every read that finished checked it, so only the
+    /// last tab could install. The reads are awaited here instead, and each tab is
+    /// added with `activate: false`; the saved active tab is selected at the end.
     func restoreTabs(_ state: WorkspaceWindowState) {
         let state = state.normalized()
-        for tab in state.tabs where !tab.isPreview {
-            openRestored(tab)
+        restoreTask?.cancel()
+        restoreTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            for tab in state.tabs where !tab.isPreview {
+                guard !Task.isCancelled else { return }
+                await self.openRestored(tab)
+            }
+            for tab in state.tabs where tab.isPreview {
+                guard !Task.isCancelled else { return }
+                await self.openRestored(tab)
+                var strip = self.tabStrip
+                strip.setPreview(id: tab.path, true)
+                self.tabStrip = strip
+            }
+            for tab in state.tabs where tab.isPinned {
+                guard !Task.isCancelled else { return }
+                var strip = self.tabStrip
+                strip.setPinned(id: tab.path, true)
+                self.tabStrip = strip
+            }
+            guard !Task.isCancelled else { return }
+            if let active = state.activePath {
+                _ = self.selectTab(id: active)
+            } else if let first = self.tabStrip.tabs.first {
+                // A normalized state keeps a selection, but be safe: a tab list with no
+                // selected tab would draw an active-looking tab over an empty editor.
+                _ = self.selectTab(id: first.id)
+            }
+            // Do not replace a saved tab list with nothing when every read failed
+            // (folder moved, volume gone). Keep the old list for the next launch.
+            if !self.tabStrip.tabs.isEmpty || state.tabs.isEmpty {
+                self.onTabsChanged?()
+            }
+            self.restoreTask = nil
         }
-        for tab in state.tabs where tab.isPreview {
-            openRestored(tab)
-            var strip = tabStrip
-            strip.setPreview(id: tab.path, true)
-            tabStrip = strip
-        }
-        for tab in state.tabs where tab.isPinned {
-            var strip = tabStrip
-            strip.setPinned(id: tab.path, true)
-            tabStrip = strip
-        }
-        if let active = state.activePath {
-            _ = selectTab(id: active)
-        }
-        onTabsChanged?()
     }
 
-    private func openRestored(_ tab: WorkspaceTabState) {
+    private func openRestored(_ tab: WorkspaceTabState) async {
         let name = (tab.path as NSString).lastPathComponent
-        openFile(
+        let task = openFile(
             WorkspaceNode(
                 name: name,
                 relativePath: tab.path,
@@ -756,9 +886,14 @@ final class WorkspaceSession: ObservableObject {
                 isHidden: WorkspacePaths.isHidden(name: name, resourceHidden: false)
             ),
             pin: true,
-            mode: .reading,
-            adoptExisting: false
+            mode: tab.mode,
+            adoptExisting: false,
+            activate: false
         )
+        await task?.value
+        var strip = tabStrip
+        strip.setMode(id: tab.path, tab.mode)
+        tabStrip = strip
     }
 
     /// Opens the most recently closed tab that is still a file. ⇧⌘T.
@@ -953,12 +1088,16 @@ final class WorkspaceSession: ObservableObject {
         open.onConflict = { [weak self] buffer in
             self?.offerExternalChange(buffer)
         }
+        open.changeForwarding = open.objectWillChange.sink { [weak self] _ in
+            self?.objectWillChange.send()
+        }
         return open
     }
 
     /// A dirty file changed on disk. Reload takes the disk copy. Keep Mine writes the editor over it.
     /// Esc leaves the choice on the banner, and does not write.
     private func offerExternalChange(_ buffer: WorkspaceFileBuffer) {
+        guard !suppressingConflictAlerts else { return }
         guard buffer === self.buffer, buffer.conflictText != nil else { return }
         buffer.markConflictOffered()
         let alert = NSAlert()
@@ -1145,9 +1284,7 @@ final class WorkspaceSession: ObservableObject {
         }
         contentPatternInvalid = false
         contentSearching = true
-        let files = indexedEntries.filter {
-            !$0.isDirectory && !WorkspaceContentSearch.shouldSkipRelativePath($0.relativePath)
-        }
+        let files = searchableFiles()
         let root = rootURL
         contentTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(220))
@@ -1223,6 +1360,17 @@ final class WorkspaceSession: ObservableObject {
         return (shown, found.count - shown.count, found.count >= cap)
     }
 
+    /// The files ⌘K lists and Replace may change: no folders, no skipped
+    /// directories, and hidden files only while the sidebar shows them.
+    private func searchableFiles() -> [WorkspacePathEntry] {
+        indexedEntries.filter {
+            guard !$0.isDirectory else { return false }
+            guard !WorkspaceContentSearch.shouldSkipRelativePath($0.relativePath) else { return false }
+            if !showsHiddenFiles, $0.isHidden { return false }
+            return true
+        }
+    }
+
     private func startFolderReplace(query: FindQuery, replacement: String, undoManager: UndoManager?) {
         guard let buffer, EditorModeChoice.isEditing(viewMode, access: Self.access(of: buffer)) else {
             NSSound.beep()
@@ -1238,9 +1386,7 @@ final class WorkspaceSession: ObservableObject {
             actionFailed(String(localized: "Invalid"))
             return
         }
-        let files = indexedEntries.filter {
-            !$0.isDirectory && !WorkspaceContentSearch.shouldSkipRelativePath($0.relativePath)
-        }
+        let files = searchableFiles()
         var open: [FolderOpenText] = []
         var blocked: Set<String> = []
         for (path, buffer) in buffers {
@@ -1644,6 +1790,10 @@ final class WorkspaceFileBuffer: ObservableObject {
     private(set) var mixedLineEndings: Bool
     var onEditorState: ((WorkspaceFileBuffer) -> Void)?
     var onConflict: ((WorkspaceFileBuffer) -> Void)?
+    /// Forwards `@Published` changes (status, conflict, kind, reload) to the session.
+    /// The folder window observes the session, not this buffer, so without this a clean
+    /// file reloaded from disk or a failed save would not redraw the note or banner.
+    var changeForwarding: AnyCancellable?
     private var offeredConflict: String?
     private var lastSaved: String
     private var savedEncoding: TextEncoding

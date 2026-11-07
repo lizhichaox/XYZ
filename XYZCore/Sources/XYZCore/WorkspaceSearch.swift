@@ -294,18 +294,34 @@ public enum WorkspaceItemName {
         name.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    /// The first free name starting from `preferred`, then `Name 2.ext`, `Name 3.ext`.
+    ///
+    /// Names are compared the way the file system does: case-insensitively and with
+    /// canonical Unicode normalization. The default macOS APFS volume treats
+    /// `Note.md` and `note.md` as one file, so a name that differs only by case or
+    /// composed/decomposed characters is taken too. This keeps a new file from
+    /// replacing an existing one through a shell that ignores case.
     public static func unique(preferred: String, existing: Set<String>) -> String {
-        if !existing.contains(preferred) { return preferred }
+        let taken = Set(existing.map(comparisonKey))
+        if !taken.contains(comparisonKey(preferred)) { return preferred }
         let file = preferred as NSString
         let ext = file.pathExtension
         let base = file.deletingPathExtension
         var number = 2
         while number < 10_000 {
             let candidate = ext.isEmpty ? "\(base) \(number)" : "\(base) \(number).\(ext)"
-            if !existing.contains(candidate) { return candidate }
+            if !taken.contains(comparisonKey(candidate)) { return candidate }
             number += 1
         }
-        return preferred
+        // The file system has 9,998 names for this item already. Do not return a
+        // name that may exist; a unique suffix keeps the contract.
+        let suffix = UUID().uuidString.prefix(8)
+        return ext.isEmpty ? "\(base) \(suffix)" : "\(base) \(suffix).\(ext)"
+    }
+
+    /// How the default macOS file systems compare two names.
+    static func comparisonKey(_ name: String) -> String {
+        name.precomposedStringWithCanonicalMapping.lowercased(with: Locale(identifier: "en_US_POSIX"))
     }
 
     /// A move into the item itself, into its descendant, or into its current parent is not a move.

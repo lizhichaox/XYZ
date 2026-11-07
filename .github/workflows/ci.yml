@@ -14,6 +14,7 @@ permissions:
 jobs:
   build:
     runs-on: macos-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
 
@@ -74,6 +75,22 @@ jobs:
             CODE_SIGN_IDENTITY=- \
             build
 
+      - name: Check version comes from xcconfig
+        if: steps.macos.conclusion == 'success'
+        run: |
+          set -euo pipefail
+          APP="$(find "$PWD/build/macos/Build/Products" -name 'XYZ.app' -type d | head -n 1)"
+          test -d "$APP"
+          want_version=$(sed -n 's/^MARKETING_VERSION = //p' Config/Base.xcconfig | tail -n 1)
+          want_build=$(sed -n 's/^CURRENT_PROJECT_VERSION = //p' Config/Base.xcconfig | tail -n 1)
+          got_version=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")
+          got_build=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist")
+          test -n "$want_version"
+          test -n "$want_build"
+          test "$got_version" = "$want_version"
+          test "$got_build" = "$want_build"
+          echo "version $got_version ($got_build) matches Config/Base.xcconfig"
+
       - name: Check Editing line numbers
         if: steps.macos.conclusion == 'success'
         run: |
@@ -112,6 +129,9 @@ jobs:
           fi
           echo "UI acceptance is not complete"
           grep 'ACCEPTANCE' "$LOG" || true
+          # One annotation per failing case, so the run page shows what failed
+          # without opening the log.
+          grep -E 'FAIL |ACCEPTANCE_FAIL' "$LOG" | sed 's/^/::error title=Acceptance::/' || true
           exit 1
 
       - name: Upload editor window shots
@@ -119,19 +139,24 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: editor-window-shots
-          path: build/macos/shots
+          path: |
+            build/macos/shots
+            build/macos/gutter.log
+            build/macos/menu.log
+            build/macos/menu-zh.log
+            build/macos/launch.log
           if-no-files-found: ignore
 
       - name: Launch macOS app
-        if: steps.macos.conclusion == 'success'
+        if: always() && steps.macos.conclusion == 'success'
         run: |
           set -euo pipefail
           APP="$(find "$PWD/build/macos/Build/Products" -name 'XYZ.app' -type d | head -n 1)"
           test -n "$APP"
           test -d "$APP"
-          # The unsigned CI build carries iCloud entitlements. Ad-hoc sign
-          # without them so the process can start. The launch crash is in
-          # DocumentGroup setup, before any file access.
+          # A CODE_SIGNING_ALLOWED=NO build has no embedded entitlements. Ad-hoc
+          # sign it so the process can start. This is not the sandboxed app that
+          # users run: entitlements, iCloud, and bookmarks are not tested here.
           codesign --force --deep --sign - "$APP"
           LOG="$PWD/build/macos/launch.log"
           "$APP/Contents/MacOS/XYZ" -ApplePersistenceIgnoreState YES >"$LOG" 2>&1 &
@@ -148,7 +173,7 @@ jobs:
           wait "$PID" || true
 
       - name: Check Open Folder menu
-        if: steps.macos.conclusion == 'success'
+        if: always() && steps.macos.conclusion == 'success'
         run: |
           set -euo pipefail
           APP="$(find "$PWD/build/macos/Build/Products" -name 'XYZ.app' -type d | head -n 1)"
@@ -172,7 +197,7 @@ jobs:
           exit 1
 
       - name: Check Open Folder menu in Chinese
-        if: steps.macos.conclusion == 'success'
+        if: always() && steps.macos.conclusion == 'success'
         run: |
           set -euo pipefail
           APP="$(find "$PWD/build/macos/Build/Products" -name 'XYZ.app' -type d | head -n 1)"
@@ -206,6 +231,21 @@ jobs:
             -scheme XYZ \
             -destination 'generic/platform=iOS Simulator' \
             -configuration Debug \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY=- \
+            build
+
+      - name: Build macOS Release
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project XYZ.xcodeproj \
+            -scheme XYZ \
+            -destination 'platform=macOS' \
+            -configuration Release \
+            -derivedDataPath build/macos-release \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY=- \

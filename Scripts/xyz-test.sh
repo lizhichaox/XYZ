@@ -30,6 +30,14 @@ expect help "$out" "Usage: xyz [options] [path ...]"
 out=$(cd "$tmp" && XYZ_CLI_DRY_RUN=1 "$cli" .)
 expect dot "$out" "open -b com.lizhichao.XYZ $tmp"
 
+# The script has to read a literal ~ when a caller quotes it. The shell normally
+# expands ~ first, so only a quoted argument reaches this branch.
+mkdir -p "$tmp/home/notes"
+out=$(HOME="$tmp/home" XYZ_CLI_DRY_RUN=1 "$cli" '~')
+expect tilde "$out" "open -b com.lizhichao.XYZ $tmp/home"
+out=$(HOME="$tmp/home" XYZ_CLI_DRY_RUN=1 "$cli" '~/notes')
+expect tilde-dir "$out" "open -b com.lizhichao.XYZ $tmp/home/notes"
+
 out=$(cd "$tmp" && XYZ_CLI_DRY_RUN=1 "$cli" notes/file.md)
 expect file "$out" "open -b com.lizhichao.XYZ $tmp/notes/file.md"
 

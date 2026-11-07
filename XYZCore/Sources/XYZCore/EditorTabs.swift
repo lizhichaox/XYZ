@@ -74,6 +74,12 @@ public struct EditorTabStrip: Equatable, Sendable {
         tabs[index].mode = mode
     }
 
+    /// Brings an existing tab to the front without changing the set.
+    public mutating func setActive(_ id: String) {
+        guard tabs.contains(where: { $0.id == id }) else { return }
+        activeID = id
+    }
+
     public mutating func setPreview(id: String, _ preview: Bool) {
         guard let index = tabs.firstIndex(where: { $0.id == id }) else { return }
         if tabs[index].isPinned {

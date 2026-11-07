@@ -344,6 +344,11 @@ struct XYZIOSEditor: UIViewRepresentable {
             switch command {
             case .replaceContents(let replacement):
                 isApplyingExternalText = true
+                if textView.text != replacement {
+                    // A reload replaces the whole document; old undo ranges no longer
+                    // point at the text they were recorded against.
+                    textView.undoManager?.removeAllActions()
+                }
                 textView.text = replacement
                 isApplyingExternalText = false
                 onTextChange(replacement)

@@ -179,10 +179,51 @@ final class WorkspaceSearchTests: XCTestCase {
             WorkspaceItemName.unique(preferred: "Untitled.md", existing: ["Untitled.md", "Untitled 2.md"]),
             "Untitled 3.md"
         )
+        // The default APFS volume ignores case. `Untitled.md` would replace `untitled.md`.
+        XCTAssertEqual(
+            WorkspaceItemName.unique(preferred: "Untitled.md", existing: ["untitled.md"]),
+            "Untitled 2.md"
+        )
+        XCTAssertEqual(
+            WorkspaceItemName.unique(preferred: "Note.md", existing: ["NOTE.md", "note 2.md"]),
+            "Note 3.md"
+        )
+        // APFS also compares composed and decomposed characters as one name.
+        XCTAssertEqual(
+            WorkspaceItemName.unique(preferred: "café.md", existing: ["cafe\u{301}.md"]),
+            "café 2.md"
+        )
+        // A case-sensitive volume still gets a safe, collision-free name.
+        XCTAssertEqual(WorkspaceItemName.unique(preferred: "Readme.md", existing: ["README.md"]), "Readme 2.md")
+        XCTAssertEqual(WorkspaceItemName.comparisonKey("Ünïcode.MD"), "ünïcode.md")
         XCTAssertFalse(WorkspaceItemName.canMove(item: "Notes", into: "Notes"))
         XCTAssertFalse(WorkspaceItemName.canMove(item: "Notes", into: "Notes/Drafts"))
         XCTAssertFalse(WorkspaceItemName.canMove(item: "Notes/A.md", into: "Notes"))
         XCTAssertTrue(WorkspaceItemName.canMove(item: "Notes/A.md", into: "Archive"))
+    }
+
+    func testPathScopeResolvesTraversalAndLinks() throws {
+        let root = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+            .appendingPathComponent("xyz-scope-\(UUID().uuidString)", isDirectory: true)
+        let inside = root.appendingPathComponent("notes", isDirectory: true)
+        let outside = root.appendingPathComponent("elsewhere", isDirectory: true)
+        try FileManager.default.createDirectory(at: inside, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        XCTAssertTrue(WorkspacePathScope.contains(root: inside, file: inside.appendingPathComponent("a.png")))
+        XCTAssertTrue(WorkspacePathScope.contains(root: inside, file: inside))
+        XCTAssertFalse(WorkspacePathScope.contains(root: inside, file: outside.appendingPathComponent("a.png")))
+        // `..` through the note folder is still inside; one more step leaves it.
+        XCTAssertTrue(WorkspacePathScope.contains(root: root, file: inside.appendingPathComponent("../notes/b.png")))
+        XCTAssertFalse(WorkspacePathScope.contains(root: inside, file: inside.appendingPathComponent("../elsewhere/a.png")))
+        // A link that points outside the folder is outside, even when the name is inside.
+        try Data("png".utf8).write(to: outside.appendingPathComponent("a.png"))
+        try FileManager.default.createSymbolicLink(
+            at: inside.appendingPathComponent("x.png"),
+            withDestinationURL: outside.appendingPathComponent("a.png")
+        )
+        XCTAssertFalse(WorkspacePathScope.contains(root: inside, file: inside.appendingPathComponent("x.png")))
     }
 
     func testContentHitsAndSkipRules() {

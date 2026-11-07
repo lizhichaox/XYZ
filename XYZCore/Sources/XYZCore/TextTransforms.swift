@@ -199,7 +199,9 @@ public enum TextTransforms {
             return "-- "
         case .html, .xml:
             return "<!-- "
-        case .plain, .markdown, .csv:
+        case .plain, .markdown, .csv, .json, .css:
+            // JSON and CSS have no line comment. Commenting one with `//` would
+            // write a file the parser rejects, so the command is disabled instead.
             return nil
         default:
             return "// "

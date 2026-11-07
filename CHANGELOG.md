@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.5.29
+
+Build 45. The version in this tree. It is not installed and is not a release. This is the first change set after `db12a62`, which is red in the cloud check (`0.5.28` records the acceptance gate at 0/7). It follows the analysis in `docs/project-analysis.md` and the four deep dives in `docs/analysis/`, in that report's P0 → P1 → P2 order.
+
+### What changed
+
+Four paths that could lose data or crash were fixed first.
+
+- New File and New Folder create exclusively. The name is chosen again at creation time from a fresh directory listing, a file is written with `Data.write(.withoutOverwriting)`, and `createDirectory` refuses a path that exists. `WorkspaceItemName.unique` compares names the way the default volume does, case-insensitively and with precomposed Unicode. Before this, `Untitled.md` replaced an existing `untitled.md` through the same directory entry, and the atomic write left it at zero bytes. A name the file system reports as taken is retried as `Untitled 2.md`; a directory holding 9,998 of these names gets a UUID suffix instead of a silent duplicate.
+- Restoring a window's tabs installs every tab again. The reads are awaited one at a time (`openFile` returns the task that installs the file), each tab is opened with `activate: false`, and the saved active tab is selected at the end. The restore is a tracked task that a closing window cancels, and saving the window list waits for it instead of writing the not-yet-filled strip a moment later. A restore whose reads all fail keeps the saved list for the next launch. The mode of each tab is saved with it; `windowState` wrote `.reading` for every tab before.
+- Closing a window or quitting flushes every open file first. `windowShouldClose` and `applicationShouldTerminate` run the same flush with the per-file conflict alert suppressed, then show one alert that lists the files that still have unsaved changes: Keep Editing (the default, and Escape), or Close Anyway / Quit Anyway. A file that could not be saved is brought to the front so its banner is visible when the user goes back. No window closes over edits that were never offered.
+- A whole-content replacement starts a new undo history. `replaceContents` calls `removeAllActions()` when the text really differs, on the Mac text view and on the iOS text view. A range recorded against the previous file can no longer fire into the new one.
+
+Then the P1 items that show up in normal use.
+
+- The line index is dropped when the text changes and rebuilt once typing pauses for 120 ms. The gutter and the status bar read line starts from before the edit, so every number below an inserted line stayed wrong until something else warmed the cache.
+- The gutter numbers an unwrapped line from the editor's font and line box, not the smaller gutter typeface.
+- The session forwards a buffer's `@Published` changes. Nothing observed that object, so a clean file reloaded from disk, a failed save, or a file that disappeared did not refresh the note or the banner.
+- Replace in Folder no longer writes hidden files while the sidebar hides them. ⌘K and Replace share one list of searchable files.
+- A picture in Reading is read from `xyz-asset` only inside the note's folder. The handler had one process-wide root and no path check. `WorkspacePathScope.contains` canonicalizes both paths and resolves symbolic links, so a sibling folder, a `..` above the folder, and a link that leaves it are refused.
+- `.gitignore`, `.editorconfig`, and `.env` are text files. `isTextualName` returned false for every dotfile because Foundation reports no path extension for one.
+- Comment toggle does not prefix JSON or CSS with `//`. The command is disabled there instead of writing a file the parser rejects.
+- `xyz` reads a literal `~` and `~/notes` from a script or a quoted argument. The `case` patterns were unquoted, so the shell's tilde expansion made both branches unreachable.
+
+The README's claim that the renderer does not request remote images was false: `URLPolicy.imageSchemes` passes `http` and `https` through and there is no content-security policy, so a remote picture is fetched. The README now says that, and says that a relative picture is confined to the note's folder. The README's "the choice is not saved" for Source/Reading now matches the per-tab mode that is saved.
+
+`docs/project-analysis.md` gained a section that records which findings are fixed, with the test and build evidence for each, and which ones are still open.
+
+### Where this was checked
+
+- `swift test --package-path XYZCore`: 194 tests, 0 failures.
+- `sh Scripts/xyz-test.sh`: 8 cases, all ok (`help dot tilde tilde-dir file multi missing bare`).
+- `xcodebuild` Debug and Release for `platform=macOS`, and Debug for `generic/platform=iOS Simulator`: BUILD SUCCEEDED. Signing is off, as in the cloud check.
+- `.github/workflows/ci.yml`: a job timeout, a step that compares the built bundle version with `Config/Base.xcconfig`, window-check steps that still run when the acceptance step has failed, one `::error` annotation per failing acceptance case on the run page, a Release build, and the artifact list now carries the shots and logs those steps write.
+
+### Not checked
+
+No window was launched while doing this: on this Mac it would take the screen. The quit and close alerts, the tab restore, and the picture scope are compiled and unit-tested only where the decision is a pure function; there is no app-layer test target yet. XCUI still does not launch the app on the cloud runner, so the acceptance gate is still not green, and the two new alert buttons have no picture. No signed build, no sandbox build, no iCloud run, no real Chinese input method, no performance measurement. The main-thread save, the per-keystroke string copy, `Task.detached` cancellation, and the rest of the system-panel swizzling risk are not touched.
+
 ## 0.5.28
 
 Build 44. The version in this tree. It is not installed. 0.5.27 (build 43) `a0f85fa46f1d95ca40056c771e400e7236d3172c` is still the installed build, and a user test of it was not recorded. Deeper notes: `docs/architecture.md`.

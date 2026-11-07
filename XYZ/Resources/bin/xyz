@@ -51,8 +51,8 @@ resolve_path() {
   input=$1
   case $input in
     /*) candidate=$input ;;
-    ~) candidate=$HOME ;;
-    ~/*) candidate=$HOME/${input#~/} ;;
+    "~") candidate=$HOME ;;
+    "~/"*) candidate=$HOME/${input#"~/"} ;;
     *) candidate=$PWD/$input ;;
   esac
   if [ ! -e "$candidate" ]; then

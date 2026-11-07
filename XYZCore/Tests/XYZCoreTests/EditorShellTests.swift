@@ -97,6 +97,28 @@ final class EditorTabTests: XCTestCase {
         XCTAssertEqual(strip.activeID, "b.md")
     }
 
+    func testSetActiveKeepsTheSet() {
+        var strip = EditorTabStrip()
+        strip.open("a.md", pin: true)
+        strip.open("b.md", pin: true)
+        strip.setActive("a.md")
+        XCTAssertEqual(strip.activeID, "a.md")
+        XCTAssertEqual(strip.tabs.map(\.id), ["a.md", "b.md"])
+        strip.setActive("missing.md")
+        XCTAssertEqual(strip.activeID, "a.md")
+    }
+
+    func testTabModeSurvivesTheStrip() {
+        var strip = EditorTabStrip()
+        strip.open("a.md", pin: true, mode: .reading)
+        strip.open("b.md", pin: true, mode: .source)
+        XCTAssertEqual(strip.tabs[1].mode, .source)
+        strip.setMode(id: "a.md", .source)
+        XCTAssertEqual(strip.tabs[0].mode, .source)
+        strip.setActive("b.md")
+        XCTAssertEqual(strip.tabs.first { $0.id == strip.activeID }?.mode, .source)
+    }
+
     func testADirtyPreviewIsPinnedInsteadOfReplaced() {
         var strip = EditorTabStrip()
         strip.open("a.md", pin: false)
@@ -419,6 +441,12 @@ final class FileFormatTests: XCTestCase {
         XCTAssertEqual(FileFormats.shebangLanguage(in: "#!/bin/sh\n"), .shell)
         XCTAssertNil(FileFormats.shebangLanguage(in: "echo hi\n"))
         XCTAssertEqual(FileFormats.resolved(name: "run", text: "#!/usr/bin/env bash\n").language, .shell)
+        // `.gitignore` has no path extension; the name itself decides.
+        XCTAssertTrue(FileFormats.isTextualName(".gitignore"))
+        XCTAssertTrue(FileFormats.isTextualName(".editorconfig"))
+        XCTAssertTrue(FileFormats.isTextualName(".env"))
+        XCTAssertFalse(FileFormats.isTextualName(".DS_Store"))
+        XCTAssertFalse(FileFormats.isTextualName(".png"))
     }
 
     func testCrumbsIncludeTheFile() {

@@ -645,9 +645,12 @@ private struct FindScan {
     private var lastLineBand: NSRect?
     private var lineIndexCache: LineIndex?
     private var lineIndexToken = 0
+    private var lineIndexWarm: DispatchWorkItem?
 
     /// Line starts for the status bar. Built off the main thread so closing find does not scan the file.
     func warmLineIndex() {
+        lineIndexWarm?.cancel()
+        lineIndexWarm = nil
         lineIndexToken += 1
         let token = lineIndexToken
         let text = string
@@ -658,6 +661,23 @@ private struct FindScan {
                 self.lineIndexCache = index
             }
         }
+    }
+
+    /// The text changed: the cached line starts no longer describe it.
+    ///
+    /// The gutter and the status bar both read this cache, so a line added in the
+    /// middle used to shift every number below it. Drop the cache immediately, then
+    /// rebuild once typing pauses instead of scanning the whole file on every key.
+    func lineIndexDidChange() {
+        lineIndexToken += 1
+        lineIndexCache = nil
+        lineNumbersChanged()
+        lineIndexWarm?.cancel()
+        let item = DispatchWorkItem { [weak self] in
+            self?.warmLineIndex()
+        }
+        lineIndexWarm = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(120), execute: item)
     }
 
     func cachedLineIndex() -> LineIndex? {
@@ -1378,6 +1398,14 @@ struct XYZMacEditor: NSViewRepresentable {
             switch command {
             case .replaceContents(let replacement):
                 isApplyingExternalText = true
+                // One text view serves every tab in a folder window, and the undo stack
+                // belongs to that view. A range from the previous file would raise
+                // NSRangeException or silently edit this one, so a whole-content
+                // replacement starts a new history. The same holds when a document
+                // scene reloads the file from disk.
+                if textView.string != replacement {
+                    textView.undoManager?.removeAllActions()
+                }
                 textView.undoManager?.disableUndoRegistration()
                 textView.string = replacement
                 textView.clearDocumentChrome()
@@ -1422,6 +1450,7 @@ struct XYZMacEditor: NSViewRepresentable {
         func textDidChange(_ notification: Notification) {
             guard !isApplyingExternalText, !isRestyling else { return }
             guard let textView = notification.object as? NSTextView else { return }
+            (textView as? XYZMacTextView)?.lineIndexDidChange()
             // Marked Chinese (and other IME) text is still being composed. Restyling it drops the composition.
             if !textView.hasMarkedText() {
                 let length = (textView.string as NSString).length
