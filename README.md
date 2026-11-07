@@ -112,7 +112,7 @@ Package tests (document round-trip and Markdown HTML):
 swift test --package-path XYZCore
 ```
 
-Signing is Automatic. `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION` and the default team live in `Config/Base.xcconfig`; a local `Config/Local.xcconfig` can name a team, and Xcode then signs with that team's Apple Development certificate. CI passes `CODE_SIGNING_ALLOWED=NO`, so the GitHub build stays unsigned. Hardened Runtime is on for Release, which notarization requires, and the setting does not affect the unsigned CI build. A Developer ID signed, notarized, stapled build is produced with the steps in `docs/release.md`; a notarized 0.5.29 DMG was made from this tree on 2026-11-07.
+Signing is Automatic. `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION` and the default team live in `Config/Base.xcconfig`; a local `Config/Local.xcconfig` can name a team, and Xcode then signs with that team's Apple Development certificate. CI passes `CODE_SIGNING_ALLOWED=NO`, so the GitHub build stays unsigned. Hardened Runtime is on for Release, which notarization requires, and the setting does not affect the unsigned CI build. A Developer ID signed, notarized, stapled build is produced with the steps in `docs/release.md`; a notarized build was made from this tree on 2026-11-07. After installing a build, leave one copy of the app on the machine: quit it, replace `/Applications/XYZ.app`, and delete the `XYZ.app` bundles under `build/` (see `AGENTS.md`).
 
 To sign on your own Mac, copy the example and put your team id in the gitignored file:
 

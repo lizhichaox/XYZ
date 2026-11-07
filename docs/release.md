@@ -99,11 +99,18 @@ acceptance gate has never passed (0/7); the failures are recorded in `CHANGELOG.
    the panel, quit with unsaved edits, reopen and look for the restored tabs, open a
    note with a relative picture and one with a bad remote picture, switch the app
    language to 简体中文, and type Chinese through a real input method.
-8. Tag the commit that was archived: `git tag -a v<version> -m "XYZ <version>"`, push
+8. Leave one app on the machine. Quit the running app, replace
+   `/Applications/XYZ.app` with `ditto build/export/XYZ.app /Applications/XYZ.app`,
+   then delete the other bundles (`find build -name XYZ.app -type d -exec rm -rf {} +`,
+   plus any mounted DMG, `/tmp`, Desktop, Downloads), and check that
+   `mdfind "kMDItemCFBundleIdentifier == 'com.lizhichao.XYZ'"` prints only
+   `/Applications/XYZ.app`. Keep the current DMG/ZIP and delete older versions.
+   `AGENTS.md` states this rule for agents.
+9. Tag the commit that was archived: `git tag -a v<version> -m "XYZ <version>"`, push
    the tag, and attach the notarized DMG to the release. The `CHANGELOG.md` entry for
    that version is the release note.
-9. iOS goes through TestFlight with the same team. The document browser needs the iCloud
-   container entitlement, which an unsigned build does not carry.
+10. iOS goes through TestFlight with the same team. The document browser needs the iCloud
+    container entitlement, which an unsigned build does not carry.
 
 ## What still blocks a release
 
