@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import QuartzCore
 import SwiftUI
 import XYZCore
 
@@ -119,6 +120,40 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
     private var outlineShown = false
     private var adjusting = false
     private var dividerDrag = false
+    /// A width that is easing between two values. `nil` when the columns are still.
+    private struct ColumnSlide {
+        enum Edge {
+            case left
+            case right
+        }
+
+        var edge: Edge
+        var from: CGFloat
+        var to: CGFloat
+        var started: CFTimeInterval
+        var duration: CFTimeInterval
+        var completion: (() -> Void)?
+
+        /// Width of the column this slide drives, eased out.
+        func width(at time: CFTimeInterval) -> CGFloat {
+            let t = min(1, max(0, (time - started) / duration))
+            let eased = 1 - pow(1 - t, 3)
+            return from + (to - from) * eased
+        }
+    }
+
+    private var slide: ColumnSlide?
+    private var slideTimer: Timer?
+    private let slideDuration: CFTimeInterval = 0.18
+
+    /// The system's Reduce Motion setting turns the ease into a cut.
+    private var effectiveSlideDuration: CFTimeInterval {
+        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : slideDuration
+    }
+
+    deinit {
+        slideTimer?.invalidate()
+    }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -193,10 +228,28 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
         guard !views.isEmpty else { return }
         let showsSide = views.contains { $0 === sidebar }
         let showsOutline = views.contains { $0 === outline }
-        let side: CGFloat = showsSide ? clampedSidebarWidth() : 0
-        let outlineWidth: CGFloat = showsOutline
-            ? min(max(160, savedOutline), max(160, area.width - side - 320))
-            : 0
+        let now = CACurrentMediaTime()
+        let sliding = slide
+        let side: CGFloat
+        if showsSide {
+            if sliding.map({ $0.edge == .left }) == true {
+                side = max(0, sliding?.width(at: now) ?? 0)
+            } else {
+                side = clampedSidebarWidth()
+            }
+        } else {
+            side = 0
+        }
+        let outlineWidth: CGFloat
+        if showsOutline {
+            if sliding.map({ $0.edge == .right }) == true {
+                outlineWidth = max(0, sliding?.width(at: now) ?? 0)
+            } else {
+                outlineWidth = min(max(160, savedOutline), max(160, area.width - side - 320))
+            }
+        } else {
+            outlineWidth = 0
+        }
         let main = max(1, area.width - side - outlineWidth)
         var x: CGFloat = 0
         for view in views {
@@ -238,21 +291,31 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
         applyPositions()
     }
 
-    /// Shows or hides one column in a single layout pass.
+    /// Opens and closes one column with a short ease.
     ///
     /// The old path detached all three panes from the split view and added them back
     /// on every toggle, so the editor and the Reading web view left the window and
-    /// repainted. It then eased the width for 160 ms with a 60 Hz timer, laying the
-    /// text out again on every frame. That is what made the shortcut feel stuck.
-    /// Now only the column that changed enters or leaves the split view, and the
-    /// text view is laid out once.
+    /// repainted. Only the column that changed now enters or leaves the split view;
+    /// the editor stays attached and its text is laid out while the width eases.
     func setSidebarShown(_ shown: Bool) {
         guard shown != sidebarShown else { return }
+        finishSlide()
         if sidebarShown, let sidebar, sidebar.superview != nil, sidebar.frame.width > 1 {
             savedPosition = max(220, sidebar.frame.width)
         }
-        sidebarShown = shown
-        toggleColumn(shown: shown, name: "sidebar")
+        if shown {
+            sidebarShown = true
+            syncPanes()
+            startSlide(edge: .left, from: 0, to: clampedSidebarWidth(), shown: true)
+        } else {
+            let current = max(0, sidebar?.frame.width ?? savedPosition)
+            startSlide(edge: .left, from: current, to: 0, shown: false) { [weak self] in
+                guard let self else { return }
+                self.sidebarShown = false
+                self.syncPanes()
+                self.applyPositions()
+            }
+        }
     }
 
     func setOutline(shown: Bool, width: CGFloat) {
@@ -262,18 +325,101 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
             placeDividers()
             return
         }
-        outlineShown = shown
-        toggleColumn(shown: shown, name: "outline")
+        finishSlide()
+        if shown {
+            outlineShown = true
+            syncPanes()
+            startSlide(edge: .right, from: 0, to: targetOutlineWidth(), shown: true)
+        } else {
+            let current = max(0, outline?.frame.width ?? savedOutline)
+            startSlide(edge: .right, from: current, to: 0, shown: false) { [weak self] in
+                guard let self else { return }
+                self.outlineShown = false
+                self.syncPanes()
+                self.applyPositions()
+            }
+        }
     }
 
-    private func toggleColumn(shown: Bool, name: String) {
-        let started = CFAbsoluteTimeGetCurrent()
-        syncPanes()
-        applyPositions()
-        if XYZDiagnostics.enabled {
-            let ms = (CFAbsoluteTimeGetCurrent() - started) * 1000
-            XYZDiagnostics.note("\(name) shown=\(shown) in \(Int(ms.rounded()))ms")
+    /// The outline width the layout would use, for the start of a slide.
+    private func targetOutlineWidth() -> CGFloat {
+        let area = panes.bounds.width
+        guard area > 1 else { return max(160, savedOutline) }
+        let side = sidebarShown ? max(0, sidebar?.frame.width ?? clampedSidebarWidth()) : 0
+        return min(max(160, savedOutline), max(160, area - side - 320))
+    }
+
+    /// Ends a running ease at its end state. A press during a slide finishes the first
+    /// one instead of stacking timed layouts.
+    private func finishSlide() {
+        guard let running = slide else { return }
+        slide = nil
+        slideTimer?.invalidate()
+        slideTimer = nil
+        running.completion?()
+        lockColumnFrames()
+        placeDividers()
+    }
+
+    private func startSlide(
+        edge: ColumnSlide.Edge,
+        from: CGFloat,
+        to: CGFloat,
+        shown: Bool,
+        completion: (() -> Void)? = nil
+    ) {
+        slideTimer?.invalidate()
+        slideTimer = nil
+        guard abs(to - from) > 0.5, effectiveSlideDuration > 0 else {
+            slide = nil
+            lockColumnFrames()
+            placeDividers()
+            completion?()
+            return
         }
+        let duration = effectiveSlideDuration
+        slide = ColumnSlide(
+            edge: edge,
+            from: from,
+            to: to,
+            started: CACurrentMediaTime(),
+            duration: duration,
+            completion: completion
+        )
+        lockColumnFrames()
+        placeDividers(updatingCursors: false)
+        let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] timer in
+            guard let self else {
+                timer.invalidate()
+                return
+            }
+            guard let running = self.slide else {
+                timer.invalidate()
+                self.slideTimer = nil
+                return
+            }
+            if CACurrentMediaTime() - running.started >= running.duration {
+                self.slide = nil
+                timer.invalidate()
+                self.slideTimer = nil
+                self.lockColumnFrames()
+                self.placeDividers()
+                self.logToggle(edge: edge, shown: shown)
+                running.completion?()
+                return
+            }
+            self.lockColumnFrames()
+            self.placeDividers(updatingCursors: false)
+        }
+        slideTimer = timer
+        RunLoop.main.add(timer, forMode: .common)
+    }
+
+    private func logToggle(edge: ColumnSlide.Edge, shown: Bool) {
+        guard XYZDiagnostics.enabled else { return }
+        let name = edge == .left ? "sidebar" : "outline"
+        let ms = Int((slideDuration * 1000).rounded())
+        XYZDiagnostics.note("\(name) shown=\(shown) eased in \(ms)ms")
     }
 
     /// Adds or removes only the column that changed. `addSubview(_:positioned:)` keeps
@@ -316,7 +462,7 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
     }
 
     private func applyOutlineWidthIfNeeded() {
-        guard outlineShown, bounds.width > 1 else { return }
+        guard slide == nil, outlineShown, bounds.width > 1 else { return }
         guard let outline else {
             lockColumnFrames()
             return
@@ -415,29 +561,29 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
         placeDividers()
     }
 
-    private func placeDividers() {
+    private func placeDividers(updatingCursors: Bool = true) {
         let children = panes.subviews
         if sidebarShown, children.count > 1, children[0] === sidebar {
             let boundary = panes.convert(NSPoint(x: children[0].frame.maxX, y: 0), to: self).x
-            place(leftDivider, at: boundary)
+            place(leftDivider, at: boundary, updatingCursors: updatingCursors)
             leftDivider.isHidden = false
         } else if !leftDivider.isHidden {
             leftDivider.isHidden = true
-            window?.invalidateCursorRects(for: leftDivider)
+            if updatingCursors { window?.invalidateCursorRects(for: leftDivider) }
         }
         if outlineShown, children.count > 1 {
             let index = children.count - 2
             let boundary = panes.convert(NSPoint(x: children[index].frame.maxX, y: 0), to: self).x
-            place(rightDivider, at: boundary)
+            place(rightDivider, at: boundary, updatingCursors: updatingCursors)
             rightDivider.isHidden = false
         } else if !rightDivider.isHidden {
             rightDivider.isHidden = true
-            window?.invalidateCursorRects(for: rightDivider)
+            if updatingCursors { window?.invalidateCursorRects(for: rightDivider) }
         }
         bringDividersToFront()
     }
 
-    private func place(_ divider: SidebarDivider, at boundary: CGFloat) {
+    private func place(_ divider: SidebarDivider, at boundary: CGFloat, updatingCursors: Bool = true) {
         let width = SidebarDivider.hitWidth
         let frame = NSRect(x: boundary - width / 2, y: 0, width: width, height: bounds.height)
         let same = abs(divider.frame.origin.x - frame.origin.x) < 0.5
@@ -445,7 +591,7 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
             && abs(divider.frame.size.width - frame.size.width) < 0.5
         if !same {
             divider.frame = frame
-            window?.invalidateCursorRects(for: divider)
+            if updatingCursors { window?.invalidateCursorRects(for: divider) }
         }
     }
 
@@ -494,6 +640,7 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
     }
 
     func splitViewDidResizeSubviews(_ notification: Notification) {
+        guard slide == nil else { return }
         sidebar?.needsLayout = true
         detail?.needsLayout = true
         outline?.needsLayout = true
