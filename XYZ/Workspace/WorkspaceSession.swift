@@ -1710,9 +1710,25 @@ final class WorkspaceSession: ObservableObject {
                     }
                     self.noteOpenFileStillPresent(parent: parent, nodes: nodes)
                     // Every successful load used to walk the whole tree again. A reload
-                    // that found the same names does not change the index.
+                    // that found the same names does not change the index, and a changed
+                    // one only replaces that folder's direct entries in place.
                     if listingChanged {
-                        self.scheduleIndex()
+                        if self.indexedEntries.isEmpty {
+                            self.scheduleIndex()
+                        } else {
+                            self.indexedEntries = WorkspaceIndexPatch.replacing(
+                                entries: self.indexedEntries,
+                                parent: parent,
+                                children: nodes.map {
+                                    WorkspacePathEntry(
+                                        name: $0.name,
+                                        relativePath: $0.relativePath,
+                                        isDirectory: $0.isDirectory,
+                                        isHidden: $0.isHidden
+                                    )
+                                }
+                            )
+                        }
                     }
                 case .failure:
                     let message = String(localized: "Couldn't read this folder.")
@@ -2077,6 +2093,9 @@ final class WorkspaceFileBuffer: ObservableObject {
         guard kind == .markdown || kind == .plainText else { return }
         let formDirty = encoding != savedEncoding || lineEnding != savedLineEnding
         guard force || text != lastSaved || formDirty else { return }
+        // Synchronous on purpose: `unsavedForClose`, `shutdown`, tab close and tab move
+        // check `isDirty` immediately after `flush()`, and a background write here made
+        // those checks race the disk.
         observationEpoch += 1
         let editor = text
         let saved = lastSaved

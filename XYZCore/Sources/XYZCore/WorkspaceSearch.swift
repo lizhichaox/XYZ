@@ -459,3 +459,31 @@ public enum WorkspaceContentSearch {
         return text
     }
 }
+
+/// Keeps the name index in step with one folder whose listing changed, without walking
+/// the whole tree again. A folder's direct children are replaced in place; deeper entries
+/// are left alone because a structural operation (move, delete) still rescans the tree.
+public enum WorkspaceIndexPatch {
+    public static func replacing(
+        entries: [WorkspacePathEntry],
+        parent: String,
+        children: [WorkspacePathEntry]
+    ) -> [WorkspacePathEntry] {
+        let prefix = parent.isEmpty ? "" : parent + "/"
+        var kept: [WorkspacePathEntry] = []
+        kept.reserveCapacity(entries.count + children.count)
+        var insertAt: Int?
+        for entry in entries {
+            let entryParent = WorkspacePaths.parent(of: entry.relativePath)
+            if entryParent == parent {
+                if insertAt == nil { insertAt = kept.count }
+                // Replaced below by the folder's fresh listing.
+                if prefix.isEmpty || entry.relativePath.hasPrefix(prefix) { continue }
+            }
+            kept.append(entry)
+        }
+        let position = min(insertAt ?? kept.count, kept.count)
+        kept.insert(contentsOf: children, at: position)
+        return kept
+    }
+}

@@ -1475,7 +1475,6 @@ fileprivate struct Snapshot: Equatable {
     var contentSearching = false
     var contentPatternInvalid = false
     var rootExpanded = true
-    var indexCount = 0
 
     init() {}
 
@@ -1490,7 +1489,6 @@ fileprivate struct Snapshot: Equatable {
         contentSearching = session.contentSearching
         contentPatternInvalid = session.contentPatternInvalid
         rootExpanded = session.rootExpanded
-        indexCount = session.indexedEntries.count
         if let tree = session.searchTree {
             var collected: [NodeSnap] = []
             func walk(_ parent: String) {
