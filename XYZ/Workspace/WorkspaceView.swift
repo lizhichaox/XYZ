@@ -1388,6 +1388,7 @@ private struct WorkspaceDetail: View {
     var find: EditorFindModel?
     @Environment(\.undoManager) private var undoManager
     @AppStorage(WordCountSetting.key) private var showsWordCount = false
+    @AppStorage(RemoteImagesSetting.key) private var loadsRemoteImages = false
     @StateObject private var wordCount = WordCountModel()
     @State private var caret = EditorCaret()
     @State private var surfaceDetail: String?
@@ -1621,7 +1622,8 @@ private struct WorkspaceDetail: View {
             bridge: session.previewBridge,
             host: session.previewHost,
             scrollLink: session.scrollLink,
-            baseDirectory: session.buffer?.url.deletingLastPathComponent()
+            baseDirectory: session.buffer?.url.deletingLastPathComponent(),
+            allowsRemoteImages: loadsRemoteImages
         )
     }
 

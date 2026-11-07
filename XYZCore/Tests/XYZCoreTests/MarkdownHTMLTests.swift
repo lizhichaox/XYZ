@@ -156,6 +156,23 @@ final class MarkdownHTMLTests: XCTestCase {
         XCTAssertTrue(html.contains("<img alt=\"A &amp; B\" src=\"https://example.com/a.png\" title=\"Pic\">"))
     }
 
+    /// A remote picture is a request to another server. With the setting off, the
+    /// source is not written into the page at all, so the web view cannot fetch it.
+    func testRemoteImageIsLeftOutWhenRemoteImagesAreOff() {
+        let text = "![A](https://example.com/a.png) and ![local](pics/b.png)\n"
+        XCTAssertTrue(MarkdownHTML.render(text).contains("src=\"https://example.com/a.png\""))
+        let blocked = MarkdownHTML.render(text, allowRemoteImages: false)
+        XCTAssertFalse(blocked.lowercased().contains("http"))
+        XCTAssertFalse(blocked.contains("<img alt=\"A\""))
+        XCTAssertTrue(blocked.contains("A"))
+        XCTAssertTrue(blocked.contains("<img alt=\"local\" src=\"pics/b.png\">"))
+    }
+
+    func testProtocolRelativeImageCountsAsRemote() {
+        let html = MarkdownHTML.render("![A](//example.com/a.png)\n", allowRemoteImages: false)
+        XCTAssertFalse(html.contains("<img"))
+    }
+
     func testUnsafeImageDropsSource() {
         let html = MarkdownHTML.render("![diagram](javascript:alert(1))\n")
         XCTAssertFalse(html.lowercased().contains("javascript:"))

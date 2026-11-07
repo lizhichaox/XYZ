@@ -327,7 +327,7 @@ XYZCore（纯逻辑、可单测）                  App target（AppKit/SwiftUI 
 | P1-6 | session 转发 buffer 的 `objectWillChange`，磁盘重载/保存失败/文件消失会刷新正文与 banner | 构建通过 |
 | P1-7（部分） | `searchableFiles()` 统一 ⌘K 与 Replace in Folder 的候选集：排除目录、跳过路径、且侧栏隐藏文件时不列入 | 构建通过；执行前的磁盘再校验未做 |
 | P1-2 | `xyz-asset` 增加根目录约束：`WorkspacePathScope.contains` 标准化路径并解析符号链接；handler 按 webview 实例化并随笔记目录切换 | `WorkspaceTests.testPathScopeResolvesTraversalAndLinks`（`..` 越界、符号链接逃逸） |
-| P1-1（部分） | README 改为如实描述：`http(s)` 图片会由 web 内容进程联网加载，相对图片被限制在笔记目录内；默认阻断/CSP 未做 | README 与实现一致 |
+| P1-1 | Reading 默认不加载远程图片：`MarkdownHTML.render(_:allowRemoteImages:)` 关闭时渲染器根本不写 `http(s)` 的 `<img src>`（web view 无从发起请求，协议相对 `//host` 一并拦），设置项「Load remote images」默认关闭、可在 Settings 打开；相对路径图片不受影响 | `MarkdownHTMLTests` 新增 2 个用例（关闭时无远程 src、相对图片仍渲染、协议相对地址拦截） |
 | P1-17 | 补齐源码中缺失的 48 条用户可见文案（菜单、标签右键、⌘K 面板、Explorer、设置、状态栏、CLI 安装对话框、Replace in Folder）；catalog 238 → 286 key，全部带 zh-Hans | `Localizable.xcstrings` 校验；CI 新增 catalog 完整性步骤；未在真机看中文菜单 |
 | P1-11 | CRLF front matter 按 Unicode scalar 掩码，不再把 `\r\n` 当一个 Character 吞掉；大纲改用 `ReadingSource.prepare` 后再解析，front matter 里的 `#` 不再是标题、wiki link 标题与 Reading 一致 | `DocumentInsightTests` 新增 3 个用例（LF/CRLF 行号、wiki link 标题） |
 | P1-10 | 文档场景（iOS 文档浏览器 / Mac ⌘O）改为保留编码与换行：UTF-8/BOM/UTF-16/Windows-1252 均可读写，BOM 不再丢失；无法编码的新字符回退 UTF-8，避免写出空文件 | `TextDocument` 新增 5 个单测（BOM、UTF-16、Windows-1252、CRLF 原样、回退 UTF-8） |
@@ -358,12 +358,12 @@ XYZCore（纯逻辑、可单测）                  App target（AppKit/SwiftUI 
 - **P1-8 硬链接**：原子写仍会拆分硬链接（保持原子性优先）；符号链接已修。
 - **P1-9 剩余**：目录加载本身（单次 `children` 调用）仍不可中断；`Task.detached` 取消只覆盖了有检查点的循环。
 - **P1-13** 每击键全文外传（editor → buffer → preview/outline/字数）未做节流；**P1-16** iOS Source 端样式/查找/着色仍落后；**P1-18** swizzling 收敛；**P1-19** 自检代码移出发布包；**P1-20** 手写 pbxproj 一致性。
-- **P2 死代码**：`SourceFormatting` 的 6 个格式化命令（283 行 + 16 个测试）在 Core 里完整但**没有任何调用方**——要么接进 View 菜单，要么删除，属产品取舍；`ReadingLineMap`、`ExplorerEntry.fileCount` 同样未被生产代码使用。
+- **P2 死代码（部分）**：已删除 `ReadingLineMap`（+3 个测试）与 `ExplorerSection.fileCount`（+2 条断言），均无生产调用方；`SourceFormatting.swift` 的 6 个格式化命令与 `SourceEditing` 的行内 toggle **有意保留**——`FormatMenu.swift` 明确移除了 Format 菜单（"notes are written as Markdown text"），文件头已写明这一决定，删除需要产品层面确认。
 - **P2 其余**：6 套行号统一、lint/format 配置、macOS 产物里的 iOS-only plist 键、可访问性、仓库描述（"An AI Editor."）与发布定位。
 
 ### 9.5 本次验证基线
 
-- `swift test --package-path XYZCore`：**208 tests / 0 failures**（本轮新增 14 个测试方法：front matter/outline 3、TextDocument 4、WriteTarget 5、TextFind lineNumber 1、BOM-less UTF-16 1）。
+- `swift test --package-path XYZCore`：**207 tests / 0 failures**（第一轮后 194；第二轮 +14；第三轮 +2 远程图片用例、−3 已删的 `ReadingLineMap` 测试）。
 - `sh Scripts/xyz-test.sh`：**8/8 ok**（新增 `tilde`、`tilde-dir`）。
 - `xcodebuild`：macOS Debug、macOS Release、iOS Simulator Debug 均 **BUILD SUCCEEDED**（签名关闭，与 CI 同口径）。
 - `python3 tools/make_icons.py --help` 在未安装 fontTools 的机器上正常输出；`--sheet` 给出可执行的安装提示。

@@ -98,6 +98,12 @@ enum HiddenFilesSetting {
     static let key = "xyz.workspace.showsHidden"
 }
 
+/// Load `http(s)` pictures in Reading. Off unless turned on, so opening a note does
+/// not contact another server. A picture next to the note is not affected.
+enum RemoteImagesSetting {
+    static let key = "xyz.reading.remoteImages"
+}
+
 #if os(macOS)
 /// View → Zoom In, Zoom Out, Actual Size. They change the text size shared by Source and Reading.
 enum TextZoom {

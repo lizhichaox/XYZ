@@ -82,15 +82,6 @@ public enum ExplorerSection {
         if isDirectory { return selectedPath }
         return WorkspacePaths.parent(of: selectedPath)
     }
-
-    /// Files in the tree. Directories are not counted. Hidden files count only while they are listed.
-    public static func fileCount(entries: [WorkspacePathEntry], showsHidden: Bool) -> Int {
-        entries.reduce(into: 0) { total, entry in
-            if entry.isDirectory { return }
-            if !showsHidden, entry.isHidden { return }
-            total += 1
-        }
-    }
 }
 
 /// One path discovered while indexing a folder. The scanner lives in the app; matching does not.

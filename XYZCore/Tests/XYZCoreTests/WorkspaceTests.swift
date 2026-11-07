@@ -370,35 +370,6 @@ final class EditorScrollAnchorTests: XCTestCase {
     }
 }
 
-final class ReadingLineMapTests: XCTestCase {
-    func testBlockStartPicksTheLatestStartAtOrBeforeTheLine() {
-        XCTAssertEqual(ReadingLineMap.blockStart(containing: 6, starts: [1, 4, 10]), 4)
-        XCTAssertEqual(ReadingLineMap.blockStart(containing: 4, starts: [1, 4, 10]), 4)
-        XCTAssertEqual(ReadingLineMap.blockStart(containing: 10, starts: [1, 4, 10]), 10)
-        XCTAssertNil(ReadingLineMap.blockStart(containing: 0, starts: [1, 4]))
-        XCTAssertNil(ReadingLineMap.blockStart(containing: 3, starts: []))
-    }
-
-    func testSourceLineMatchesTheReadingScript() {
-        XCTAssertEqual(ReadingLineMap.sourceLine(startLine: 10, endLine: 20, fraction: 0.5), 15)
-        XCTAssertEqual(ReadingLineMap.sourceLine(startLine: 10, endLine: 20, fraction: 0), 10)
-        XCTAssertEqual(ReadingLineMap.sourceLine(startLine: 10, endLine: 10, fraction: 0.9), 10)
-        XCTAssertEqual(ReadingLineMap.sourceLine(startLine: 4, endLine: 8, fraction: 1), 8)
-    }
-
-    func testIntegerLineInsideABlockRoundTrips() {
-        let start = 10
-        let end = 20
-        for line in start...end {
-            let fraction = Double(line - start) / Double(end - start)
-            let mapped = ReadingLineMap.sourceLine(startLine: start, endLine: end, fraction: fraction)
-            XCTAssertEqual(mapped, line)
-            let block = ReadingLineMap.blockStart(containing: mapped, starts: [1, start, 30])
-            XCTAssertEqual(block, start)
-        }
-    }
-}
-
 final class WorkspaceFilePolicyTests: XCTestCase {
     func testClassifier() {
         XCTAssertEqual(

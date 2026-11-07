@@ -225,31 +225,3 @@ public struct EditorScrollAnchor: Equatable, Sendable {
         return lines.isEmpty ? [""] : lines
     }
 }
-
-/// Maps a source line to the rendered block that contains it, and back.
-///
-/// Lines are 1-based, matching swift-markdown's `SourceLocation.line`.
-/// `endLine` is inclusive. A fraction of 0 stays on the block's first line, so a
-/// block scrolled to its start round-trips to the same line.
-public enum ReadingLineMap {
-    public static func blockStart(containing line: Int, starts: [Int]) -> Int? {
-        guard line > 0 else { return nil }
-        var chosen: Int?
-        for start in starts where start > 0 && start <= line {
-            if chosen == nil || start > chosen! {
-                chosen = start
-            }
-        }
-        return chosen
-    }
-
-    public static func sourceLine(startLine: Int, endLine: Int, fraction: Double) -> Int {
-        let start = max(1, startLine)
-        let end = max(start, endLine)
-        let clamped = min(1, max(0, fraction))
-        if clamped == 0 || start == end { return start }
-        let span = end - start
-        let offset = Int((Double(span) * clamped).rounded(.down))
-        return min(end, start + offset)
-    }
-}

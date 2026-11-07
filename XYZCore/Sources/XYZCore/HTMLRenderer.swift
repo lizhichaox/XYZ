@@ -7,8 +7,12 @@ import Markdown
 /// Raw HTML in the source is escaped, and link or image URLs with unsafe schemes are dropped,
 /// so a preview of an untrusted file cannot inject script into the web view.
 struct HTMLRenderer {
+    /// A remote picture is a request to another server from the web content process.
+    /// Reading keeps that off unless the app asks for it.
+    var allowsRemoteImages = true
+
     func render(_ document: Document, reserve: Int = 0) -> String {
-        var walker = HTMLRenderingWalker()
+        var walker = HTMLRenderingWalker(allowsRemoteImages: allowsRemoteImages)
         if reserve > 0 {
             walker.html.reserveCapacity(reserve)
         }
@@ -18,6 +22,7 @@ struct HTMLRenderer {
 }
 
 private struct HTMLRenderingWalker: MarkupWalker {
+    var allowsRemoteImages = true
     var html = ""
     private var alignments: [Table.ColumnAlignment?] = []
     private var inHeader = false
@@ -300,7 +305,7 @@ private struct HTMLRenderingWalker: MarkupWalker {
 
     mutating func visitImage(_ image: Image) {
         let alt = HTMLText.attribute(Self.plainText(image))
-        guard let source = URLPolicy.imageSource(image.source) else {
+        guard let source = URLPolicy.imageSource(image.source, allowRemote: allowsRemoteImages) else {
             html.append(HTMLText.escape(Self.plainText(image)))
             return
         }
@@ -485,8 +490,16 @@ enum URLPolicy {
         sanitize(raw, allowedSchemes: linkSchemes)
     }
 
-    static func imageSource(_ raw: String?) -> String? {
-        sanitize(raw, allowedSchemes: imageSchemes)
+    /// `allowRemote` is false when Reading should not contact another server. A
+    /// scheme-less path is the note's own file, read through `xyz-asset`; a
+    /// protocol-relative `//host/path` is remote, because no base URL makes it local.
+    static func imageSource(_ raw: String?, allowRemote: Bool) -> String? {
+        guard let source = sanitize(raw, allowedSchemes: imageSchemes) else { return nil }
+        guard !allowRemote else { return source }
+        if source.hasPrefix("//") { return nil }
+        guard let colon = source.firstIndex(of: ":") else { return source }
+        let scheme = source[..<colon].lowercased()
+        return scheme == "http" || scheme == "https" ? nil : source
     }
 
     private static func sanitize(_ raw: String?, allowedSchemes: Set<String>) -> String? {

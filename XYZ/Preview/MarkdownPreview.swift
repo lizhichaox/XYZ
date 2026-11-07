@@ -40,15 +40,24 @@ final class PreviewModel: ObservableObject {
     /// Below this size, rendering stays on the main actor. Larger documents render off it.
     private static let synchronousLimit = 20_000
 
+    /// Reading does not request a picture from another server unless this is on.
+    private var allowsRemoteImages = false
+
     private var task: Task<Void, Never>?
     private var generation = 0
+
+    /// The setting changed. The next `schedule` renders with the new value.
+    func setAllowsRemoteImages(_ allows: Bool) {
+        allowsRemoteImages = allows
+    }
 
     func schedule(_ text: String, immediate: Bool) {
         task?.cancel()
         generation &+= 1
         let token = generation
+        let allowsRemoteImages = allowsRemoteImages
         if immediate && text.utf8.count <= Self.synchronousLimit {
-            publish(MarkdownHTML.render(text))
+            publish(MarkdownHTML.render(text, allowRemoteImages: allowsRemoteImages))
             return
         }
         task = Task { [weak self] in
@@ -58,18 +67,18 @@ final class PreviewModel: ObservableObject {
                 guard !Task.isCancelled else { return }
             }
             guard let self else { return }
-            let rendered = await Self.render(text)
+            let rendered = await Self.render(text, allowRemoteImages: allowsRemoteImages)
             guard self.generation == token else { return }
             self.publish(rendered)
         }
     }
 
-    private static func render(_ text: String) async -> String {
+    private static func render(_ text: String, allowRemoteImages: Bool) async -> String {
         if text.utf8.count <= synchronousLimit {
-            return MarkdownHTML.render(text)
+            return MarkdownHTML.render(text, allowRemoteImages: allowRemoteImages)
         }
         return await Task.detached(priority: .userInitiated) {
-            MarkdownHTML.render(text)
+            MarkdownHTML.render(text, allowRemoteImages: allowRemoteImages)
         }.value
     }
 
@@ -81,7 +90,7 @@ final class PreviewModel: ObservableObject {
     /// First paint. Called before the web view exists so the shell can include the HTML.
     func adopt(_ text: String) {
         guard text.utf8.count <= Self.synchronousLimit else { return }
-        publish(MarkdownHTML.render(text))
+        publish(MarkdownHTML.render(text, allowRemoteImages: allowsRemoteImages))
     }
 }
 
@@ -91,14 +100,24 @@ struct MarkdownPreview: View {
     var scrollLink: EditorScrollLink
     /// The note's folder, for relative pictures and links.
     var baseDirectory: URL?
+    /// Off unless the Reading setting turns remote pictures on.
+    var allowsRemoteImages: Bool = false
     @StateObject private var model: PreviewModel
 
-    init(bridge: PreviewBridge, host: PreviewWebHost, scrollLink: EditorScrollLink, baseDirectory: URL? = nil) {
+    init(
+        bridge: PreviewBridge,
+        host: PreviewWebHost,
+        scrollLink: EditorScrollLink,
+        baseDirectory: URL? = nil,
+        allowsRemoteImages: Bool = false
+    ) {
         self.bridge = bridge
         self.host = host
         self.scrollLink = scrollLink
         self.baseDirectory = baseDirectory
+        self.allowsRemoteImages = allowsRemoteImages
         let model = PreviewModel()
+        model.setAllowsRemoteImages(allowsRemoteImages)
         model.adopt(bridge.latestText)
         _model = StateObject(wrappedValue: model)
     }
@@ -113,6 +132,10 @@ struct MarkdownPreview: View {
                     previewModel?.schedule(text, immediate: false)
                 }
                 previewModel.schedule(bridge.latestText, immediate: true)
+            }
+            .onChange(of: allowsRemoteImages) { _, value in
+                model.setAllowsRemoteImages(value)
+                model.schedule(bridge.latestText, immediate: true)
             }
             .onDisappear {
                 bridge.detach(id: ObjectIdentifier(model))

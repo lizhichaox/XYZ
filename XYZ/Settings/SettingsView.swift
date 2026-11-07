@@ -13,6 +13,7 @@ struct SettingsView: View {
     @AppStorage(XYZEditorStyle.wordWrapKey) private var wordWrap = true
     @AppStorage(WordCountSetting.key) private var showsWordCount = false
     @AppStorage(HiddenFilesSetting.key) private var showsHiddenFiles = true
+    @AppStorage(RemoteImagesSetting.key) private var loadsRemoteImages = false
 
     /// The language this process launched with. A different choice waits for a restart.
     @State private var launchLanguage = AppLanguage.stored
@@ -81,6 +82,13 @@ struct SettingsView: View {
                 Toggle(isOn: $wordWrap) {
                     Text("Wrap lines")
                     Text("Breaks long lines to the width of the editor. Turn this off to scroll sideways.")
+                }
+            }
+
+            Section("Reading") {
+                Toggle(isOn: $loadsRemoteImages) {
+                    Text("Load remote images")
+                    Text("A note that links to a picture on the internet shows it. Off by default, so reading a note does not contact another server.")
                 }
             }
 

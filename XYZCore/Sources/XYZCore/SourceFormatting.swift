@@ -1,5 +1,11 @@
 import Foundation
 
+// The app does not call anything in this file. `XYZ/Editor/FormatMenu.swift` removes
+// the Format commands on purpose: notes are written as Markdown text, so there is no
+// Bold, Heading, or List menu. The edits are kept and tested because they are the
+// natural home if a Format menu comes back; deleting them is a product decision, and
+// `SourceFormattingTests` covers them.
+
 /// The list a Format command makes: `- `, `1. `, or `- [ ] `.
 public enum SourceListKind: Equatable, Sendable {
     case bullet

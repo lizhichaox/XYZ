@@ -2864,6 +2864,26 @@
           }
         }
       }
+    },
+    "Load remote images": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "加载远程图片"
+          }
+        }
+      }
+    },
+    "A note that links to a picture on the internet shows it. Off by default, so reading a note does not contact another server.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "笔记里如果链接到网络上的图片，会把它显示出来。默认关闭，因此阅读笔记时不会连接其他服务器。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

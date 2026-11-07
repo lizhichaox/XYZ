@@ -35,14 +35,16 @@ Then the Core correctness and cost items the same analysis listed as P1.
 - The `xyz` command keeps its temporary paths under `mktemp -d` and removes the directory with a trap, instead of two names in `/tmp` that another process can predict.
 - `tools/make_icons.py` imports fontTools only for the commands that draw, so `--help` works without it; it finds Chrome, Chromium, or Edge under `/Applications` (or `CHROME`), and says which dependency is missing instead of raising a traceback. `tools/requirements.txt` names fontTools.
 - The localization catalog grew from 238 to 286 keys: 48 user-visible strings from the menus, the tab context menu, the ⌘K panel, the Explorer header, Settings, the status bar, the CLI install dialogs, and Replace in Folder. The zh-Hans values are machine-written and no Chinese menu was read on a screen. CI now checks that every key has one.
+- Reading does not fetch a remote picture unless Settings → Reading → Load remote images is on, and it is off in a new install. The renderer leaves an `http`/`https` image source out of the page when the switch is off, so the web view never starts a request and the picture shows as its alt text. A protocol-relative `//host/path` counts as remote. A picture next to the note is a relative path and still loads through `xyz-asset`.
+- Two unused Core helpers are gone: `ReadingLineMap` and `ExplorerSection.fileCount`, with their tests. The six Format commands and the inline toggles stay: `FormatMenu` removes the Format menu on purpose ("notes are written as Markdown text"), and `SourceFormatting.swift` now says so at the top, so the next reader does not read those tests as a missing feature.
 
-The README's claim that the renderer does not request remote images was false: `URLPolicy.imageSchemes` passes `http` and `https` through and there is no content-security policy, so a remote picture is fetched. The README now says that, and says that a relative picture is confined to the note's folder. It also now says that a document opened through the document page keeps its encoding, and that the Source/Reading choice is saved per tab.
+The README used to say that the renderer does not request remote images. That was false, and the fix went the other way round: the README now says a remote picture is left out unless the setting is on, and that a relative picture is read only from the note's folder. It also now says that a document opened through the document page keeps its encoding, and that the Source/Reading choice is saved per tab.
 
 `docs/project-analysis.md` gained a section that records which findings are fixed, with the test and build evidence for each, and which ones are still open.
 
 ### Where this was checked
 
-- `swift test --package-path XYZCore`: 208 tests, 0 failures. 194 of them were the tree's tests; 14 methods were added in the second pass of this same change set.
+- `swift test --package-path XYZCore`: 207 tests, 0 failures. The tree had 194; the second pass added 14 methods, and the third added 2 for the remote-image switch and removed the 3 that covered `ReadingLineMap`.
 - `sh Scripts/xyz-test.sh`: 8 cases, all ok (`help dot tilde tilde-dir file multi missing bare`).
 - `xcodebuild` Debug and Release for `platform=macOS`, and Debug for `generic/platform=iOS Simulator`: BUILD SUCCEEDED. Signing is off, as in the cloud check.
 - `python3 tools/make_icons.py --help` prints its usage on this Mac, where fontTools is not installed; `--sheet` stops with the install line.
@@ -50,13 +52,13 @@ The README's claim that the renderer does not request remote images was false: `
 
 ### Not checked
 
-No window was launched while doing this: on this Mac it would take the screen. The quit and close alerts, the tab restore, the picture scope, the Chinese menus, and the encoding of a document-browser save are compiled and unit-tested only where the decision is a pure function; there is no app-layer test target yet. The salvage of a cp1252 note typed over with Chinese was tested on `TextDocument`, not through the document scene. XCUI still does not launch the app on the cloud runner, so the acceptance gate is still not green, and the two new alert buttons have no picture. No signed build, no sandbox build, no iCloud run, no real Chinese input method, no performance measurement. The save still runs on the main thread and every keystroke still copies the whole document into the preview, outline, and word count.
+No window was launched while doing this: on this Mac it would take the screen. The quit and close alerts, the tab restore, the picture scope, the Chinese menus, the new Load remote images switch, and the encoding of a document-browser save are compiled and unit-tested only where the decision is a pure function; there is no app-layer test target yet. The switch was not clicked in a window, so only the renderer side (no remote source in the page) is tested. The salvage of a cp1252 note typed over with Chinese was tested on `TextDocument`, not through the document scene. XCUI still does not launch the app on the cloud runner, so the acceptance gate is still not green, and the two new alert buttons have no picture. No signed build, no sandbox build, no iCloud run, no real Chinese input method, no performance measurement. The save still runs on the main thread and every keystroke still copies the whole document into the preview, outline, and word count.
 
 ### Open, for the owner
 
-- Reading still fetches `http(s)` pictures, and there is no setting or policy to refuse them. Blocking by default is a product decision, and it probably needs a switch and a notice on a note that links out.
-- Six formatting commands in `XYZCore` (heading, quote, list, code block, table, link) have tests but no menu item, and so does `ReadingLineMap`. Either they join the View menu or they are deleted.
+- The six formatting commands in `XYZCore` (heading, quote, list, code block, table, link) are kept with no menu item, because `FormatMenu` removes the Format menu on purpose. The file says so. Deleting them, or giving them a menu, is a product decision.
 - There is no tag, release, Developer ID signature, notarization, or Hardened Runtime. The acceptance gate is 0/7 because XCUI cannot launch the app on the cloud runner; a self-hosted runner or a written manual checklist is the next step.
+- The save still runs on the main thread and every keystroke copies the whole document into the preview, outline, and word count. Moving the write off the main actor is a refactor that cannot be checked without a real window, so it waits for a decision.
 - Nobody has looked at this build on a real screen. The quit and close alerts, the tab restore, iCloud, the sandbox, a real Chinese input method, and the Chinese menus are recorded as verified by compile and unit tests only.
 
 ## 0.5.28

@@ -42,6 +42,7 @@ struct DocumentEditorView: View {
     @StateObject private var commands: DocumentCommandBridge
     #endif
     @AppStorage(WordCountSetting.key) private var showsWordCount = false
+    @AppStorage(RemoteImagesSetting.key) private var loadsRemoteImages = false
     @StateObject private var wordCount = WordCountModel()
 
     init(document: MarkdownFileDocument, isEditable: Bool, fileURL: URL? = nil) {
@@ -171,7 +172,8 @@ struct DocumentEditorView: View {
             bridge: bridge,
             host: webHost,
             scrollLink: scrollLink,
-            baseDirectory: fileURL?.deletingLastPathComponent()
+            baseDirectory: fileURL?.deletingLastPathComponent(),
+            allowsRemoteImages: loadsRemoteImages
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         #if os(macOS)
