@@ -1,98 +1,136 @@
 # Releasing XYZ
 
-This is a checklist, not a record of a release. Nothing below has been run for a
-tagged build in this tree: there is no Developer ID certificate and no notary
-credential here, and `git tag` is empty. The cloud check builds unsigned on purpose
-(`CODE_SIGNING_ALLOWED=NO` plus an ad-hoc signature added one step later), so it does
-not show what a signed, sandboxed build does.
+A checklist plus the record of what has been run. On 2026-11-07 the full signing and
+notarization path was run on the owner's Mac: a Developer ID certificate exists, a
+notary credential is in the keychain, and a signed, notarized, stapled DMG was accepted
+by Gatekeeper. Nothing is tagged or published yet. The cloud check is still unsigned on
+purpose (`CODE_SIGNING_ALLOWED=NO`), so it cannot replace the checks below.
 
-## What the cloud check does and does not prove
+## What the cloud check does not cover
 
-It proves that the Swift package tests, the `xyz` command tests, a Debug and a Release
-macOS build, an iOS Simulator build, and the window self-checks finish. It does not
-prove that iCloud, security-scoped bookmarks, the sandbox, or the app's entitlements
-work: the ad-hoc signed build has no entitlements. The acceptance gate has never passed
-(0/7); the failures are recorded in `CHANGELOG.md` 0.5.28.
+The Debug/Release build, the package tests, the CLI tests, and the launch checks pass,
+but the app there is ad-hoc signed with no entitlements. The sandbox, iCloud,
+security-scoped bookmarks, the quit alert, and the tab restore are not exercised. The
+acceptance gate has never passed (0/7); the failures are recorded in `CHANGELOG.md`
+0.5.28.
+
+## One-time setup on the release Mac
+
+1. Xcode → Settings… → Accounts has the team (`Z4FMG2KTPM`) signed in.
+2. A `Developer ID Application` certificate is in the login keychain. Check:
+
+   ```sh
+   security find-identity -v -p codesigning
+   # Developer ID Application: Zhichao Li (Z4FMG2KTPM)
+   ```
+
+   It was created 2026-11-07 through developer.apple.com (Certificates, Identifiers &
+   Profiles → Certificates → + → Developer ID Application) with a CSR made in Keychain
+   Access → Certificate Assistant. Xcode's Manage Certificates pane refused with
+   "This operation can only be performed by the Account Holder." before the updated
+   Program License Agreement was accepted; the web path worked after that.
+3. A notary credential is in the keychain:
+
+   ```sh
+   xcrun notarytool store-credentials "xyz-notary" \
+     --apple-id "x@lizhichao.com" --team-id Z4FMG2KTPM
+   ```
+
+   The app-specific password comes from appleid.apple.com → Sign-In and Security →
+   App-Specific Passwords. The profile name used here is `xyz-notary`.
+4. `Config/Local.xcconfig` holds `DEVELOPMENT_TEAM = Z4FMG2KTPM` (not committed).
 
 ## Steps
 
-1. Let the change set settle. `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` live in
-   `Config/Base.xcconfig` only; the cloud check reads them back out of the built
-   `Info.plist`, so a mismatch fails the build before a tag exists.
-2. Push the branch and get the cloud check green, or record which cases fail and why.
-   Do not tag a red build.
-3. On a Mac with a Developer ID Application certificate, write a local
-   `Config/Local.xcconfig` with `DEVELOPMENT_TEAM = <team id>`. `Base.xcconfig` includes
-   it when it exists and the file is not committed. Do not also set the team in the
-   target's build settings: the project file wins over the xcconfig.
-4. Hardened Runtime is already on for Release; Debug keeps it off. Check that the
-   signed bundle carries it: `codesign -dv --verbose=4` prints
-   `flags=0x10000(runtime)`. The unsigned cloud build is not affected by the setting.
-5. Archive and export:
+1. `MARKETING_VERSION` and `CURRENT_PROJECT_VERSION` live in `Config/Base.xcconfig`
+   only; the cloud check reads them out of the built `Info.plist`.
+2. Push the branch and get the cloud check green, or record which acceptance cases
+   fail. Do not tag a red build.
+3. Archive and export:
 
    ```sh
    xcodebuild -project XYZ.xcodeproj -scheme XYZ -configuration Release \
-     -destination 'platform=macOS' -archivePath build/XYZ.xcarchive archive
+     -destination 'platform=macOS' -archivePath build/XYZ.xcarchive \
+     -allowProvisioningUpdates archive
+
    xcodebuild -exportArchive -archivePath build/XYZ.xcarchive \
-     -exportPath build/export -exportOptionsPlist <export options with Developer ID>
-   ```
-6. Check the result before notarizing:
-
-   ```sh
-   codesign -dv --verbose=4 build/export/XYZ.app        # Developer ID, Runtime flag
-   codesign -d --entitlements :- build/export/XYZ.app   # sandbox, network.client,
-                                                        # user-selected files, bookmarks, iCloud
-   spctl -a -vv --type execute build/export/XYZ.app
+     -exportPath build/export -exportOptionsPlist tools/ExportOptions.plist \
+     -allowProvisioningUpdates
    ```
 
-   The entitlements must match `XYZ/XYZ-macOS.entitlements`. A build that lacks the
-   network client entitlement starts but its web content process cannot fetch anything;
-   a build without the bookmark entitlement cannot reopen a folder without asking.
-7. Notarize and staple:
+   `tools/ExportOptions.plist` uses `method = developer-id`, automatic signing, and the
+   team id.
+4. Inspect the exported app:
 
    ```sh
-   xcrun notarytool submit build/XYZ-notarize.zip --apple-id <id> --team-id <team> \
-     --password <app-specific password> --wait
+   codesign -dv --verbose=4 build/export/XYZ.app
+   #   Authority=Developer ID Application: Zhichao Li (Z4FMG2KTPM)
+   #   CodeDirectory flags=0x10000(runtime)
+   codesign -d --entitlements :- build/export/XYZ.app
+   #   app-sandbox, network.client, user-selected read-write, app-scope bookmarks,
+   #   iCloud CloudDocuments; get-task-allow is absent in this build
+   ```
+
+5. Zip and notarize the app (the zip is what gets submitted; the app is what gets
+   stapled):
+
+   ```sh
+   ditto -c -k --keepParent build/export/XYZ.app "build/XYZ-<version>.zip"
+   xcrun notarytool submit "build/XYZ-<version>.zip" --keychain-profile xyz-notary --wait
    xcrun stapler staple build/export/XYZ.app
    xcrun stapler validate build/export/XYZ.app
+   spctl -a -vv --type execute build/export/XYZ.app   # accepted, source=Notarized Developer ID
    ```
-8. Open the stapled app and run the manual check that CI cannot: open a folder through
-   the panel, quit with unsaved edits, reopen the app and look for the restored tabs,
-   open a note with a relative picture, install the `xyz` command, switch the app
+
+6. Optional but nicer to download: sign the DMG, notarize it, staple it.
+
+   ```sh
+   hdiutil create -volname XYZ -srcfolder build/export/XYZ.app -ov -format UDZO \
+     "build/XYZ-<version>.dmg"
+   codesign --force --sign "Developer ID Application: Zhichao Li (Z4FMG2KTPM)" \
+     --timestamp "build/XYZ-<version>.dmg"
+   xcrun notarytool submit "build/XYZ-<version>.dmg" --keychain-profile xyz-notary --wait
+   xcrun stapler staple "build/XYZ-<version>.dmg"
+   xcrun stapler validate "build/XYZ-<version>.dmg"
+   spctl -a -t open --context context:primary-signature -vv "build/XYZ-<version>.dmg"
+   ```
+
+7. Open the stapled app and run the manual check that CI cannot: open a folder through
+   the panel, quit with unsaved edits, reopen and look for the restored tabs, open a
+   note with a relative picture and one with a bad remote picture, switch the app
    language to 简体中文, and type Chinese through a real input method.
-9. Tag the commit that was archived: `git tag -a v<version> -m "XYZ <version>"` and push
-   the tag with the release notes. The `CHANGELOG.md` entry for that version is the
-   release note.
-10. iOS goes through TestFlight with the same signing team; the document browser needs
-    the iCloud container entitlement, which a `CODE_SIGNING_ALLOWED=NO` build does not
-    carry.
+8. Tag the commit that was archived: `git tag -a v<version> -m "XYZ <version>"`, push
+   the tag, and attach the notarized DMG to the release. The `CHANGELOG.md` entry for
+   that version is the release note.
+9. iOS goes through TestFlight with the same team. The document browser needs the iCloud
+   container entitlement, which an unsigned build does not carry.
 
 ## What still blocks a release
 
-- **No Developer ID Application certificate.** `security find-identity -v -p
-  codesigning` lists only `Apple Development: …` in this keychain. A Release build
-  signed with it is rejected by `spctl` and cannot be notarized. Create the
-  certificate in Xcode → Settings → Accounts → Manage Certificates… → + → Developer
-  ID Application, then run steps 5–8 again.
-- **No notary credentials.** Steps 7–8 need an Apple ID app-specific password (or an
-  App Store Connect API key) for `notarytool`; none is stored here.
-- No release workflow: the cloud job builds, but nothing archives or notarizes.
+- No tag, no GitHub release, and no release workflow: everything above is run by hand.
 - The acceptance gate has not passed, so the window checks are evidence, not a pass.
-- The installed 0.5.27 build is signed with an Apple Development certificate, not a
-  Developer ID, so it cannot be notarized or distributed.
+- The installed build is 0.5.27 (build 43), signed with an Apple Development
+  certificate; the notarized 0.5.29 build exists only as a local artifact.
+- No manual verification on a real screen has been recorded for this build.
 
-## What was checked on 2026-11-07
+## Record: 2026-11-07
 
-With the team signed in on this Mac (`Z4FMG2KTPM`), Debug and Release built and signed
-for `platform=macOS`:
+Run on the owner's Mac, macOS 27.2, Xcode 27.2, team `Z4FMG2KTPM`.
 
-- `codesign -d --entitlements :-` on both shows App Sandbox, network client,
-  user-selected files, app-scoped bookmarks, and the iCloud container.
-- Release carries Hardened Runtime: `flags=0x10000(runtime)`.
-- The embedded profile is `Mac Team Provisioning Profile: com.lizhichao.XYZ`, valid
-  until 2027-10-23.
-- `spctl -a -vv --type execute` still says rejected: an Apple Development signature
-  without notarization is not a distributable build. That is expected and is what a
-  Developer ID certificate plus notarization fix.
-- The Release signature also carries `com.apple.security.get-task-allow`, which comes
-  from development signing; a Developer ID distribution build does not include it.
+- Certificate: `Developer ID Application: Zhichao Li (Z4FMG2KTPM)`, created
+  2026-11-07; `security find-identity -v -p codesigning` lists it.
+- Archive: `build/XYZ.xcarchive`, version 0.5.29 (build 45).
+- Export: `method = developer-id`, automatic signing; embedded profile
+  `Mac Team Direct Provisioning Profile: com.lizhichao.XYZ`, expiration 2044-11-02;
+  iCloud container environment `Production`.
+- Notarization of the app zip: submission `0e54a40b-e359-4159-9fbf-e9c066ed37ff`,
+  status **Accepted**.
+- `xcrun stapler staple` and `validate` on `build/export/XYZ.app`: worked.
+- `spctl -a -vv --type execute build/export/XYZ.app`: **accepted**,
+  `source=Notarized Developer ID`, `origin=Developer ID Application: Zhichao Li (Z4FMG2KTPM)`.
+- DMG `build/XYZ-0.5.29.dmg`: code-signed with the Developer ID identity, notarized
+  (submission `a0e37293-3755-4566-908b-f48ac56616ed`, **Accepted**), stapled;
+  `spctl -a -t open --context context:primary-signature -vv` reports **accepted**,
+  `source=Notarized Developer ID`.
+- Not touched: the app was never opened, so the sandbox/iCloud/quit behaviour and the
+  Chinese UI are still unverified in a running app. No tag, no upload.

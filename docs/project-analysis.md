@@ -352,7 +352,7 @@ XYZCore（纯逻辑、可单测）                  App target（AppKit/SwiftUI 
 
 ### 9.4 仍未完成（有意保留，按优先级）
 
-- **P0-5 发布阻断（部分推进）**：Release 已打开 Hardened Runtime，本机用 Team `Z4FMG2KTPM` 的 Apple Development 证书做了签名构建并验证 entitlements（sandbox / network.client / user-selected / bookmarks / iCloud）与 runtime flag；但 keychain 里**没有 Developer ID Application 证书**，`spctl` 仍 rejected，也没有 notarization 凭据、tag/release workflow，acceptance 门禁仍 0/7。工具链已备好（见 `docs/release.md`），剩下的是证书与验收决定。
+- **P0-5 发布阻断（大幅推进，仍未收口）**：Release 已打开 Hardened Runtime；本机创建了 Developer ID Application 证书（Team `Z4FMG2KTPM`），archive → `method=developer-id` 导出 → zip 公证（submission `0e54a40b…`，Accepted）→ staple → `spctl` **accepted / source=Notarized Developer ID**；DMG 也已签名、公证（`a0e37293…`，Accepted）、staple 并被 `spctl` 接受。仍缺：tag/GitHub release、release workflow、acceptance 门禁（0/7）、安装版仍是 0.5.27、未做真机人工验收。步骤与记录见 `docs/release.md`。
 - **P1-1 远程图片默认阻断**：属产品决策（默认关闭 + 设置项 + 外链提示），本次只改文档。
 - **P1-5** 保存仍在主线程（1MB+ 文件/iCloud/网络卷可能卡顿）——需要一次无 GUI 验收的重构窗口。
 - **P1-8 硬链接**：原子写仍会拆分硬链接（保持原子性优先）；符号链接已修。
@@ -369,7 +369,7 @@ XYZCore（纯逻辑、可单测）                  App target（AppKit/SwiftUI 
 - `xcodebuild`：macOS Debug、macOS Release、iOS Simulator Debug 均 **BUILD SUCCEEDED**（签名关闭，与 CI 同口径）。
 - `python3 tools/make_icons.py --help` 在未安装 fontTools 的机器上正常输出；`--sheet` 给出可执行的安装提示。
 - 未启动 GUI：退出/关窗弹窗、标签恢复、图片作用域、中文菜单只有编译 + 纯函数单测证据，没有窗口截图；签名沙盒、iCloud、真实中文 IME、性能测量均未跑。
-- 本机签名构建（Apple Development，Team `Z4FMG2KTPM`）：Debug 与 Release（Release 含 Hardened Runtime）均 BUILD SUCCEEDED；`codesign --entitlements` 含 App Sandbox / network.client / user-selected / bookmarks / iCloud 容器，`flags=0x10000(runtime)`；嵌入 profile 有效期至 2027-10-23；`spctl` 仍拒绝（无 Developer ID、未公证）。
+- 本机签名与公证链路（Team `Z4FMG2KTPM`，2026-11-07）：Apple Development 的 Debug/Release 构建通过；Developer ID archive + `developer-id` 导出成功（entitlements：sandbox / network.client / user-selected / bookmarks / iCloud Production，无 `get-task-allow`）；app zip 公证 Accepted 并 staple，`spctl` accepted；DMG 已签名、公证 Accepted、staple，`spctl` accepted。未打开 app，未打 tag、未上传。
 
 
 ---
