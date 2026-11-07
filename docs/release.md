@@ -117,6 +117,14 @@ acceptance gate has never passed (0/7); the failures are recorded in `CHANGELOG.
 
 Run on the owner's Mac, macOS 27.2, Xcode 27.2, team `Z4FMG2KTPM`.
 
+The same path was run again later that day for 0.5.30 (build 46), a sidebar-toggle
+performance fix: archive and `developer-id` export succeeded, the app zip was notarized
+(`91461877-697d-4be0-8b9b-642c19195825`, Accepted) and stapled, the DMG was signed,
+notarized (`239efb06-f903-4ce5-8f2a-9424dae80c2d`, Accepted), stapled, and accepted by
+`spctl`. 0.5.30 is the installed build; it was launched hidden once with no crash report.
+The sidebar toggle itself was not exercised by a harness, so its feel is the owner's
+check.
+
 - Certificate: `Developer ID Application: Zhichao Li (Z4FMG2KTPM)`, created
   2026-11-07; `security find-identity -v -p codesigning` lists it.
 - Archive: `build/XYZ.xcarchive`, version 0.5.29 (build 45).

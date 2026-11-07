@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.5.30
+
+Build 46. The version in this tree, and the build installed in `/Applications` on this Mac (Developer ID signed, notarized, stapled). No tag or GitHub release exists. This is a small change set on top of 0.5.29: the sidebar and outline shortcuts.
+
+### What changed
+
+- Toggling the sidebar (⌘B, View → Toggle Sidebar) and the outline (⌥⌘B) no longer takes the editor out of the window. `XYZSplitView` removed all three panes — sidebar, editor, outline — and added them back on every toggle, so the `NSTextView` and the Reading `WKWebView` left the window and repainted. The hide path then eased the width for 160 ms with a 60 Hz timer and laid the text out again on every frame. The show path passed the width it had just written to zero as the animation target, so the ease did nothing and the sidebar came back at the 220 pt floor. Now only the column that changed is added or removed (`syncPanes`), the editor stays attached, and the toggle finishes in one layout pass. A later body update that does not change the outline width also skips the layout pass.
+- `-XYZDiagnostics` now logs `sidebar shown=… in Nms` and `outline shown=… in Nms` from the toggle, so a slow toggle can be measured again.
+
+### Where this was checked
+
+- `swift test --package-path XYZCore`: 207 tests, 0 failures.
+- `sh Scripts/xyz-test.sh`: 8 cases, all ok (`help dot tilde tilde-dir file multi missing bare`).
+- `xcodebuild` Debug for `platform=macOS` and Debug for `generic/platform=iOS Simulator`: BUILD SUCCEEDED, signing off.
+- Release 0.5.30 (46): archive → `developer-id` export; `codesign` shows the Developer ID authority and Hardened Runtime. The app zip was notarized (`91461877-697d-4be0-8b9b-642c19195825`, Accepted), stapled, and `spctl` reports `accepted, source=Notarized Developer ID`. The DMG was signed, notarized (`239efb06-f903-4ce5-8f2a-9424dae80c2d`, Accepted), stapled, and accepted the same way.
+- Installed over `/Applications/XYZ.app` (one app on the machine), launched hidden once: the process started, stayed up, and quit with no crash report.
+
+### Not checked
+
+The toggle was not clicked in a window by any harness or by this agent: the self-check harness has no sidebar-toggle assertion, and no interactive session was run. The split view frames and the felt latency in a real window are the owner's check. Everything unverified in 0.5.29 keeps that status: iCloud, the sandbox in use, a real Chinese input method, the quit alerts, and any performance measurement beyond the new toggle log.
+
 ## 0.5.29
 
 Build 45. The version in this tree. It is not installed, and no tag or GitHub release exists. A Developer ID signed, notarized, stapled build of it was produced on this Mac on 2026-11-07 (`build/XYZ-0.5.29.dmg`, not in git; steps in `docs/release.md`). This is the first change set after `db12a62`, which is red in the cloud check (`0.5.28` records the acceptance gate at 0/7). It follows the analysis in `docs/project-analysis.md` and the four deep dives in `docs/analysis/`, in that report's P0 → P1 → P2 order.

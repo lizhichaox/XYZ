@@ -371,6 +371,13 @@ XYZCore（纯逻辑、可单测）                  App target（AppKit/SwiftUI 
 - 未启动 GUI：退出/关窗弹窗、标签恢复、图片作用域、中文菜单只有编译 + 纯函数单测证据，没有窗口截图；签名沙盒、iCloud、真实中文 IME、性能测量均未跑。
 - 本机签名与公证链路（Team `Z4FMG2KTPM`，2026-11-07）：Apple Development 的 Debug/Release 构建通过；Developer ID archive + `developer-id` 导出成功（entitlements：sandbox / network.client / user-selected / bookmarks / iCloud Production，无 `get-task-allow`）；app zip 公证 Accepted 并 staple，`spctl` accepted；DMG 已签名、公证 Accepted、staple，`spctl` accepted。未打开 app，未打 tag、未上传。
 
+### 9.6 报告未单列的补充修复
+
+**侧栏快捷键切换卡顿（用户报告，0.5.30）**
+`XYZSplitView` 在每次显示/隐藏侧栏时调用 `rebuild()`：把 sidebar、detail、outline 三个 `NSHostingView` **全部**从 `NSSplitView` 上摘下再按可见性加回。于是每次 ⌘B / ⌥⌘B 都会让编辑器文本视图和 Reading 的 `WKWebView` 离开窗口再回来并重绘；随后缓动隐藏时还以 60 Hz 的 `Timer` 跑 0.16 s，每帧 `lockColumnFrames()` 重设 pane 宽度，触发 TextKit 逐帧重排。此外显示路径把自己刚清零的 `savedPosition` 当作动画目标（`slideDivider(0,to:0)` 先 `rememberDivider` 写 0），动画实际未生效，最终靠 `clampedSidebarWidth()` 的 220 下限呈现。
+修复：`syncPanes()` 只增删变化的那一列（`addSubview(_:positioned:)` 保持 detail 常驻窗口），去掉 60 Hz 动画与 `chromeAnimating` 状态，一次布局完成；`applyOutlineWidthIfNeeded()` 在宽度未变时不再触发整窗布局。开启 `-XYZDiagnostics` 时记录 `sidebar/outline shown=… in Nms` 以便复测。
+验证：macOS Debug / iOS Simulator Debug 构建通过；Release 0.5.30 (46) 已 Developer ID 签名、公证（`91461877…`）、staple 并安装到 `/Applications`，隐藏启动正常；实际手感待用户确认（此条为报告之外的新增问题，未纳入原 §5 清单）。
+
 
 ---
 
