@@ -416,7 +416,7 @@ final class XYZMacTextView: NSTextView {
 
     private func findRect(_ range: NSRange) -> NSRect? {
         guard let manager = textLayoutManager, let content = manager.textContentManager else { return nil }
-        let length = (string as NSString).length
+        let length = textStorage?.length ?? 0
         let startOffset = min(max(0, range.location), length)
         let document = content.documentRange
         let start = content.location(document.location, offsetBy: startOffset) ?? document.location
@@ -663,14 +663,14 @@ private struct FindScan {
         }
     }
 
-    /// The text changed: the cached line starts no longer describe it.
+    /// The text changed: the cached line starts were adjusted by `noteLineIndexEdit`
+    /// for a user edit, or are kept until the rebuild below for a programmatic change.
     ///
-    /// The gutter and the status bar both read this cache, so a line added in the
-    /// middle used to shift every number below it. Drop the cache immediately, then
-    /// rebuild once typing pauses instead of scanning the whole file on every key.
+    /// The gutter and the status bar both read this cache. Rebuilding it from the
+    /// whole text on every key copied and scanned the file; the rebuild now happens
+    /// once typing pauses and verifies the incremental starts.
     func lineIndexDidChange() {
         lineIndexToken += 1
-        lineIndexCache = nil
         lineNumbersChanged()
         lineIndexWarm?.cancel()
         let item = DispatchWorkItem { [weak self] in
@@ -684,10 +684,22 @@ private struct FindScan {
         lineIndexCache
     }
 
+    /// Applies one edit to the cached line starts, so the gutter and the status bar do
+    /// not rescan the file on every key. A later warm rebuild corrects anything this
+    /// cannot see, such as a pasted CRLF that lands next to an existing CR.
+    func noteLineIndexEdit(at location: Int, removedLength: Int, replacement: String?) {
+        guard let current = lineIndexCache else { return }
+        lineIndexCache = current.applyingEdit(
+            at: location,
+            removedLength: removedLength,
+            replacement: replacement ?? ""
+        )
+    }
+
     /// The current line, already laid out. Does not ask TextKit to lay out the rest of the file.
     private func currentLineBand() -> NSRect? {
         guard let manager = textLayoutManager, let content = manager.textContentManager else { return nil }
-        let length = (string as NSString).length
+        let length = textStorage?.length ?? 0
         let clamped = min(max(0, selectedRange().location), length)
         guard let start = content.location(content.documentRange.location, offsetBy: clamped),
               let fragment = manager.textLayoutFragment(for: start) else { return nil }
@@ -726,8 +738,9 @@ private struct FindScan {
 
     /// A hairline at each 2-space or tab indent. Editing only. Drawn from the source line, not a layout fragment.
     private func drawIndentGuides(in rect: NSRect) {
-        let ns = string as NSString
-        guard ns.length > 0 else { return }
+        guard let storage = textStorage else { return }
+        let length = storage.length
+        guard length > 0 else { return }
         let index = lineIndexCache ?? LineIndex(string)
         let box = lineBoxHeight()
         let originY = textContainerOrigin.y
@@ -745,9 +758,10 @@ private struct FindScan {
         let path = NSBezierPath()
         for line in first...last {
             let start = index.starts[line - 1]
-            let end = line < index.count ? index.starts[line] : ns.length
+            let end = line < index.count ? index.starts[line] : length
             guard end > start else { continue }
-            let levels = Self.indentLevels(ns.substring(with: NSRange(location: start, length: end - start)))
+            let lineText = storage.attributedSubstring(from: NSRange(location: start, length: end - start)).string
+            let levels = Self.indentLevels(lineText)
             guard levels > 0 else { continue }
             let top = originY + CGFloat(line - 1) * box
             let bottom = top + box
@@ -1427,6 +1441,11 @@ struct XYZMacEditor: NSViewRepresentable {
         ) -> Bool {
             let added = (replacementString as NSString?)?.length ?? 0
             editedRange = NSRange(location: affectedCharRange.location, length: max(added, affectedCharRange.length, 1))
+            (textView as? XYZMacTextView)?.noteLineIndexEdit(
+                at: affectedCharRange.location,
+                removedLength: affectedCharRange.length,
+                replacement: replacementString
+            )
             return true
         }
 
@@ -1453,7 +1472,7 @@ struct XYZMacEditor: NSViewRepresentable {
             (textView as? XYZMacTextView)?.lineIndexDidChange()
             // Marked Chinese (and other IME) text is still being composed. Restyling it drops the composition.
             if !textView.hasMarkedText() {
-                let length = (textView.string as NSString).length
+                let length = textView.textStorage?.length ?? 0
                 let edited = editedRange
                 editedRange = nil
                 restyle(edited: edited)
@@ -1511,8 +1530,11 @@ struct XYZMacEditor: NSViewRepresentable {
 
 enum EditorTypography {
     static let stylingLimit = 250_000
-    /// Below this size, each keystroke restyles the whole note. Above it, only the edited lines.
-    static let immediateLimit = 80_000
+    /// Below this many UTF-16 units, each keystroke restyles the whole note. Above it,
+    /// only the lines around the edit are restyled now and the whole note after the
+    /// typing pauses (`textDidChange` schedules that). A 4,000-character note is a
+    /// couple of screens; a 100 KB chapter is not.
+    static let immediateLimit = 4_000
 
     static func baseFont(_ style: XYZEditorStyle) -> NSFont {
         face(style, size: style.fontSize, weight: .regular)
@@ -1603,7 +1625,8 @@ enum EditorTypography {
         guard let storage = textView.textStorage else { return }
         let font = baseFont(style)
         let paragraph = style.paragraphStyle(naturalLineHeight: naturalLineHeight(font))
-        let ns = storage.string as NSString
+        // `mutableString` is a view on the storage; `storage.string` copies the file.
+        let ns = storage.mutableString as NSString
         let full = NSRange(location: 0, length: ns.length)
         let span: NSRange
         if full.length > immediateLimit {
@@ -1703,18 +1726,18 @@ enum EditorTypography {
 
     /// The characters already on screen. Does not lay out the rest of the file.
     static func visibleSpan(in textView: NSTextView) -> NSRange {
-        let ns = textView.string as NSString
-        guard ns.length > 0,
+        let textLength = textView.textStorage?.length ?? 0
+        guard textLength > 0,
               let manager = textView.textLayoutManager,
               let content = manager.textContentManager,
               let viewport = manager.textViewportLayoutController.viewportRange else {
-            return NSRange(location: 0, length: min(ns.length, 4_000))
+            return NSRange(location: 0, length: min(textLength, 4_000))
         }
         let start = content.offset(from: content.documentRange.location, to: viewport.location)
         let end = content.offset(from: content.documentRange.location, to: viewport.endLocation)
-        let location = min(max(0, start), ns.length)
-        let length = min(max(0, end - location), ns.length - location)
-        return NSRange(location: location, length: length)
+        let location = min(max(0, start), textLength)
+        let visibleLength = min(max(0, end - location), textLength - location)
+        return NSRange(location: location, length: visibleLength)
     }
 
     /// A few lines past the viewport, so a short scroll is already colored.

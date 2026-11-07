@@ -97,6 +97,56 @@ public struct LineIndex: Equatable, Sendable {
     /// Lines in the text. A trailing line break starts one more, empty line.
     public var count: Int { starts.count }
 
+    /// An index built from an existing start list, used when one edit is applied to it.
+    init(starts: [Int]) {
+        self.starts = starts.isEmpty ? [0] : starts
+    }
+
+    /// The result of one edit, without scanning the whole text again.
+    ///
+    /// `location` and `removedLength` are UTF-16 offsets in the text this index
+    /// describes, and `replacement` is what was inserted. The editor text uses "\n"
+    /// line breaks; a "\r\n" pair inside a pasted replacement counts as one break.
+    /// A "\r" that ends just before `location` is not seen here, so a pasted "\n" that
+    /// joins such a "\r" is corrected by the next full rebuild.
+    public func applyingEdit(at location: Int, removedLength: Int, replacement: String) -> LineIndex {
+        let start = max(0, location)
+        let oldEnd = start + max(0, removedLength)
+        let delta = replacement.utf16.count - max(0, removedLength)
+        var next: [Int] = []
+        next.reserveCapacity(starts.count + 4)
+        for value in starts {
+            if value <= start {
+                next.append(value)
+            } else if value > oldEnd {
+                // Lines after the edit keep their text and only move.
+                next.append(value + delta)
+            }
+            // A start inside (start, oldEnd] was the break the edit removed.
+        }
+        let ns = replacement as NSString
+        var index = 0
+        while index < ns.length {
+            let character = ns.character(at: index)
+            if character == 0x0D {
+                if index + 1 < ns.length, ns.character(at: index + 1) == 0x0A {
+                    index += 1
+                }
+                next.append(start + index + 1)
+            } else if character == 0x0A {
+                next.append(start + index + 1)
+            }
+            index += 1
+        }
+        next.sort()
+        var deduped: [Int] = []
+        deduped.reserveCapacity(next.count)
+        for value in next where deduped.last != value {
+            deduped.append(value)
+        }
+        return LineIndex(starts: deduped)
+    }
+
     /// The 1-based line holding the UTF-16 offset.
     public func line(at offset: Int) -> Int {
         var low = 0
