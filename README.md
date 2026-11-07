@@ -112,7 +112,7 @@ Package tests (document round-trip and Markdown HTML):
 swift test --package-path XYZCore
 ```
 
-Signing is Automatic. `Config/Base.xcconfig` is the base configuration for the app target's Debug and Release, and it sets `DEVELOPMENT_TEAM` to empty. CI still passes `CODE_SIGNING_ALLOWED=NO`, so the GitHub build stays unsigned. Hardened Runtime is off so that unsigned build can succeed. Turn Hardened Runtime on before you notarize a Mac build.
+Signing is Automatic. `Config/Base.xcconfig` is the base configuration for the app target's Debug and Release, and it sets `DEVELOPMENT_TEAM` to empty; a local `Config/Local.xcconfig` can name a team, and Xcode then signs with that team's Apple Development certificate. CI still passes `CODE_SIGNING_ALLOWED=NO`, so the GitHub build stays unsigned. Hardened Runtime is on for Release, which notarization requires, and the setting does not affect the unsigned CI build.
 
 To sign on your own Mac, copy the example and put your team id in the gitignored file:
 

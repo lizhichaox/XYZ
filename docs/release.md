@@ -25,8 +25,9 @@ work: the ad-hoc signed build has no entitlements. The acceptance gate has never
    `Config/Local.xcconfig` with `DEVELOPMENT_TEAM = <team id>`. `Base.xcconfig` includes
    it when it exists and the file is not committed. Do not also set the team in the
    target's build settings: the project file wins over the xcconfig.
-4. Turn Hardened Runtime on for the signed build. It is off in the project today so the
-   unsigned cloud build succeeds; notarization requires it on.
+4. Hardened Runtime is already on for Release; Debug keeps it off. Check that the
+   signed bundle carries it: `codesign -dv --verbose=4` prints
+   `flags=0x10000(runtime)`. The unsigned cloud build is not affected by the setting.
 5. Archive and export:
 
    ```sh
@@ -68,8 +69,30 @@ work: the ad-hoc signed build has no entitlements. The acceptance gate has never
 
 ## What still blocks a release
 
-- `ENABLE_HARDENED_RUNTIME = NO` in `XYZ.xcodeproj/project.pbxproj`.
+- **No Developer ID Application certificate.** `security find-identity -v -p
+  codesigning` lists only `Apple Development: …` in this keychain. A Release build
+  signed with it is rejected by `spctl` and cannot be notarized. Create the
+  certificate in Xcode → Settings → Accounts → Manage Certificates… → + → Developer
+  ID Application, then run steps 5–8 again.
+- **No notary credentials.** Steps 7–8 need an Apple ID app-specific password (or an
+  App Store Connect API key) for `notarytool`; none is stored here.
 - No release workflow: the cloud job builds, but nothing archives or notarizes.
 - The acceptance gate has not passed, so the window checks are evidence, not a pass.
 - The installed 0.5.27 build is signed with an Apple Development certificate, not a
   Developer ID, so it cannot be notarized or distributed.
+
+## What was checked on 2026-11-07
+
+With the team signed in on this Mac (`Z4FMG2KTPM`), Debug and Release built and signed
+for `platform=macOS`:
+
+- `codesign -d --entitlements :-` on both shows App Sandbox, network client,
+  user-selected files, app-scoped bookmarks, and the iCloud container.
+- Release carries Hardened Runtime: `flags=0x10000(runtime)`.
+- The embedded profile is `Mac Team Provisioning Profile: com.lizhichao.XYZ`, valid
+  until 2027-10-23.
+- `spctl -a -vv --type execute` still says rejected: an Apple Development signature
+  without notarization is not a distributable build. That is expected and is what a
+  Developer ID certificate plus notarization fix.
+- The Release signature also carries `com.apple.security.get-task-allow`, which comes
+  from development signing; a Developer ID distribution build does not include it.
