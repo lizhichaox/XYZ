@@ -86,12 +86,6 @@ article {
   hanging-punctuation: first last;
 }
 
-/* Settings → Limit line width: about 42 em of text, the editor's measure. */
-:root[data-readable="true"] article {
-  max-width: calc(42em + 26px);
-  margin-inline: auto;
-}
-
 article > :first-child { margin-top: 0; }
 article > :last-child { margin-bottom: 0; }
 

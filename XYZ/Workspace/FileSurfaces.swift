@@ -38,16 +38,12 @@ struct JSONReadingView: View {
     var text: String
     var scrollLink: EditorScrollLink
     @AppStorage(XYZEditorStyle.fontSizeKey) private var fontSize = XYZEditorStyle.defaultFontSize
-    @AppStorage(XYZEditorStyle.readableWidthKey) private var readableWidth = false
 
     var body: some View {
         let pretty = JSONText.pretty(text)
         GeometryReader { geo in
-            let style = XYZEditorStyle(
-                fontSize: CGFloat(XYZEditorStyle.clampedFontSize(fontSize)),
-                readableWidth: readableWidth
-            )
-            let inset = style.sideInset(for: geo.size.width)
+            let style = XYZEditorStyle(fontSize: CGFloat(XYZEditorStyle.clampedFontSize(fontSize)))
+            let inset = XYZEditorStyle.sideInset(for: geo.size.width)
             ScrollView {
                 VStack(alignment: .leading, spacing: 8) {
                     if pretty == nil {
@@ -77,17 +73,13 @@ struct JSONReadingView: View {
 struct CSVReadingView: View {
     var text: String
     var scrollLink: EditorScrollLink
-    @AppStorage(XYZEditorStyle.readableWidthKey) private var readableWidth = false
     @AppStorage(XYZEditorStyle.fontSizeKey) private var fontSize = XYZEditorStyle.defaultFontSize
 
     var body: some View {
         let grid = CSVText.parse(text)
         GeometryReader { geo in
-            let style = XYZEditorStyle(
-                fontSize: CGFloat(XYZEditorStyle.clampedFontSize(fontSize)),
-                readableWidth: readableWidth
-            )
-            let inset = style.sideInset(for: geo.size.width)
+            let style = XYZEditorStyle(fontSize: CGFloat(XYZEditorStyle.clampedFontSize(fontSize)))
+            let inset = XYZEditorStyle.sideInset(for: geo.size.width)
             ScrollView([.horizontal, .vertical]) {
                 VStack(alignment: .leading, spacing: 8) {
                 VStack(alignment: .leading, spacing: 0) {

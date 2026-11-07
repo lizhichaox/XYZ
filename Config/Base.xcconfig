@@ -3,5 +3,5 @@
 // These two lines are the only version source for the Mac and iOS targets.
 DEVELOPMENT_TEAM =
 #include? "Local.xcconfig"
-MARKETING_VERSION = 0.5.32
-CURRENT_PROJECT_VERSION = 48
+MARKETING_VERSION = 0.5.33
+CURRENT_PROJECT_VERSION = 49

@@ -53,14 +53,13 @@ final class PreviewWebHost {
     }
 }
 
-/// Reading settings the page applies without reloading: the text size shared with the
-/// editor, and whether the column stops at a readable width.
+/// Reading settings the page applies without reloading: the text size and the faces
+/// shared with the editor.
 struct PreviewPrefs: Equatable {
     var fontSize: Double = XYZEditorStyle.defaultFontSize
     var lineSpacing: Double = XYZEditorStyle.defaultLineSpacing
     var latin = "system"
     var cjk = "pingfang"
-    var readableWidth = false
     var lineNumbers = false
     /// `<base href>` for the note's folder. Set before the content, so its pictures resolve.
     var baseHref = ""
@@ -74,7 +73,7 @@ struct PreviewPrefs: Equatable {
         let cjkCSS = PreviewPage.javaScriptLiteral(PreviewFontCSS.cjk(cjk))
         let monoCSS = PreviewPage.javaScriptLiteral(PreviewFontCSS.mono(latin))
         _ = lineNumbers
-        return "setPrefs(\(size), \(readableWidth), \(spacing), \(latinCSS), \(cjkCSS), \(monoCSS)); setLineNumbers(false);"
+        return "setPrefs(\(size), \(spacing), \(latinCSS), \(cjkCSS), \(monoCSS)); setLineNumbers(false);"
     }
 }
 
@@ -113,7 +112,6 @@ struct MarkdownWebView: View {
     @AppStorage(XYZEditorStyle.lineSpacingKey) private var lineSpacing = XYZEditorStyle.defaultLineSpacing
     @AppStorage(XYZEditorStyle.latinFontKey) private var latinFont = "system"
     @AppStorage(XYZEditorStyle.cjkFontKey) private var cjkFont = "pingfang"
-    @AppStorage(XYZEditorStyle.readableWidthKey) private var readableWidth = false
 
     var body: some View {
         let prefs = PreviewPrefs(
@@ -121,7 +119,6 @@ struct MarkdownWebView: View {
             lineSpacing: lineSpacing,
             latin: latinFont,
             cjk: cjkFont,
-            readableWidth: readableWidth,
             lineNumbers: false,
             baseHref: LocalAssets.baseHref(for: baseDirectory),
             rootPath: baseDirectory?.standardizedFileURL.resolvingSymlinksInPath().path ?? ""
@@ -1177,7 +1174,7 @@ enum PreviewPage {
         function setTheme(theme) {
           document.documentElement.setAttribute("data-theme", theme);
         }
-        function setPrefs(size, readable, spacing, latin, cjk, mono) {
+        function setPrefs(size, spacing, latin, cjk, mono) {
           var kept = xyzTop();
           var root = document.documentElement;
           root.style.setProperty("--text-size", (size | 0) + "px");
@@ -1185,7 +1182,6 @@ enum PreviewPage {
           if (latin) root.style.setProperty("--font-latin", latin);
           if (cjk) root.style.setProperty("--font-cjk", cjk);
           if (mono) root.style.setProperty("--font-mono", mono);
-          root.setAttribute("data-readable", readable ? "true" : "false");
           if (kept && kept.line) xyzRevealLine(kept.line);
           if (typeof xyzLayoutGutter === "function") xyzLayoutGutter();
         }

@@ -37,7 +37,7 @@ XYZ → Settings… is one pane:
 
 - Appearance: System, Light, or Dark, for the whole app.
 - Language: System, English, or 简体中文. It sets the app's own language list; XYZ uses the new language after it restarts, and Restart Now does that.
-- Text: Latin (System, SF Mono, Menlo, or JetBrains Mono) and Chinese (PingFang SC, Songti SC, or Heiti SC) are chosen separately. Size is 11 to 24 pt, shared by Editing and Reading. Line spacing is 1.0 to 2.0. Limit line width keeps a line near 42 em (about 42 Chinese characters) in wide windows. View → Zoom In (⌘+), Zoom Out (⌘−), and Actual Size (⌘0) step the size.
+- Text: Latin (System, SF Mono, Menlo, or JetBrains Mono) and Chinese (PingFang SC, Songti SC, or Heiti SC) are chosen separately. Size is 11 to 24 pt, shared by Editing and Reading. Line spacing is 1.0 to 2.0. The text uses the width of the pane, in Editing and Reading alike. View → Zoom In (⌘+), Zoom Out (⌘−), and Actual Size (⌘0) step the size.
 - Editing numbers each source line. A wrapped row keeps that number on its first fragment and does not add one. Reading does not show line numbers.
 - Reading: Load remote images. Off by default, so opening a note never contacts another server; a picture next to the note still loads through the note's own folder.
 - View: Show word count. A quiet line under the note shows the count and the reading time. Chinese and Japanese count by character, other languages by word. View → Show Word Count is the same switch.

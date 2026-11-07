@@ -618,7 +618,7 @@ private struct FindScan {
 
     /// The side padding from Settings. Line numbers live in the sibling gutter, not in this inset.
     private func expectedInset(for paneWidth: CGFloat) -> NSSize {
-        NSSize(width: style.sideInset(for: paneWidth), height: style.verticalInset)
+        NSSize(width: XYZEditorStyle.sideInset(for: paneWidth), height: style.verticalInset)
     }
 
     /// The text changed: renumber. A wider number asks the pane to grow the gutter.

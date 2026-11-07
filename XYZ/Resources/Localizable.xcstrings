@@ -542,16 +542,6 @@
         }
       }
     },
-    "Limit line width": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "限制行宽"
-          }
-        }
-      }
-    },
     "Link": {
       "localizations": {
         "zh-Hans": {
@@ -2328,16 +2318,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "切换阅读和编辑"
-          }
-        }
-      }
-    },
-    "Keeps lines at a comfortable length in wide windows, in Editing and Reading.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "在宽窗口里把编辑和阅读的行宽限制在舒适的长度。"
           }
         }
       }
