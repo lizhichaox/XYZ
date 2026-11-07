@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.5.31
+
+Build 47. The version in this tree, and the build installed in `/Applications` on this Mac (Developer ID signed, notarized, stapled). No tag or GitHub release. Change set on top of 0.5.30: the sidebar and outline animation.
+
+### What changed
+
+- The sidebar (⌘B) and outline (⌥⌘B) columns slide again. Opening or closing eases for 180 ms (60 Hz, cubic ease-out; a cut when Reduce Motion is on). The editor pane never leaves the window: each frame sets the three pane frames and then flushes the hosted SwiftUI layout, so the text view and the Reading web view take the new width in the same frame. Each pane also clips to its own bounds. Before 0.5.30 the split view detached all three panes and added them back on every toggle, which repainted the note and the web view; the hide path then laid the text out again on every frame of a 60 Hz ease. That is the shortcut that felt stuck.
+- A second press during a slide is honored instead of swallowed: `sidebarWanted`/`outlineWanted` record the target and `finishSlide` settles the running slide first.
+- Sidebar header and file-row labels are one line, truncating at the tail. `SidebarRootHeader.layout()` and `SidebarRowCell.layout()` used to pass the label's own current width as `preferredMaxLayoutWidth`; the first animation frame (column near zero) froze `LIZHICHAO` into three lines, and the header's second line was drawn over the file list. That overlap is what the owner saw. The self-referential wrap width is gone and `maximumNumberOfLines` is 1.
+- The split view keeps diagnostics behind `-XYZDiagnostics`: `sidebar shown=… eased in 180ms sidebar=… detail=… outline=…`, a slide start line, and a line when a layout leaves a column under 260 pt.
+
+### Where this was checked
+
+- `swift test --package-path XYZCore`: 207 tests, 0 failures.
+- `sh Scripts/xyz-test.sh`: 8 cases, all ok (`help dot tilde tilde-dir file multi missing bare`).
+- `xcodebuild` Debug for `platform=macOS` and Debug for `generic/platform=iOS Simulator`: BUILD SUCCEEDED, signing off.
+- Release 0.5.31 (47): archive → `developer-id` export; `codesign` shows the Developer ID authority and Hardened Runtime. The app zip was notarized (`ae1b56da-b042-46ac-a983-55daece1822e`, Accepted), stapled, and `spctl` reports `accepted, source=Notarized Developer ID`. The DMG was code-signed, notarized (`3229b1fa-6c13-41a9-b203-6d9f3c347156`, Accepted), stapled, and accepted the same way.
+- Installed over `/Applications/XYZ.app`; the machine keeps one app (`AGENTS.md`). Launched hidden once: the process started and quit with no crash report.
+- The owner ran 0.5.30 on this Mac, reported the animation "不卡了" but not smooth, then reported the header text overlap, then confirmed the 0.5.31 build ("好了"): the slide is smooth and the sidebar text is back to one line. That is the only windowed verification; it was done by the owner, not by a harness.
+
+### Not checked
+
+The animation frames were never measured frame by frame (no Instruments run). The acceptance gate is still 0/7 because XCUI cannot launch the app on the cloud runner. Everything unverified in 0.5.29 keeps that status: iCloud, the sandbox in use, a real Chinese input method, the quit alerts, and performance other than what the owner felt. The resize trace used to diagnose the overlap was removed before the release build.
+
 ## 0.5.30
 
 Build 46. The version in this tree, and the build installed in `/Applications` on this Mac (Developer ID signed, notarized, stapled). No tag or GitHub release exists. This is a small change set on top of 0.5.29: the sidebar and outline shortcuts.

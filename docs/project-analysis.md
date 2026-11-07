@@ -373,11 +373,14 @@ XYZCore（纯逻辑、可单测）                  App target（AppKit/SwiftUI 
 
 ### 9.6 报告未单列的补充修复
 
-**侧栏快捷键切换卡顿（用户报告，0.5.30）**
-`XYZSplitView` 在每次显示/隐藏侧栏时调用 `rebuild()`：把 sidebar、detail、outline 三个 `NSHostingView` **全部**从 `NSSplitView` 上摘下再按可见性加回。于是每次 ⌘B / ⌥⌘B 都会让编辑器文本视图和 Reading 的 `WKWebView` 离开窗口再回来并重绘；随后缓动隐藏时还以 60 Hz 的 `Timer` 跑 0.16 s，每帧 `lockColumnFrames()` 重设 pane 宽度，触发 TextKit 逐帧重排。此外显示路径把自己刚清零的 `savedPosition` 当作动画目标（`slideDivider(0,to:0)` 先 `rememberDivider` 写 0），动画实际未生效，最终靠 `clampedSidebarWidth()` 的 220 下限呈现。
-修复：`syncPanes()` 只增删变化的那一列（`addSubview(_:positioned:)` 保持 detail 常驻窗口），去掉 60 Hz 动画与 `chromeAnimating` 状态，一次布局完成；`applyOutlineWidthIfNeeded()` 在宽度未变时不再触发整窗布局。开启 `-XYZDiagnostics` 时记录 `sidebar/outline shown=… in Nms` 以便复测。
-验证：macOS Debug / iOS Simulator Debug 构建通过；Release 0.5.30 (46) 已 Developer ID 签名、公证（`91461877…`）、staple 并安装到 `/Applications`，隐藏启动正常；实际手感待用户确认（此条为报告之外的新增问题，未纳入原 §5 清单）。
+**侧栏快捷键切换：卡顿、动画与表头文字重叠（用户报告；0.5.30 → 0.5.31）**
 
+- **卡顿**：`XYZSplitView` 每次显示/隐藏都 `rebuild()`，把 sidebar/detail/outline 三个 `NSHostingView` 全部摘挂，编辑器文本视图与 Reading 的 `WKWebView` 因此离开窗口并重绘；隐藏路径还用 60 Hz `Timer` 在 160 ms 内逐帧改宽度、逐帧触发 TextKit 重排；显示路径把自己刚清零的 `savedPosition` 当动画目标，动画实际未生效。0.5.30 改为 `syncPanes()` 只增删变化的一列（`addSubview(positioned:)`，detail 常驻），去掉逐帧动画。
+- **动画**：用户反馈"不卡了但不丝滑"，0.5.31 恢复 180 ms ease-out（Reduce Motion 时退化为瞬时）；每帧设完 pane frame 后 `flushPaneLayout()` 强制宿主 SwiftUI 布局，让文本/网页视图同帧跟随；三个 pane 加 `masksToBounds`；`sidebarWanted`/`outlineWanted` 修复动画中再按快捷键被吞。
+- **表头文字重叠**：用户截图显示侧栏表头变成 "HIC"/"HA" 两行压在文件列表上。根因是 `SidebarRootHeader.layout()` 与 `SidebarRowCell.layout()` 把 label **自身当前宽度** 赋给 `preferredMaxLayoutWidth`；动画首帧侧栏宽度≈0，`LIZHICHAO` 被折成三行，22 pt 表头的第二行画出边界。修复：两个 label 固定单行 + 尾部截断（`wraps=false`、`usesSingleLineMode=true`、`maximumNumberOfLines=1`），删除自引用换行宽度。
+- **诊断**：`-XYZDiagnostics` 下保留 `sidebar/outline shown=… eased in 180ms sidebar=… detail=… outline=…`、slide 起点、以及列宽异常（<260 pt）告警；一次性 resize 探针在发布前已移除。
+
+验证：207 单测 / 8 CLI、macOS+iOS Debug 构建；0.5.31 (47) 已 Developer ID 签名、公证（app `ae1b56da…`、DMG `3229b1fa…`）、staple、`spctl` accepted，覆盖安装到 `/Applications`（按 `AGENTS.md` 只留一个）；隐藏启动正常；用户在真机确认动画顺滑、侧栏文字恢复单行（"好了"）。
 
 ---
 

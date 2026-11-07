@@ -132,6 +132,14 @@ notarized (`239efb06-f903-4ce5-8f2a-9424dae80c2d`, Accepted), stapled, and accep
 The sidebar toggle itself was not exercised by a harness, so its feel is the owner's
 check.
 
+0.5.31 (build 47) went through the same path on the same day after the sidebar-animation
+work: archive and export succeeded, the app zip was notarized
+(`ae1b56da-b042-46ac-a983-55daece1822e`, Accepted) and stapled, the DMG was signed,
+notarized (`3229b1fa-6c13-41a9-b203-6d9f3c347156`, Accepted), stapled, and `spctl`
+accepted both. 0.5.31 replaces 0.5.30 in `/Applications` and is the only `XYZ.app` on
+the machine; it was launched hidden once with no crash report. The owner confirmed the
+slide and the sidebar text on the running app ("好了").
+
 - Certificate: `Developer ID Application: Zhichao Li (Z4FMG2KTPM)`, created
   2026-11-07; `security find-identity -v -p codesigning` lists it.
 - Archive: `build/XYZ.xcarchive`, version 0.5.29 (build 45).

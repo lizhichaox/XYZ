@@ -259,6 +259,10 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
             outlineWidth = 0
         }
         let main = max(1, area.width - side - outlineWidth)
+        if XYZDiagnostics.enabled, main < 260 || side > area.width * 0.9 || outlineWidth > area.width * 0.9 {
+            let subviews = detail?.subviews.map { Int($0.frame.width) } ?? []
+            XYZDiagnostics.note("layout area=\(Int(area.width)) side=\(Int(side)) outline=\(Int(outlineWidth)) main=\(Int(main)) sidebarIn=\(showsSide) outlineIn=\(showsOutline) detailSubviews=\(subviews)")
+        }
         var x: CGFloat = 0
         for view in views {
             let width: CGFloat
@@ -309,6 +313,7 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
     /// the editor stays attached and its text is laid out while the width eases.
     func setSidebarShown(_ shown: Bool) {
         guard shown != sidebarWanted else { return }
+        logSplit("toggle-sidebar wanted=\(shown) shown=\(sidebarShown)")
         finishSlide()
         if sidebarShown, let sidebar, sidebar.superview != nil, sidebar.frame.width > 1 {
             savedPosition = max(220, sidebar.frame.width)
@@ -383,6 +388,10 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
     ) {
         slideTimer?.invalidate()
         slideTimer = nil
+        if XYZDiagnostics.enabled {
+            let name = edge == .left ? "sidebar" : "outline"
+            XYZDiagnostics.note("slide \(name) from=\(Int(from)) to=\(Int(to)) area=\(Int(panes.bounds.width))")
+        }
         guard abs(to - from) > 0.5, effectiveSlideDuration > 0 else {
             slide = nil
             lockColumnFrames()
@@ -449,6 +458,16 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
             detail?.displayIfNeeded()
         }
         flushingPaneLayout = false
+    }
+
+    private func logSplit(_ message: String) {
+        guard XYZDiagnostics.enabled else { return }
+        let side = Int(sidebar?.frame.width ?? -1)
+        let detailWidth = Int(detail?.frame.width ?? -1)
+        let outlineWidth = Int(outline?.frame.width ?? -1)
+        let subviews = detail?.subviews.map { Int($0.frame.width) } ?? []
+        let panesBounds = Int(panes.bounds.width)
+        XYZDiagnostics.note("\(message) panes=\(panesBounds) side=\(side) detail=\(detailWidth) outline=\(outlineWidth) detailSubviews=\(subviews)")
     }
 
     private func logToggle(edge: ColumnSlide.Edge, shown: Bool) {

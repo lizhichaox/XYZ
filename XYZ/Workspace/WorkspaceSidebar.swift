@@ -1070,6 +1070,9 @@ fileprivate final class SidebarRootHeader: NSView {
         label.isBezeled = false
         label.drawsBackground = false
         label.lineBreakMode = .byTruncatingTail
+        label.maximumNumberOfLines = 1
+        label.cell?.wraps = false
+        label.cell?.usesSingleLineMode = true
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         actions.translatesAutoresizingMaskIntoConstraints = false
         actions.orientation = .horizontal
@@ -1131,7 +1134,6 @@ fileprivate final class SidebarRootHeader: NSView {
 
     override func layout() {
         super.layout()
-        label.preferredMaxLayoutWidth = max(0, label.bounds.width)
         applyChevron()
     }
 
@@ -1638,6 +1640,9 @@ fileprivate final class SidebarRowCell: NSTableCellView {
         label.lineBreakMode = .byTruncatingTail
         label.maximumNumberOfLines = 1
         label.cell?.truncatesLastVisibleLine = true
+        label.cell?.wraps = false
+        label.cell?.usesSingleLineMode = true
+        label.maximumNumberOfLines = 1
         label.allowsDefaultTighteningForTruncation = true
         label.font = .systemFont(ofSize: 12)
         label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -1665,7 +1670,6 @@ fileprivate final class SidebarRowCell: NSTableCellView {
 
     override func layout() {
         super.layout()
-        label.preferredMaxLayoutWidth = max(0, label.bounds.width)
     }
 
     private var rowNode: SidebarNode?
