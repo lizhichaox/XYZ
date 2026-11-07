@@ -24,20 +24,40 @@ Then the P1 items that show up in normal use.
 - Comment toggle does not prefix JSON or CSS with `//`. The command is disabled there instead of writing a file the parser rejects.
 - `xyz` reads a literal `~` and `~/notes` from a script or a quoted argument. The `case` patterns were unquoted, so the shell's tilde expansion made both branches unreachable.
 
-The README's claim that the renderer does not request remote images was false: `URLPolicy.imageSchemes` passes `http` and `https` through and there is no content-security policy, so a remote picture is fetched. The README now says that, and says that a relative picture is confined to the note's folder. The README's "the choice is not saved" for Source/Reading now matches the per-tab mode that is saved.
+Then the Core correctness and cost items the same analysis listed as P1.
+
+- Front matter with CRLF line endings no longer joins its lines. The mask walked Swift `Character`s, and "\r\n" is one of them, so every `data-line` after the front matter moved up and a `# comment` in YAML was listed as a heading. The mask now walks Unicode scalars, and the outline runs through the same `ReadingSource.prepare` as Reading, so front matter is not scanned and `[[Page]]` reads as the link text Reading shows.
+- A document opened through the document browser or ⌘O keeps its encoding. `TextDocument` now reads and writes UTF-8 with or without a byte-order mark, UTF-16 with or without one, and Windows-1252, keeping line endings as they are; a character the encoding cannot hold falls back to UTF-8 instead of writing an empty file. `MarkdownFileDocument` writes with the encoding the file was opened with. Before this, every read was UTF-8, every save dropped the mark, and a Windows-1252 note could not open at all.
+- A save through a symbolic link updates the file the link names. The atomic write copied a new file over the path and replaced the link with a regular file. `WorkspaceWriteTarget.resolveForWriting` follows the link, and a chain of links, before the write. A hard link still splits, because keeping it would mean giving up the atomic write.
+- A detached scan stops when the caller is cancelled. `Task.detached` does not inherit cancellation, so the `Task.isCancelled` checks in the index walk, the ⌘K content search, and the folder replace plan were never true; each now cancels the work task it waits on. A reload that found the same directory listing no longer walks the whole tree again.
+- The decoder tries UTF-8 once instead of twice, and the byte-pattern test for BOM-less UTF-16 runs before the UTF-8 attempt, so a pure-ASCII UTF-16 file is no longer read as text with NUL characters and written back that way.
+- `TextFind` numbers a match without copying the text before it, and a regex replace no longer copies the whole document once per match.
+- The `xyz` command keeps its temporary paths under `mktemp -d` and removes the directory with a trap, instead of two names in `/tmp` that another process can predict.
+- `tools/make_icons.py` imports fontTools only for the commands that draw, so `--help` works without it; it finds Chrome, Chromium, or Edge under `/Applications` (or `CHROME`), and says which dependency is missing instead of raising a traceback. `tools/requirements.txt` names fontTools.
+- The localization catalog grew from 238 to 286 keys: 48 user-visible strings from the menus, the tab context menu, the ⌘K panel, the Explorer header, Settings, the status bar, the CLI install dialogs, and Replace in Folder. The zh-Hans values are machine-written and no Chinese menu was read on a screen. CI now checks that every key has one.
+
+The README's claim that the renderer does not request remote images was false: `URLPolicy.imageSchemes` passes `http` and `https` through and there is no content-security policy, so a remote picture is fetched. The README now says that, and says that a relative picture is confined to the note's folder. It also now says that a document opened through the document page keeps its encoding, and that the Source/Reading choice is saved per tab.
 
 `docs/project-analysis.md` gained a section that records which findings are fixed, with the test and build evidence for each, and which ones are still open.
 
 ### Where this was checked
 
-- `swift test --package-path XYZCore`: 194 tests, 0 failures.
+- `swift test --package-path XYZCore`: 208 tests, 0 failures. 194 of them were the tree's tests; 14 methods were added in the second pass of this same change set.
 - `sh Scripts/xyz-test.sh`: 8 cases, all ok (`help dot tilde tilde-dir file multi missing bare`).
 - `xcodebuild` Debug and Release for `platform=macOS`, and Debug for `generic/platform=iOS Simulator`: BUILD SUCCEEDED. Signing is off, as in the cloud check.
-- `.github/workflows/ci.yml`: a job timeout, a step that compares the built bundle version with `Config/Base.xcconfig`, window-check steps that still run when the acceptance step has failed, one `::error` annotation per failing acceptance case on the run page, a Release build, and the artifact list now carries the shots and logs those steps write.
+- `python3 tools/make_icons.py --help` prints its usage on this Mac, where fontTools is not installed; `--sheet` stops with the install line.
+- `.github/workflows/ci.yml`: a job timeout, a step that compares the built bundle version with `Config/Base.xcconfig`, a step that checks every localization key has a zh-Hans value, window-check steps that still run when the acceptance step has failed, one `::error` annotation per failing acceptance case on the run page, a Release build, and the artifact list now carries the shots and logs those steps write.
 
 ### Not checked
 
-No window was launched while doing this: on this Mac it would take the screen. The quit and close alerts, the tab restore, and the picture scope are compiled and unit-tested only where the decision is a pure function; there is no app-layer test target yet. XCUI still does not launch the app on the cloud runner, so the acceptance gate is still not green, and the two new alert buttons have no picture. No signed build, no sandbox build, no iCloud run, no real Chinese input method, no performance measurement. The main-thread save, the per-keystroke string copy, `Task.detached` cancellation, and the rest of the system-panel swizzling risk are not touched.
+No window was launched while doing this: on this Mac it would take the screen. The quit and close alerts, the tab restore, the picture scope, the Chinese menus, and the encoding of a document-browser save are compiled and unit-tested only where the decision is a pure function; there is no app-layer test target yet. The salvage of a cp1252 note typed over with Chinese was tested on `TextDocument`, not through the document scene. XCUI still does not launch the app on the cloud runner, so the acceptance gate is still not green, and the two new alert buttons have no picture. No signed build, no sandbox build, no iCloud run, no real Chinese input method, no performance measurement. The save still runs on the main thread and every keystroke still copies the whole document into the preview, outline, and word count.
+
+### Open, for the owner
+
+- Reading still fetches `http(s)` pictures, and there is no setting or policy to refuse them. Blocking by default is a product decision, and it probably needs a switch and a notice on a note that links out.
+- Six formatting commands in `XYZCore` (heading, quote, list, code block, table, link) have tests but no menu item, and so does `ReadingLineMap`. Either they join the View menu or they are deleted.
+- There is no tag, release, Developer ID signature, notarization, or Hardened Runtime. The acceptance gate is 0/7 because XCUI cannot launch the app on the cloud runner; a self-hosted runner or a written manual checklist is the next step.
+- Nobody has looked at this build on a real screen. The quit and close alerts, the tab restore, iCloud, the sandbox, a real Chinese input method, and the Chinese menus are recorded as verified by compile and unit tests only.
 
 ## 0.5.28
 

@@ -328,7 +328,14 @@ XYZCore（纯逻辑、可单测）                  App target（AppKit/SwiftUI 
 | P1-7（部分） | `searchableFiles()` 统一 ⌘K 与 Replace in Folder 的候选集：排除目录、跳过路径、且侧栏隐藏文件时不列入 | 构建通过；执行前的磁盘再校验未做 |
 | P1-2 | `xyz-asset` 增加根目录约束：`WorkspacePathScope.contains` 标准化路径并解析符号链接；handler 按 webview 实例化并随笔记目录切换 | `WorkspaceTests.testPathScopeResolvesTraversalAndLinks`（`..` 越界、符号链接逃逸） |
 | P1-1（部分） | README 改为如实描述：`http(s)` 图片会由 web 内容进程联网加载，相对图片被限制在笔记目录内；默认阻断/CSP 未做 | README 与实现一致 |
-| P1-17（部分） | 新增 4 条用户文案的 zh-Hans 翻译 | `Localizable.xcstrings` |
+| P1-17 | 补齐源码中缺失的 48 条用户可见文案（菜单、标签右键、⌘K 面板、Explorer、设置、状态栏、CLI 安装对话框、Replace in Folder）；catalog 238 → 286 key，全部带 zh-Hans | `Localizable.xcstrings` 校验；CI 新增 catalog 完整性步骤；未在真机看中文菜单 |
+| P1-11 | CRLF front matter 按 Unicode scalar 掩码，不再把 `\r\n` 当一个 Character 吞掉；大纲改用 `ReadingSource.prepare` 后再解析，front matter 里的 `#` 不再是标题、wiki link 标题与 Reading 一致 | `DocumentInsightTests` 新增 3 个用例（LF/CRLF 行号、wiki link 标题） |
+| P1-10 | 文档场景（iOS 文档浏览器 / Mac ⌘O）改为保留编码与换行：UTF-8/BOM/UTF-16/Windows-1252 均可读写，BOM 不再丢失；无法编码的新字符回退 UTF-8，避免写出空文件 | `TextDocument` 新增 5 个单测（BOM、UTF-16、Windows-1252、CRLF 原样、回退 UTF-8） |
+| P1-8（部分） | 保存前用新增的 `WorkspaceWriteTarget.resolveForWriting` 解析符号链接（含链式链接、环回退），原子写落在链接目标而不是把链接替换成普通文件；`WorkspaceFileCoordination.updateText`/`writeData` 均已接入 | `WriteTargetTests` 5 个用例（普通路径、链接、链式链接、环、写后仍是链接） |
+| P1-9（部分） | 分离的 detached 扫描改为可取消（关闭 ⌘K、切换文件夹时真正停下）；目录重载列表未变化时不再重扫整棵树 | 构建通过 |
+| P1-15（部分） | `TextBytes.decodeUnicode` 去掉重复 UTF-8 解码；`TextFind.lineNumber` 不再复制前缀字符串；regex `replaceAll` 不再为每个 match 复制整篇文档 | 既有 208 个单测全过（含 regex group replace） |
+| P1-14（部分） | 同 P1-15 的 `replaceAll` 拷贝消除；`matches` 仍无上限（需要 UI 语义决定） | — |
+| P1-12（文档） | `objectWillChange` 保持不发送，并在代码中写明原因：脏状态由 undo manager 驱动，逐键发送只会重建场景 | 注释；未加运行时验证 |
 
 ### 9.3 已修复：P2 低成本项
 
@@ -337,22 +344,31 @@ XYZCore（纯逻辑、可单测）                  App target（AppKit/SwiftUI 
 | dotfile 文本判定 | `FileFormats.isTextualName` 对 `.gitignore`/`.editorconfig`/`.env` 返回 true，`.DS_Store`/`.png` 仍为 false（含单测断言） |
 | JSON/CSS 行注释 | `TextTransforms.lineComment(for:)` 返回 nil，命令被禁用而不是写出解析器拒绝的文件（含单测断言） |
 | `unique` 冲突上限 | 9,998 个同名后返回带 UUID 后缀的名字，不再返回可能已存在的名字 |
+| BOM-less UTF-16 | 启发式判定提前到 UTF-8 之前：纯 ASCII 的 UTF-16 不再被当成带 NUL 的 UTF-8 读入并在保存时改字节（含单测） |
 | CLI `~` 边界 | `Resources/bin/xyz` 的 `case "~"`、`"~/"*` 加引号；`Scripts/xyz-test.sh` 新增 `tilde`、`tilde-dir` 用例（HOME 指向临时目录） |
-| CI 可信化 | `timeout-minutes: 60`；bundle 版本与 `Config/Base.xcconfig` 一致性检查；窗口检查步骤 `always()` 运行；acceptance 每个失败用例输出 `::error` 注解；Release 构建；artifact 增加截图与各步骤日志 |
+| CLI 临时文件 | 可预测的 `/tmp/xyz-cli-*.$$` 改为 `mktemp -d` + `trap` 清理，避免预置/符号链接与 SIGINT 残留；dry-run 8/8 通过 |
+| 图标脚本 | `tools/make_icons.py` 的 fontTools 改为惰性导入，`--help` 不再抛 traceback；Chrome 从多候选查找/`CHROME` 覆盖，缺依赖给一句话；新增 `tools/requirements.txt` |
+| CI 可信化 | `timeout-minutes: 60`；bundle 版本与 `Config/Base.xcconfig` 一致性检查；窗口检查步骤 `always()` 运行；acceptance 每个失败用例输出 `::error` 注解；Release 构建；artifact 增加截图与各步骤日志；catalog 完整性检查 |
 
 ### 9.4 仍未完成（有意保留，按优先级）
 
 - **P0-5 发布阻断**：acceptance 门禁仍 0/7（XCUI 在 runner 上无法 launch），tag/release/Developer ID/公证/Hardened Runtime 均未动。本次只提升 CI 可读性与失败可见性。
-- **P1-1 远程图片默认阻断**：属产品决策（默认关闭 + 设置项 + 出域提示），本次只纠正文档。
-- **P1-5 保存阻塞主线程**、**P1-8 原子写破坏链接**、**P1-9 detached 取消/全根重扫**、**P1-10 文档场景编码**、**P1-11 CRLF front matter/大纲**、**P1-12 文档 `objectWillChange`**、性能 P1-13/14/15、iOS 一致性 P1-16、i18n 47 条、swizzling 收敛 P1-18、自检移出发布包 P1-19、手写 pbxproj P1-20：均未做。
-- **P2**：死代码清理、6 套行号统一、BOM-less UTF-16 判定、lint/format 配置、图标脚本可复现、可访问性、仓库描述：未做。
+- **P1-1 远程图片默认阻断**：属产品决策（默认关闭 + 设置项 + 外链提示），本次只改文档。
+- **P1-5** 保存仍在主线程（1MB+ 文件/iCloud/网络卷可能卡顿）——需要一次无 GUI 验收的重构窗口。
+- **P1-8 硬链接**：原子写仍会拆分硬链接（保持原子性优先）；符号链接已修。
+- **P1-9 剩余**：目录加载本身（单次 `children` 调用）仍不可中断；`Task.detached` 取消只覆盖了有检查点的循环。
+- **P1-13** 每击键全文外传（editor → buffer → preview/outline/字数）未做节流；**P1-16** iOS Source 端样式/查找/着色仍落后；**P1-18** swizzling 收敛；**P1-19** 自检代码移出发布包；**P1-20** 手写 pbxproj 一致性。
+- **P2 死代码**：`SourceFormatting` 的 6 个格式化命令（283 行 + 16 个测试）在 Core 里完整但**没有任何调用方**——要么接进 View 菜单，要么删除，属产品取舍；`ReadingLineMap`、`ExplorerEntry.fileCount` 同样未被生产代码使用。
+- **P2 其余**：6 套行号统一、lint/format 配置、macOS 产物里的 iOS-only plist 键、可访问性、仓库描述（"An AI Editor."）与发布定位。
 
 ### 9.5 本次验证基线
 
-- `swift test --package-path XYZCore`：**194 tests / 0 failures**（新增 3 个测试方法，增强 3 个既有方法）。
+- `swift test --package-path XYZCore`：**208 tests / 0 failures**（本轮新增 14 个测试方法：front matter/outline 3、TextDocument 4、WriteTarget 5、TextFind lineNumber 1、BOM-less UTF-16 1）。
 - `sh Scripts/xyz-test.sh`：**8/8 ok**（新增 `tilde`、`tilde-dir`）。
 - `xcodebuild`：macOS Debug、macOS Release、iOS Simulator Debug 均 **BUILD SUCCEEDED**（签名关闭，与 CI 同口径）。
-- 未启动 GUI：退出/关窗弹窗、标签恢复、图片作用域只有编译 + 纯函数单测证据，没有窗口截图；签名沙盒、iCloud、真实中文 IME、性能测量均未跑。
+- `python3 tools/make_icons.py --help` 在未安装 fontTools 的机器上正常输出；`--sheet` 给出可执行的安装提示。
+- 未启动 GUI：退出/关窗弹窗、标签恢复、图片作用域、中文菜单只有编译 + 纯函数单测证据，没有窗口截图；签名沙盒、iCloud、真实中文 IME、性能测量均未跑。
+
 
 ---
 

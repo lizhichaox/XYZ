@@ -2384,6 +2384,486 @@
           }
         }
       }
+    },
+    "%lld more": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还有 %lld 项"
+          }
+        }
+      }
+    },
+    "%lld+ more": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还有 %lld+ 项"
+          }
+        }
+      }
+    },
+    "All": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全部"
+          }
+        }
+      }
+    },
+    "Chinese": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "中文"
+          }
+        }
+      }
+    },
+    "Close All": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭所有标签页"
+          }
+        }
+      }
+    },
+    "Close Others": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭其他标签页"
+          }
+        }
+      }
+    },
+    "Close to the Right": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭右侧标签页"
+          }
+        }
+      }
+    },
+    "Collapse All": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全部折叠"
+          }
+        }
+      }
+    },
+    "Collapsed": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已折叠"
+          }
+        }
+      }
+    },
+    "Content": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内容"
+          }
+        }
+      }
+    },
+    "Copy": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拷贝"
+          }
+        }
+      }
+    },
+    "Expanded": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已展开"
+          }
+        }
+      }
+    },
+    "Explorer": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "资源管理器"
+          }
+        }
+      }
+    },
+    "Files": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "文件"
+          }
+        }
+      }
+    },
+    "Find and Replace": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查找和替换"
+          }
+        }
+      }
+    },
+    "Go to line 1–%lld": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跳转到第 1–%lld 行"
+          }
+        }
+      }
+    },
+    "Heiti SC": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Heiti SC"
+          }
+        }
+      }
+    },
+    "Install 'xyz' Command in PATH": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安装 'xyz' 命令到 PATH"
+          }
+        }
+      }
+    },
+    "Install 'xyz' Command in PATH…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安装 'xyz' 命令到 PATH…"
+          }
+        }
+      }
+    },
+    "JetBrains Mono": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JetBrains Mono"
+          }
+        }
+      }
+    },
+    "Latin": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拉丁文"
+          }
+        }
+      }
+    },
+    "Line spacing": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行距"
+          }
+        }
+      }
+    },
+    "Ln %lld": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第 %lld 行"
+          }
+        }
+      }
+    },
+    "Menlo": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Menlo"
+          }
+        }
+      }
+    },
+    "Nothing else here": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有其他项目"
+          }
+        }
+      }
+    },
+    "Open a folder to search notes.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开文件夹以搜索笔记。"
+          }
+        }
+      }
+    },
+    "Pin": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "固定"
+          }
+        }
+      }
+    },
+    "PingFang SC": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PingFang SC"
+          }
+        }
+      }
+    },
+    "Recent": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近"
+          }
+        }
+      }
+    },
+    "Refresh Explorer": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "刷新资源管理器"
+          }
+        }
+      }
+    },
+    "Replace in Folder": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在文件夹中替换"
+          }
+        }
+      }
+    },
+    "Replace in Folder…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在文件夹中替换…"
+          }
+        }
+      }
+    },
+    "Replace text in every text file in this folder. You can undo each file.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "替换此文件夹中所有文本文件的内容。每个文件都可以单独撤销。"
+          }
+        }
+      }
+    },
+    "Run this in Terminal if the command was linked in /usr/local/bin.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "如果该命令已链接到 /usr/local/bin，请在终端中运行以下命令。"
+          }
+        }
+      }
+    },
+    "SF Mono": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SF Mono"
+          }
+        }
+      }
+    },
+    "Search Notes": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜索笔记"
+          }
+        }
+      }
+    },
+    "Search files and text": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜索文件和文本"
+          }
+        }
+      }
+    },
+    "Settings": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置"
+          }
+        }
+      }
+    },
+    "Settings…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "设置…"
+          }
+        }
+      }
+    },
+    "Songti SC": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Songti SC"
+          }
+        }
+      }
+    },
+    "Type to search names and text": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "输入以搜索名称和文本"
+          }
+        }
+      }
+    },
+    "Uninstall 'xyz' Command": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "卸载 'xyz' 命令"
+          }
+        }
+      }
+    },
+    "Uninstall 'xyz' Command…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "卸载 'xyz' 命令…"
+          }
+        }
+      }
+    },
+    "Unpin": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "取消固定"
+          }
+        }
+      }
+    },
+    "Use Selection for Find": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "使用所选内容查找"
+          }
+        }
+      }
+    },
+    "Wrap": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动换行"
+          }
+        }
+      }
+    },
+    "Wrapped": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已回绕"
+          }
+        }
+      }
+    },
+    "XYZ is sandboxed, so it cannot change your PATH. Run this in Terminal. Homebrew users can use /opt/homebrew/bin instead of /usr/local/bin.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "XYZ 已启用沙盒，无法修改你的 PATH。请在终端中运行以下命令。使用 Homebrew 的用户可以用 /opt/homebrew/bin 代替 /usr/local/bin。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

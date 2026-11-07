@@ -1,0 +1,4 @@
+# Drawing dependencies for tools/make_icons.py.
+# `pip3 install -r tools/requirements.txt` -- Inter itself is a font file, see the
+# docstring in make_icons.py for where to put it.
+fonttools>=4.0

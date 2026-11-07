@@ -37,6 +37,18 @@ final class TextFindTests: XCTestCase {
         XCTAssertFalse(TextFind.isValid(FindQuery(pattern: "(", regex: true)))
     }
 
+    func testLineNumberCountsThePrefixInPlace() {
+        let text = "one\ntwo\nthree"
+        XCTAssertEqual(TextFind.lineNumber(in: text, utf16: 0), 1)
+        XCTAssertEqual(TextFind.lineNumber(in: text, utf16: 3), 1)
+        XCTAssertEqual(TextFind.lineNumber(in: text, utf16: 4), 2)
+        XCTAssertEqual(TextFind.lineNumber(in: text, utf16: 9), 3)
+        XCTAssertEqual(TextFind.lineNumber(in: text, utf16: 999), 3)
+        XCTAssertEqual(TextFind.lineNumber(in: text, utf16: -5), 1)
+        // The editor text uses "\n"; a CRLF file is shown as LF.
+        XCTAssertEqual(TextFind.lineNumber(in: "a\r\nb", utf16: 3), 2)
+    }
+
     func testNextWrapsAndPreviousWalksBack() {
         let text = "a a a"
         let matches = TextFind.matches(in: text, query: FindQuery(pattern: "a", matchCase: true))

@@ -133,6 +133,29 @@ final class DocumentInsightTests: XCTestCase {
         ])
     }
 
+    func testOutlineAndReadingAgreeOnFrontMatter() {
+        // `# comment in yaml` is front matter, not a heading, and `# Head` is line 5.
+        let lf = "---\ntitle: Note\n# comment in yaml\n---\n# Head\n\nbody\n"
+        XCTAssertEqual(MarkdownOutline.headings(in: lf), [OutlineHeading(level: 1, title: "Head", line: 5)])
+        XCTAssertTrue(MarkdownHTML.render(lf).contains("data-line=\"5\""))
+    }
+
+    /// Swift reads "\r\n" as one Character. A character loop over the masked front
+    /// matter joined its lines, so every line number after it moved up.
+    func testCRLFFrontMatterKeepsLineNumbers() {
+        let crlf = "---\r\ntitle: Note\r\n# comment in yaml\r\n---\r\n# Head\r\n\r\nbody\r\n"
+        XCTAssertEqual(MarkdownOutline.headings(in: crlf), [OutlineHeading(level: 1, title: "Head", line: 5)])
+        XCTAssertTrue(MarkdownHTML.render(crlf).contains("data-line=\"5\""))
+    }
+
+    func testOutlineListsTheWikiLinkTextReadingShows() {
+        let text = "# [[Page]] and [[Other|Label]]\n"
+        XCTAssertEqual(MarkdownOutline.headings(in: text), [OutlineHeading(level: 1, title: "Page and Label", line: 1)])
+        let html = MarkdownHTML.render(text)
+        XCTAssertTrue(html.contains(">Page</a>"))
+        XCTAssertTrue(html.contains(">Label</a>"))
+    }
+
     func testStatisticsCountCJKCharactersAndWords() {
         let stats = TextStatistics.count("你好，world! **Bold** it's 2026.")
         XCTAssertEqual(stats.ideographs, 2)

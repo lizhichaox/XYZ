@@ -89,23 +89,28 @@ $1"
   shift
 done
 
-resolved=""
+# A directory from mktemp, not a name every other process can guess. The old
+# /tmp/xyz-cli-paths.$$ name let another process pre-create or symlink the path,
+# and a SIGINT left the files behind. The trap removes them on any exit.
+work=$(mktemp -d "${TMPDIR:-/tmp}/xyz-cli.XXXXXXXX") || exit 1
+paths="$work/paths"
+failed="$work/failed"
+trap 'rm -rf "$work"' EXIT HUP INT TERM
+
 status=0
 # Leading newline from the first append. Skip empty lines.
 printf '%s\n' "$inputs" | while IFS= read -r item; do
   [ -n "$item" ] || continue
   if ! path=$(resolve_path "$item"); then
-    echo 1 > /tmp/xyz-cli-fail.$$
+    echo 1 > "$failed"
     exit 1
   fi
   printf '%s\n' "$path"
-done > /tmp/xyz-cli-paths.$$ || status=1
-if [ -f /tmp/xyz-cli-fail.$$ ]; then
+done > "$paths" || status=1
+if [ -f "$failed" ]; then
   status=1
-  rm -f /tmp/xyz-cli-fail.$$
 fi
 if [ "$status" -ne 0 ]; then
-  rm -f /tmp/xyz-cli-paths.$$
   exit 1
 fi
 
@@ -113,8 +118,7 @@ set --
 while IFS= read -r path; do
   [ -n "$path" ] || continue
   set -- "$@" "$path"
-done < /tmp/xyz-cli-paths.$$
-rm -f /tmp/xyz-cli-paths.$$
+done < "$paths"
 
 flags="-b $bundle_id"
 if [ "$new_window" -eq 1 ]; then

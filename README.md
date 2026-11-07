@@ -4,7 +4,7 @@
 
 XYZ is a native editor for text, code, and everyday files. One SwiftUI codebase runs on macOS, iPhone, and iPad. On the Mac, opening a folder gives a source list, tabs, and a status bar. iPhone and iPad still use the document browser. Opening and saving goes through Apple's document browser, so iCloud Drive files are ordinary documents once the app is signed with the iCloud capability.
 
-New documents are Markdown (`.md`). The app also opens and saves `.markdown` and plain text (`.txt`). A folder on the Mac opens any text file, and shows pictures, PDF, audio, video, and a Quick Look preview for the rest. Workspace files keep the encoding and line endings they had (UTF-8, UTF-8 with a byte-order mark, UTF-16, or Windows-1252). New documents are still UTF-8, and a byte-order mark is not added.
+New documents are Markdown (`.md`). The app also opens and saves `.markdown` and plain text (`.txt`). A folder on the Mac opens any text file, and shows pictures, PDF, audio, video, and a Quick Look preview for the rest. A file opened from a folder window and a file opened through the document page both keep the encoding and line endings they had (UTF-8, UTF-8 with a byte-order mark, UTF-16, or Windows-1252), and a save writes the byte-order mark back. Text that the file's encoding cannot hold is saved as UTF-8. New documents are still UTF-8, and a byte-order mark is not added.
 
 ## What you see
 

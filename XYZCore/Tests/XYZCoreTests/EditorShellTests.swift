@@ -54,6 +54,23 @@ final class TextBytesTests: XCTestCase {
         XCTAssertEqual(TextBytes.encode(decoded.text, encoding: decoded.encoding, lineEnding: .lf), data)
     }
 
+    /// BOM-less UTF-16 ASCII is also valid UTF-8, with NUL characters between the
+    /// letters. Reading it as UTF-8 hides the real encoding and a save then edits the
+    /// wrong bytes, so the heuristic has to run before the UTF-8 attempt.
+    func testBOMlessUTF16ASCIIIsReadAsUTF16() throws {
+        let text = "Hi!\n"
+        let little = try XCTUnwrap(TextBytes.encode(text, encoding: .utf16LE, lineEnding: .lf))
+        XCTAssertEqual(Array(little.prefix(4)), [0x48, 0x00, 0x69, 0x00])
+        let decoded = try XCTUnwrap(TextBytes.decode(little))
+        XCTAssertEqual(decoded.text, text)
+        XCTAssertEqual(decoded.encoding, .utf16LE)
+        XCTAssertEqual(TextBytes.encode(decoded.text, encoding: decoded.encoding, lineEnding: .lf), little)
+        let big = try XCTUnwrap(TextBytes.encode(text, encoding: .utf16BE, lineEnding: .lf))
+        let decodedBig = try XCTUnwrap(TextBytes.decode(big))
+        XCTAssertEqual(decodedBig.text, text)
+        XCTAssertEqual(decodedBig.encoding, .utf16BE)
+    }
+
     func testWindows1252RoundTripForATextName() throws {
         let original = Data([0x48, 0x69, 0x20, 0xE9])
         let decoded = try XCTUnwrap(TextBytes.decode(original, allowLegacy: true))

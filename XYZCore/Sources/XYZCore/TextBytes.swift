@@ -102,6 +102,23 @@ public enum TextBytes {
     /// First slice of a file that is not opened for editing. Every byte sequence produces text.
     public static let previewByteLimit = 2_000_000
 
+    /// Text and the encoding it was stored in, with line endings left as they are.
+    ///
+    /// `decode` normalizes line endings for the editor. A document scene saves the
+    /// string it was handed, so it asks for this instead and can write the same bytes
+    /// back, including the byte-order mark.
+    public static func decodeKeepingEndings(
+        _ data: Data,
+        allowLegacy: Bool = false
+    ) -> (text: String, encoding: TextEncoding)? {
+        if data.isEmpty { return ("", .utf8) }
+        if let unicode = decodeUnicode(data) { return (unicode.text, unicode.encoding) }
+        guard allowLegacy, !data.contains(0), let legacy = String(data: data, encoding: .windowsCP1252) else {
+            return nil
+        }
+        return (legacy, .windows1252)
+    }
+
     public struct Preview: Equatable, Sendable {
         public var text: String
         public var encoding: TextEncoding
@@ -184,13 +201,18 @@ public enum TextBytes {
             guard let text = String(data: Data(data.dropFirst(2)), encoding: .utf16BigEndian) else { return nil }
             return UnicodeText(text: text, encoding: .utf16BEBOM)
         }
-        if String(data: data, encoding: .utf8) != nil, let text = String(data: data, encoding: .utf8) {
-            return UnicodeText(text: text, encoding: .utf8)
-        }
+        // A BOM-less UTF-16 ASCII file is also valid UTF-8: `h\0e\0l\0l\0o\0` decodes
+        // as text with NUL characters, so trying UTF-8 first hides the file's real
+        // encoding and writes the NUL-filled string back on save. The heuristic is
+        // narrow (half of one byte lane is NUL, the other lane is ASCII), so ordinary
+        // UTF-8 text does not match it.
         if let endian = heuristicEndian(data) {
             let encoding: String.Encoding = endian.big ? .utf16BigEndian : .utf16LittleEndian
             guard let text = String(data: data, encoding: encoding) else { return nil }
             return UnicodeText(text: text, encoding: endian.big ? .utf16BE : .utf16LE)
+        }
+        if let text = String(data: data, encoding: .utf8) {
+            return UnicodeText(text: text, encoding: .utf8)
         }
         return nil
     }

@@ -109,6 +109,10 @@ enum WorkspaceFileCoordination {
         var diskText: String?
         var inner: Error?
         var coordinationError: NSError?
+        // An `.atomic` write renames a new file over the path. When the path is a
+        // symbolic link, that replaces the link with a regular file and leaves the
+        // file it names unchanged; write through the link's target instead.
+        let writeTarget = WorkspaceWriteTarget.resolveForWriting(url)
         NSFileCoordinator().coordinate(
             writingItemAt: url,
             options: .forMerging,
@@ -139,7 +143,7 @@ enum WorkspaceFileCoordination {
                     guard let bytes = TextBytes.encode(editor, encoding: encoding, lineEnding: lineEnding) else {
                         throw TextBytes.EncodingError.unrepresentable
                     }
-                    try bytes.write(to: url, options: .atomic)
+                    try bytes.write(to: writeTarget, options: .atomic)
                     if decision == .upToDate {
                         decision = .write
                     }
@@ -170,13 +174,14 @@ enum WorkspaceFileCoordination {
     static func writeData(_ data: Data, to url: URL) throws {
         var inner: Error?
         var coordinationError: NSError?
+        let writeTarget = WorkspaceWriteTarget.resolveForWriting(url)
         NSFileCoordinator().coordinate(
             writingItemAt: url,
             options: .forReplacing,
             error: &coordinationError
-        ) { url in
+        ) { _ in
             do {
-                try data.write(to: url, options: .atomic)
+                try data.write(to: writeTarget, options: .atomic)
             } catch {
                 inner = error
             }

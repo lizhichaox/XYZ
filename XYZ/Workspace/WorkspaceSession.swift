@@ -1254,9 +1254,19 @@ final class WorkspaceSession: ObservableObject {
         indexTask = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(200))
             guard !Task.isCancelled else { return }
-            let entries = await Task.detached(priority: .utility) {
+            let scan = Task.detached(priority: .utility) {
                 WorkspaceIndexScan.entries(at: root)
-            }.value
+            }
+            // The enumeration checks `Task.isCancelled`, but a detached task does not
+            // inherit the cancellation of the task waiting on it. Cancelling the scan
+            // is what stops a full-tree walk after the folder window moved on.
+            let entries = await withTaskCancellationHandler {
+                await scan.value
+            } onCancel: {
+                scan.cancel()
+            }
+            // A stopped scan returns what it had; it must not replace the index.
+            guard !Task.isCancelled else { return }
             guard let self, self.indexGeneration == generation else { return }
             self.indexedEntries = entries
             if !self.nameQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -1529,7 +1539,7 @@ final class WorkspaceSession: ObservableObject {
         cap: Int = WorkspaceContentSearch.hitLimit,
         perFile: Int = 3
     ) async -> [WorkspaceContentHit] {
-        await Task.detached(priority: .utility) {
+        let work = Task.detached(priority: .utility) {
             var found: [WorkspaceContentHit] = []
             for entry in files {
                 if Task.isCancelled || found.count >= cap { break }
@@ -1556,7 +1566,15 @@ final class WorkspaceSession: ObservableObject {
                 ))
             }
             return found
-        }.value
+        }
+        // A detached task does not inherit cancellation from the task that waits on
+        // it, so ⌘K closing left the scan reading every remaining file. Cancelling the
+        // work task makes the `Task.isCancelled` check inside the loop true.
+        return await withTaskCancellationHandler {
+            await work.value
+        } onCancel: {
+            work.cancel()
+        }
     }
 
     private static func planFolderReplace(
@@ -1569,7 +1587,7 @@ final class WorkspaceSession: ObservableObject {
         include: String,
         exclude: String
     ) async -> [FolderReplaceChange] {
-        await Task.detached(priority: .utility) {
+        let work = Task.detached(priority: .utility) {
             let openByPath = Dictionary(uniqueKeysWithValues: open.map { ($0.path, $0) })
             var changes: [FolderReplaceChange] = []
             for entry in files {
@@ -1620,7 +1638,12 @@ final class WorkspaceSession: ObservableObject {
                 ))
             }
             return changes
-        }.value
+        }
+        return await withTaskCancellationHandler {
+            await work.value
+        } onCancel: {
+            work.cancel()
+        }
     }
 
     private static func token(for url: URL) -> String {
@@ -1670,6 +1693,7 @@ final class WorkspaceSession: ObservableObject {
                 guard let self, self.loadGeneration[parent] == generation else { return }
                 switch result {
                 case .success(let nodes):
+                    let listingChanged = self.children[parent] != nodes
                     self.children[parent] = nodes
                     self.loadErrors[parent] = nil
                     if parent.isEmpty {
@@ -1677,7 +1701,11 @@ final class WorkspaceSession: ObservableObject {
                         WorkspaceLog.rootEnumerated(path: self.rootURL.path, count: nodes.count)
                     }
                     self.noteOpenFileStillPresent(parent: parent, nodes: nodes)
-                    self.scheduleIndex()
+                    // Every successful load used to walk the whole tree again. A reload
+                    // that found the same names does not change the index.
+                    if listingChanged {
+                        self.scheduleIndex()
+                    }
                 case .failure:
                     let message = String(localized: "Couldn't read this folder.")
                     self.loadErrors[parent] = message

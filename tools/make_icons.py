@@ -18,22 +18,31 @@ field (light) or near-black (dark). Details, set 2026-10-24:
 `--write` renders the iOS 1024 images (light, dark, tinted; full bleed) and the
 macOS sizes (on the rounded plate with its shadow) into
 `XYZ/Resources/Assets.xcassets/AppIcon.appiconset`, and the source vectors
-into `Design/Icon/`. Needs fontTools (`pip3 install fonttools`) and Inter
+into `Design/Icon/`. Needs fontTools (`pip3 install -r tools/requirements.txt`) and Inter
 (https://rsms.me/inter, SIL Open Font License 1.1); set INTER to the folder
 that holds Inter-*.otf if it is not in a standard font folder. SVGs are
 rendered with headless Chrome; set CHROME to use another Chromium binary.
 """
-import argparse, glob, html, os, subprocess, tempfile
+import argparse, glob, os, subprocess, sys, tempfile
 
-from fontTools.pens.boundsPen import BoundsPen
-from fontTools.pens.svgPathPen import SVGPathPen
-from fontTools.pens.transformPen import TransformPen
-from fontTools.ttLib import TTFont
+try:
+    from fontTools.pens.boundsPen import BoundsPen
+    from fontTools.pens.svgPathPen import SVGPathPen
+    from fontTools.pens.transformPen import TransformPen
+    from fontTools.ttLib import TTFont
+except ModuleNotFoundError:
+    # Imported for every drawing command, but not for `--help` or a plain run. A
+    # missing fontTools is reported as a sentence instead of an import traceback.
+    BoundsPen = SVGPathPen = TransformPen = TTFont = None
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 APPICON = os.path.join(ROOT, "XYZ", "Resources", "Assets.xcassets", "AppIcon.appiconset")
 DESIGN = os.path.join(ROOT, "Design", "Icon")
-CHROME = os.environ.get("CHROME", "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome")
+CHROME_CANDIDATES = [
+    "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+    "/Applications/Chromium.app/Contents/MacOS/Chromium",
+    "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+]
 FONT_DIRS = [os.environ.get("INTER", ""), os.path.expanduser("~/Library/Fonts"), "/Library/Fonts",
              "/usr/share/fonts/opentype/inter", "/usr/share/fonts"]
 
@@ -139,26 +148,46 @@ def mac_svg(appearance, size=1024):
 MAC_SIZES = [(16, 1), (16, 2), (32, 1), (32, 2), (128, 1), (128, 2), (256, 1), (256, 2), (512, 1), (512, 2)]
 
 
-def render(svg, png, size, work):
+def required_font_tools():
+    """Stop with a sentence, not an import traceback, when fontTools is absent."""
+    if TTFont is None:
+        sys.exit("make_icons: fontTools is not installed. Run: python3 -m pip install -r tools/requirements.txt")
+
+
+def chrome_binary():
+    """CHROME, or the first Chrome-family browser in /Applications."""
+    chosen = os.environ.get("CHROME")
+    if chosen:
+        if not os.access(chosen, os.X_OK):
+            sys.exit(f"make_icons: CHROME is not an executable file: {chosen}")
+        return chosen
+    for candidate in CHROME_CANDIDATES:
+        if os.access(candidate, os.X_OK):
+            return candidate
+    sys.exit("make_icons: no Chrome or Chromium found. Install one or set CHROME to its binary.")
+
+
+def render(svg, png, size, work, chrome):
     # A page around the SVG, so Chrome draws it at the window size from the top-left corner.
     src = os.path.join(work, os.path.basename(png) + ".html")
     with open(src, "w") as f:
         f.write(f'<html><body style="margin:0;overflow:hidden">{svg}</body></html>')
     subprocess.run(
-        [CHROME, "--headless=new", "--disable-gpu", "--hide-scrollbars", "--force-device-scale-factor=1",
+        [chrome, "--headless=new", "--disable-gpu", "--hide-scrollbars", "--force-device-scale-factor=1",
          "--default-background-color=00000000", f"--window-size={size},{size}", f"--screenshot={png}",
          "file://" + src],
         check=True, capture_output=True, timeout=60)
 
 
 def write():
+    chrome = chrome_binary()
     with tempfile.TemporaryDirectory() as work:
         for appearance, suffix in (("light", ""), ("dark", "-dark"), ("tinted", "-tinted")):
-            render(ios_svg(appearance), os.path.join(APPICON, f"icon-ios-1024{suffix}.png"), 1024, work)
+            render(ios_svg(appearance), os.path.join(APPICON, f"icon-ios-1024{suffix}.png"), 1024, work, chrome)
         for points, scale in MAC_SIZES:
             px = points * scale
             name = f"icon_{points}x{points}{'@2x' if scale == 2 else ''}.png"
-            render(mac_svg("light", px), os.path.join(APPICON, name), px, work)
+            render(mac_svg("light", px), os.path.join(APPICON, name), px, work, chrome)
     for appearance in ("light", "dark"):
         with open(os.path.join(DESIGN, f"icon-{appearance}.svg"), "w") as f:
             f.write(ios_svg(appearance) + "\n")
@@ -187,6 +216,8 @@ if __name__ == "__main__":
     parser.add_argument("--sheet")
     parser.add_argument("--write", action="store_true")
     args = parser.parse_args()
+    if args.sheet or args.write:
+        required_font_tools()
     if args.sheet:
         sheet(args.sheet)
     if args.write:

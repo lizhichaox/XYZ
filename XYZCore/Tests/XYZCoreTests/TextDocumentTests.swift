@@ -8,6 +8,7 @@ final class TextDocumentTests: XCTestCase {
         let decoded = try TextDocument(data: document.data())
         XCTAssertEqual(decoded.text, text)
         XCTAssertEqual(document.data(), Data(text.utf8))
+        XCTAssertEqual(decoded.encoding, .utf8)
     }
 
     func testRoundTripUnicode() throws {
@@ -28,17 +29,52 @@ final class TextDocumentTests: XCTestCase {
         XCTAssertEqual(String(data: document.data(), encoding: .utf8), "no newline")
     }
 
-    func testStripsUTF8BOM() throws {
+    /// The document scene used to strip the mark, so a save removed a byte the file
+    /// had. The workspace path keeps it, and now so does this one.
+    func testKeepsUTF8BOM() throws {
         let bom = Data([0xEF, 0xBB, 0xBF])
         let document = try TextDocument(data: bom + Data("note".utf8))
         XCTAssertEqual(document.text, "note")
-        XCTAssertEqual(document.data(), Data("note".utf8))
-        XCTAssertFalse(document.data().starts(with: [0xEF, 0xBB, 0xBF]))
+        XCTAssertEqual(document.encoding, .utf8BOM)
+        XCTAssertEqual(document.data(), bom + Data("note".utf8))
     }
 
-    func testRejectsInvalidUTF8() {
-        XCTAssertThrowsError(try TextDocument(data: Data([0x80]))) { error in
-            XCTAssertEqual(error as? TextDocument.DecodingError, .invalidUTF8)
+    func testReadsWindows1252AndWritesItBack() throws {
+        let original = Data([0x48, 0x69, 0x20, 0xE9])
+        let document = try TextDocument(data: original)
+        XCTAssertEqual(document.text, "Hi é")
+        XCTAssertEqual(document.encoding, .windows1252)
+        XCTAssertEqual(document.data(), original)
+    }
+
+    func testReadsUTF16WithBOMAndWritesItBack() throws {
+        let original = try XCTUnwrap(TextBytes.encode("Hi\n", encoding: .utf16LEBOM, lineEnding: .lf))
+        let document = try TextDocument(data: original)
+        XCTAssertEqual(document.text, "Hi\n")
+        XCTAssertEqual(document.encoding, .utf16LEBOM)
+        XCTAssertEqual(document.data(), original)
+    }
+
+    /// Mixed line endings are left in the string, as they were before this change.
+    func testMixedLineEndingsAreNotRewritten() throws {
+        let original = Data("a\r\nb\nc".utf8)
+        let document = try TextDocument(data: original)
+        XCTAssertEqual(document.text, "a\r\nb\nc")
+        XCTAssertEqual(document.data(), original)
+    }
+
+    /// A character the file's encoding cannot hold must not make `data()` empty.
+    func testUnstorableCharacterFallsBackToUTF8() throws {
+        let document = try TextDocument(data: Data([0x48, 0x69, 0x20, 0xE9]))
+        var edited = document
+        edited.text = "你好"
+        XCTAssertEqual(edited.data(), Data("你好".utf8))
+    }
+
+    func testRejectsBytesThatAreNotText() {
+        // 0x81 is not assigned in Windows-1252 and is not valid UTF-8.
+        XCTAssertThrowsError(try TextDocument(data: Data([0x81]))) { error in
+            XCTAssertEqual(error as? TextDocument.DecodingError, .unreadableBytes)
         }
     }
 

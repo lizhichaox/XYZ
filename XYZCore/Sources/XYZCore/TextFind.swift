@@ -70,8 +70,12 @@ public enum TextFind {
         guard !found.isEmpty else { return (text, 0) }
         let result = NSMutableString(string: text)
         for match in found.reversed() {
+            // `replacementString` reads the captured ranges from the string the match
+            // was found in. The matches are replaced last-to-first, so the original
+            // text is still the right source here; passing `result as String` copied
+            // the whole document once per match.
             let piece = query.regex
-                ? expression.replacementString(for: match, in: result as String, offset: 0, template: replacement)
+                ? expression.replacementString(for: match, in: text, offset: 0, template: replacement)
                 : replacement
             result.replaceCharacters(in: match.range, with: piece)
         }
@@ -124,12 +128,14 @@ public enum TextFind {
     }
 
     public static func lineNumber(in text: String, utf16: Int) -> Int {
-        let ns = text as NSString
-        let end = min(max(0, utf16), ns.length)
+        let length = (text as NSString).length
+        let end = min(max(0, utf16), length)
         guard end > 0 else { return 1 }
-        let prefix = ns.substring(with: NSRange(location: 0, length: end))
+        // The editor text always uses "\n". Counting the UTF-16 prefix in place avoids
+        // a copy of the prefix string for every labelled match; find used to allocate
+        // a second copy of the text once per match.
         var line = 1
-        for scalar in prefix.unicodeScalars where scalar == "\n" {
+        for unit in text.utf16.prefix(end) where unit == 0x0A {
             line += 1
         }
         return line

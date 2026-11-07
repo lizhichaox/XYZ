@@ -59,6 +59,26 @@ jobs:
         id: test
         run: swift test --package-path XYZCore
 
+      - name: Check localization catalog
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          path = "XYZ/Resources/Localizable.xcstrings"
+          catalog = json.load(open(path))
+          strings = catalog["strings"]
+          # "English" and "简体中文" are the names of the language choices, so they
+          # stay as written in every language.
+          identity = {"English", "简体中文"}
+          missing = sorted(
+              key for key, entry in strings.items()
+              if key not in identity and "zh-Hans" not in entry.get("localizations", {})
+          )
+          if missing:
+              raise SystemExit(f"{len(missing)} catalog keys have no zh-Hans: {missing[:10]}")
+          print(f"{len(strings)} keys, every one has zh-Hans")
+          PY
+
       - name: Build macOS
         id: macos
         if: ${{ !cancelled() }}

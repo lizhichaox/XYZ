@@ -62,9 +62,12 @@ enum ReadingSource {
         var masked = ""
         masked.reserveCapacity(ns.length)
         let head = ns.substring(with: NSRange(location: 0, length: end))
-        for character in head {
-            if character == "\n" || character == "\r" {
-                masked.append(character)
+        // Walk Unicode scalars, not `Character`s: Swift reads "\r\n" as one Character,
+        // so a character loop replaced a CRLF front matter with spaces and joined its
+        // lines into one. Every `data-line` after the front matter then moved up.
+        for scalar in head.unicodeScalars {
+            if scalar == "\n" || scalar == "\r" {
+                masked.unicodeScalars.append(scalar)
             } else {
                 masked.append(" ")
             }

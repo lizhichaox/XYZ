@@ -15,12 +15,18 @@ public struct OutlineHeading: Equatable, Sendable {
     }
 }
 
-/// The headings of a Markdown note, in order. Uses the same parser as Reading,
-/// so a `#` inside a code block or an indented line is not a heading.
+/// The headings of a Markdown note, in order. Uses the same parser and the same
+/// preparation as Reading, so a `#` inside a code block or an indented line is not a
+/// heading, front matter is not scanned, and a wiki link reads as the text Reading shows.
 public enum MarkdownOutline {
     public static func headings(in markdown: String) -> [OutlineHeading] {
+        // Front matter is masked with spaces and wiki links become ordinary links, so
+        // `heading.range.line` still counts the file's own lines. Parsing the raw text
+        // instead turned a `# comment` in YAML into a heading and listed `[[Page]]` as
+        // literal brackets while the page showed a link.
+        let prepared = ReadingSource.prepare(markdown)
         var walker = OutlineWalker()
-        walker.visit(MarkdownParser.parse(markdown))
+        walker.visit(MarkdownParser.parse(prepared.body))
         return walker.headings
     }
 }
