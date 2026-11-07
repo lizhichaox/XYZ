@@ -38,3 +38,34 @@ rules below more than once; follow them without being asked.
   check. Toggling sidebars and other interaction still needs the owner.
 - The app is sandboxed with iCloud and security-scoped bookmarks; the unsigned CI build
   has no entitlements, so a green cloud run does not prove the sandboxed app works.
+
+## AppKit sidebar: what not to repeat
+
+This project spent a long round on a sidebar that could not open folders. The causes,
+in the order they were found:
+
+- **A click on a disclosure triangle is handled inside AppKit** and does not call the
+  subclass's `expandItem`. Do not rely on that callback alone.
+- **AppKit puts a private button in the disclosure slot**, and it only acts inside its
+  own mouse tracking. A click delivered any other way (acceptance harness, inactive
+  window) is dropped. The row view's `hitTest` returns nil over the disclosure strip so
+  the outline view receives the click instead.
+- **`NSTextField` is an `NSControl`**: it consumed clicks on a folder's name, so the row
+  never saw them. Row labels use `SidebarPassthroughLabel`, whose `hitTest` returns nil.
+- **`NSOutlineView.reloadData()` keeps the expansion of items that compare equal**, so
+  clearing the model alone does not close anything. Collapse All must also collapse the
+  rows it shows open.
+- **A fresh `SidebarNode` per rebuild loses expansion and selection**: the outline keys
+  both by object identity and by row number. Nodes are cached by path, and the selected
+  row is restored by path after every rebuild.
+- **AppKit calls back into expand/collapse while reloading.** Writing those callbacks to
+  the session closed folders the user had just opened, about two seconds after the open
+  (when the folder's children finished loading). Only user intent writes to the session
+  (`SidebarOutlineView.marksUserExpansion`).
+- **Do not draw a second highlight for the open file.** The row painter filled both the
+  selected row and the open file's row, which read as two selections. The open file is
+  marked by its name color instead.
+
+`-XYZCheckGutter` runs these paths as acceptance cases (`refresh`, `collapse-header`,
+`nested-file`). The rest of the app must not be changed to make a harness pass, and a
+passing `refresh` case is the minimum evidence that folder clicks work.

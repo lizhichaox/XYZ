@@ -1,5 +1,63 @@
 # Changelog
 
+## 0.5.34
+
+Build 50. Installed on this Mac, Developer ID signed, notarized and stapled. No tag or GitHub release.
+
+### What changed
+
+The Explorer sidebar could not open a folder by clicking it. This is the fix, and it
+took several AppKit behaviours that are now written down in `AGENTS.md`:
+
+- A click on a disclosure triangle runs inside AppKit and never calls the subclass's
+  `expandItem`, so the session never learned about it. The row view now hands the
+  disclosure strip to the outline view, which toggles the folder itself.
+- AppKit's private disclosure button only acts inside its own mouse tracking; a click
+  delivered any other way was dropped. The outline handles the click instead.
+- `NSTextField` is an `NSControl` and swallowed clicks on a folder's name. Row labels are
+  a pass-through label whose `hitTest` returns nil.
+- `NSOutlineView.reloadData()` keeps the expansion of items that compare equal, so
+  clearing the session's set closed nothing. Collapse All now also closes the rows it
+  shows open.
+- A fresh `SidebarNode` per rebuild lost both expansion and selection: the outline keys
+  them by object identity and row number. Nodes are cached by path, and the selected row
+  is restored by path after a rebuild.
+- AppKit calls the expand/collapse callbacks while it reloads. Writing those into the
+  session closed a folder about two seconds after the user opened it. Only user intent
+  writes to the session now.
+- The open file no longer gets a second row highlight; its name is drawn in the accent
+  colour instead.
+- The last header button is a toggle: with folders open it closes them all and shows the
+  collapse glyph; with everything closed it opens the top-level folders and shows the
+  expand glyph.
+
+### Where this was checked
+
+- `swift test --package-path XYZCore`: 215 tests, 0 failures.
+- `sh Scripts/xyz-test.sh`: 8 cases, all ok.
+- `-XYZCheckGutter` acceptance: `create-file`, `create-folder` and `refresh` pass.
+  `refresh` is the case that opens a folder by clicking it; it failed before this
+  change. `nested-file`, `collapse-header`, `dividers`, `mode-labels` and
+  `empty-line-prefs` still fail for reasons outside the sidebar (a synthetic click the
+  inactive window drops, and menu targets this harness cannot reach).
+- Release 0.5.34 (50): archive, Developer ID export, app notarized
+  (`cda68ac5-95ad-4a61-9d54-c3d4c90d1ab0`) and stapled, DMG signed, notarized
+  (`c23e3bd4-3231-43b4-9bc8-939bac42e4e4`) and stapled,
+  `spctl` accepted for both.
+- Installed over `/Applications/XYZ.app`; one app on the machine.
+
+### Not checked
+
+The owner has not yet confirmed folder clicks in this installed build. Everything
+unverified in 0.5.29 keeps that status.
+
+## 0.5.33
+
+Build 49. Not installed. Removed the "Limit line width" setting: the toggle, the style
+field, the preview parameter and CSS, the two localization keys, and the README sentence.
+A typing pass in 0.5.32 built on this: an incremental line index, per-edit restyle above
+4,000 characters, and no whole-file string copies on the typing path.
+
 ## 0.5.31
 
 Build 47. The version in this tree, and the build installed in `/Applications` on this Mac (Developer ID signed, notarized, stapled). No tag or GitHub release. Change set on top of 0.5.30: the sidebar and outline animation.

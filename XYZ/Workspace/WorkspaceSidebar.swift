@@ -53,11 +53,11 @@ struct WorkspaceSidebar: NSViewRepresentable {
         context.coordinator.attach(outline: outline, column: column, session: session)
         context.coordinator.reloadIfNeeded(force: true)
 
-        outline.onExpand = { [weak coordinator = context.coordinator] item in
-            coordinator?.expanded(item, true)
+        outline.onExpand = { [weak coordinator = context.coordinator, weak outline] item in
+            coordinator?.expanded(item, true, user: outline?.marksUserExpansion == true)
         }
-        outline.onCollapse = { [weak coordinator = context.coordinator] item in
-            coordinator?.expanded(item, false)
+        outline.onCollapse = { [weak coordinator = context.coordinator, weak outline] item in
+            coordinator?.expanded(item, false, user: outline?.marksUserExpansion == true)
         }
         outline.onActivate = { [weak coordinator = context.coordinator] in
             coordinator?.activateSelection()
@@ -90,6 +90,13 @@ struct WorkspaceSidebar: NSViewRepresentable {
         private var childItems: [String: [NSObject]] = [:]
         private var rootRows: [NSObject] = []
         private var nodeByPath: [String: SidebarNode] = [:]
+        /// Node objects reused across rebuilds. `NSOutlineView` keeps its expansion by
+        /// object identity; fresh objects on every rebuild made it drop open rows.
+        private var nodeCache: [String: SidebarNode] = [:]
+        /// Paths that exist in the tree being rebuilt; `nodeCache` is pruned to these.
+        private var seenPaths: Set<String> = []
+        /// True while the expansion change is the user's (click, key, Collapse All).
+        /// AppKit's own collapses during a reload must not edit the session.
         private var snapshot = Snapshot()
         private var suppressSelection = false
         private var suppressExpansionWrite = false
@@ -180,12 +187,55 @@ struct WorkspaceSidebar: NSViewRepresentable {
                 self?.session?.refreshFileTree()
             }
             column?.header.onCollapseAll = { [weak self] in
-                self?.session?.collapseAllFolders()
+                guard let self, let session = self.session else { return }
+                if session.expanded.isEmpty {
+                    self.expandRootFolders(session)
+                } else {
+                    session.collapseAllFolders()
+                    self.collapseAllRows()
+                }
             }
+        }
+
+        /// Opens the folders at the top of the tree, which is what the button does when
+        /// nothing is open. Loading every descendant at once is not attempted: a folder's
+        /// children are read when it opens.
+        private func expandRootFolders(_ session: WorkspaceSession) {
+            let roots = session.visibleChildren(of: "").filter(\.isDirectory)
+            for node in roots where !session.isExpanded(node.relativePath) {
+                session.setExpanded(node, true)
+            }
+        }
+
+        /// Closes every row the outline shows open.
+        ///
+        /// `reloadData()` restores the expansion of items that still compare equal, so
+        /// clearing `session.expanded` alone left every folder on screen open: that is
+        /// why Collapse All did nothing. Closing the rows here keeps the view and the
+        /// session in step; the next rebuild has nothing to restore.
+        private func collapseAllRows() {
+            guard let outline else { return }
+            var open: [Any] = []
+            for row in 0..<outline.numberOfRows {
+                guard let item = outline.item(atRow: row), outline.isItemExpanded(item) else { continue }
+                open.append(item)
+            }
+            guard !open.isEmpty else { return }
+            suppressExpansionWrite = true
+            outline.animatesDisclosure = false
+            NSAnimationContext.beginGrouping()
+            NSAnimationContext.current.duration = 0
+            for item in open.reversed() {
+                outline.collapseItem(item)
+            }
+            NSAnimationContext.endGrouping()
+            outline.animatesDisclosure = true
+            suppressExpansionWrite = false
         }
 
         private func syncChrome(_ session: WorkspaceSession) {
             guard let column else { return }
+            column.header.showCollapseButton(collapses: !session.expanded.isEmpty)
             let home = FileManager.default.homeDirectoryForCurrentUser.path
             column.header.show(
                 name: session.displayName,
@@ -195,9 +245,12 @@ struct WorkspaceSidebar: NSViewRepresentable {
             column.setTreeVisible(session.rootExpanded)
         }
 
-        nonisolated func expanded(_ item: Any, _ isExpanded: Bool) {
+        nonisolated func expanded(_ item: Any, _ isExpanded: Bool, user: Bool) {
             MainActor.assumeIsolated {
-                guard !self.suppressExpansionWrite else { return }
+                // Only the user's own open/close edits the session. AppKit drives the
+                // same callbacks while it reloads the outline, and writing those back
+                // closed folders the user had just opened.
+                guard user, !self.suppressExpansionWrite else { return }
                 guard let session = self.session, let node = item as? SidebarNode else { return }
                 guard session.isExpanded(node.relativePath) != isExpanded else { return }
                 session.setExpanded(node.model, isExpanded)
@@ -276,7 +329,12 @@ struct WorkspaceSidebar: NSViewRepresentable {
             }
             guard let node = item as? SidebarNode else { return nil }
             let cell = reusedRow(outlineView)
-            cell.apply(node, expanded: outlineView.isItemExpanded(node))
+            let openPath = (outlineView as? SidebarOutlineView)?.openRelativePath
+            cell.apply(
+                node,
+                expanded: outlineView.isItemExpanded(node),
+                open: node.relativePath == openPath
+            )
             return cell
         }
 
@@ -287,13 +345,22 @@ struct WorkspaceSidebar: NSViewRepresentable {
         }
 
         func outlineViewSelectionDidChange(_ notification: Notification) {
+            if let outline, outline.selectedRow >= 0 {
+                let item = outline.item(atRow: outline.selectedRow)
+            }
             guard !suppressSelection, let session, let outline else { return }
             let row = outline.selectedRow
             guard row >= 0 else { return }
             let item = outline.item(atRow: row)
-            if let node = item as? SidebarNode, !node.isDirectory {
-                session.openFile(node.model)
+            if let node = item as? SidebarNode {
+                // Keep the clicked row. A folder is selected here as well as a file, so
+                // New File lands next to what the user picked.
+                session.selectedPath = node.relativePath
+                if !node.isDirectory {
+                    session.openFile(node.model)
+                }
             } else if let hit = item as? SidebarHit {
+                session.selectedPath = hit.relativePath
                 session.openRelative(hit.relativePath, pin: false, line: hit.hit.lineNumber)
             }
         }
@@ -495,6 +562,8 @@ struct WorkspaceSidebar: NSViewRepresentable {
             childItems = [:]
             nodeByPath = [:]
             rootRows = []
+            seenPaths = []
+            defer { nodeCache = nodeCache.filter { seenPaths.contains($0.key) } }
             defer { publishPlaceholder(session) }
             guard session.rootExpanded else { return }
             if let error = session.rootError {
@@ -549,8 +618,17 @@ struct WorkspaceSidebar: NSViewRepresentable {
             let source = nodes?[parent] ?? lazy?.visibleChildren(of: parent) ?? []
             var rows: [NSObject] = []
             for node in source {
-                let box = SidebarNode(node, highlights: highlights[node.relativePath] ?? [])
+                let box: SidebarNode
+                if let cached = nodeCache[node.relativePath] {
+                    cached.model = node
+                    cached.highlights = highlights[node.relativePath] ?? []
+                    box = cached
+                } else {
+                    box = SidebarNode(node, highlights: highlights[node.relativePath] ?? [])
+                    nodeCache[node.relativePath] = box
+                }
                 nodeByPath[node.relativePath] = box
+                seenPaths.insert(node.relativePath)
                 rows.append(box)
                 guard node.isDirectory else { continue }
                 if nodes != nil {
@@ -595,6 +673,8 @@ struct WorkspaceSidebar: NSViewRepresentable {
             suppressSelection = true
             suppressExpansionWrite = true
             outline.animatesDisclosure = false
+            let selectedBefore = (outline.selectedRow >= 0 ? outline.item(atRow: outline.selectedRow) : nil)
+                .flatMap { ($0 as? SidebarNode)?.relativePath }
             NSAnimationContext.beginGrouping()
             NSAnimationContext.current.duration = 0
             outline.reloadData()
@@ -613,14 +693,44 @@ struct WorkspaceSidebar: NSViewRepresentable {
             outline.animatesDisclosure = true
             suppressExpansionWrite = false
             suppressSelection = false
+            // A row built before its folder was opened keeps the closed glyph. Re-apply
+            // every visible row's cell once the expansion state is final.
+            outline.enumerateAvailableRowViews { _, row in
+                guard let item = outline.item(atRow: row),
+                      let node = item as? SidebarNode,
+                      let cell = outline.view(atColumn: 0, row: row, makeIfNecessary: false) as? SidebarRowCell
+                else { return }
+                cell.apply(node, expanded: outline.isItemExpanded(node), open: node.relativePath == outline.openRelativePath)
+            }
+            // Rows moved: put the highlight back on the row the user had, not on
+            // whatever now sits at the old row number.
+            if let keep = session.selectedPath ?? selectedBefore, let item = nodeByPath[keep] {
+                let row = outline.row(forItem: item)
+                if row >= 0, outline.selectedRow != row {
+                    suppressSelection = true
+                    outline.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+                    suppressSelection = false
+                    outline.scrollRowToVisible(row)
+                }
+            }
             if let path = session.pendingEditPath, nodeByPath[path] != nil {
                 session.pendingEditPath = nil
                 beginRename(path)
             }
         }
 
+        private var lastSyncedPath: String?
+
         private func syncSelection(_ session: WorkspaceSession) {
             guard let outline, renamingPath == nil else { return }
+            // A rebuild used to put the selection back on the open file after the user had
+            // clicked a folder, so a click in the sidebar never seemed to select anything.
+            // Follow the open file only when it actually changed.
+            // The row the user clicked wins over the open file: clicking a folder must
+            // not jump back to the file that happens to be open.
+            let pathNow = session.selectedPath ?? session.buffer?.relativePath
+            if pathNow == lastSyncedPath, outline.selectedRow >= 0 { return }
+            lastSyncedPath = pathNow
             let path = session.buffer?.relativePath ?? session.selectedPath
             let current: String?
             if outline.selectedRow >= 0, let node = outline.item(atRow: outline.selectedRow) as? SidebarNode {
@@ -667,7 +777,7 @@ struct WorkspaceSidebar: NSViewRepresentable {
             let row = outline.row(forItem: node)
             guard row >= 0,
                   let cell = outline.view(atColumn: 0, row: row, makeIfNecessary: false) as? SidebarRowCell else { return }
-            cell.apply(node, expanded: outline.isItemExpanded(node))
+            cell.apply(node, expanded: outline.isItemExpanded(node), open: node.relativePath == outline.openRelativePath)
         }
 
         private func dropParent(for item: Any?) -> String? {
@@ -1054,6 +1164,11 @@ fileprivate final class SidebarRootHeader: NSView {
     var onNewFolder: (() -> Void)?
     var onRefresh: (() -> Void)?
     var onCollapseAll: (() -> Void)?
+    /// The button that closes every folder, or opens them again when they are closed.
+    private let collapseButton = ExplorerHeaderButton(
+        symbol: "rectangle.compress.vertical",
+        title: String(localized: "Collapse All")
+    )
     private let chevron = NSImageView()
     private let label = NSTextField(labelWithString: "")
     private let actions = NSStackView()
@@ -1083,7 +1198,6 @@ fileprivate final class SidebarRootHeader: NSView {
             ("doc.badge.plus", String(localized: "New File"), #selector(newFile(_:))),
             ("folder.badge.plus", String(localized: "New Folder"), #selector(newFolder(_:))),
             ("arrow.clockwise", String(localized: "Refresh Explorer"), #selector(refreshTree(_:))),
-            ("rectangle.compress.vertical", String(localized: "Collapse All"), #selector(collapseAll(_:))),
         ]
         for spec in specs {
             let button = ExplorerHeaderButton(symbol: spec.0, title: spec.1)
@@ -1091,6 +1205,9 @@ fileprivate final class SidebarRootHeader: NSView {
             button.action = spec.2
             actions.addArrangedSubview(button)
         }
+        collapseButton.target = self
+        collapseButton.action = #selector(collapseAll(_:))
+        actions.addArrangedSubview(collapseButton)
         addSubview(chevron)
         addSubview(label)
         addSubview(actions)
@@ -1110,6 +1227,22 @@ fileprivate final class SidebarRootHeader: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         nil
+    }
+
+    /// True when at least one folder is open, so the button collapses. False means the
+    /// button will open the folders again, and its glyph points that way.
+    func showCollapseButton(collapses: Bool) {
+        if collapses {
+            collapseButton.show(
+                symbol: "rectangle.compress.vertical",
+                title: String(localized: "Collapse All")
+            )
+        } else {
+            collapseButton.show(
+                symbol: "rectangle.expand.vertical",
+                title: String(localized: "Expand All")
+            )
+        }
     }
 
     func show(name: String, expanded: Bool, path: String) {
@@ -1168,10 +1301,21 @@ fileprivate final class SidebarRootHeader: NSView {
 
 /// Compact Explorer action. Idle is transparent, so the white sidebar stays white.
 fileprivate final class ExplorerHeaderButton: NSControl {
-    private let symbol: String
-    private let titleText: String
+    private var symbol: String
+    private var titleText: String
     private var hovered = false
     private var pressed = false
+
+    /// Changes the glyph, tooltip and accessibility title together (Collapse All vs
+    /// Expand All).
+    fileprivate func show(symbol: String, title: String) {
+        guard symbol != self.symbol || title != titleText else { return }
+        self.symbol = symbol
+        self.titleText = title
+        toolTip = title
+        setAccessibilityLabel(title)
+        needsDisplay = true
+    }
 
     init(symbol: String, title: String) {
         self.symbol = symbol
@@ -1372,8 +1516,8 @@ fileprivate final class SidebarHit: NSObject {
 }
 
 fileprivate final class SidebarNode: NSObject {
-    let model: WorkspaceNode
-    let highlights: [WorkspaceNameSpan]
+    var model: WorkspaceNode
+    var highlights: [WorkspaceNameSpan]
     var relativePath: String { model.relativePath }
     var name: String { model.name }
     var isDirectory: Bool { model.isDirectory }
@@ -1394,10 +1538,84 @@ fileprivate final class SidebarNode: NSObject {
 fileprivate final class SidebarOutlineView: NSOutlineView {
     var onExpand: ((Any) -> Void)?
     var onCollapse: ((Any) -> Void)?
+    /// True while the user's own click or key drives the change. AppKit also calls
+    /// `expandItem`/`collapseItem` while it reloads; those must not edit the session.
+    var marksUserExpansion = false
     var onActivate: (() -> Void)?
 
     var animatesDisclosure = true
     var openRelativePath: String?
+
+    /// A click on a folder's disclosure opens or closes it here, not inside AppKit.
+    ///
+    /// AppKit puts its own button in the disclosure slot, and that button only acts while
+    /// its window is tracking the mouse; a click delivered without that tracking (the
+    /// acceptance check, an inactive window) was dropped, and the folder stayed closed.
+    /// The row view leaves this strip to the outline so this method always sees it.
+    override func mouseDown(with event: NSEvent) {
+        let point = convert(event.locationInWindow, from: nil)
+        let r = row(at: point)
+        if togglesFolder(at: point) { return }
+        let clickedRow = r
+        super.mouseDown(with: event)
+        // A row click also opens or closes a folder, the way a sidebar does in VS Code
+        // and Obsidian. Only a plain single click counts: a drag moved the row, and a
+        // double click belongs to the row's own action.
+        let rowNow = row(at: point)
+        guard event.clickCount == 1, clickedRow >= 0, clickedRow == rowNow else {
+            return
+        }
+        guard let item = item(atRow: clickedRow), let node = item as? SidebarNode, node.isDirectory else {
+            return
+        }
+        if let window {
+            let released = convert(window.mouseLocationOutsideOfEventStream, from: nil)
+            guard hypot(released.x - point.x, released.y - point.y) <= 4 else {
+                return
+            }
+        }
+        toggle(node)
+        refreshGlyph(of: node)
+    }
+
+    /// The row's folder glyph follows the disclosure state.
+    fileprivate func refreshGlyph(of node: SidebarNode) {
+        let row = row(forItem: node)
+        guard row >= 0,
+              let cell = view(atColumn: 0, row: row, makeIfNecessary: false) as? SidebarRowCell
+        else { return }
+        cell.apply(node, expanded: isItemExpanded(node), open: node.relativePath == openRelativePath)
+    }
+
+    /// Opens or closes the folder whose disclosure strip holds `point`. Returns true when
+    /// the click belonged to a folder's disclosure and was handled.
+    fileprivate func togglesFolder(at point: NSPoint) -> Bool {
+        let clickedRow = row(at: point)
+        guard clickedRow >= 0, let item = item(atRow: clickedRow),
+              let node = item as? SidebarNode, node.isDirectory
+        else { return false }
+        let strip = disclosureStrip(atRow: clickedRow)
+        guard strip.contains(point) else { return false }
+        toggle(node)
+        return true
+    }
+
+    /// One user open/close, marked as the user's so the session follows it.
+    fileprivate func toggle(_ node: SidebarNode) {
+        let wasExpanded = isItemExpanded(node)
+        marksUserExpansion = true
+        if wasExpanded {
+            collapseItem(node)
+        } else {
+            expandItem(node)
+        }
+        marksUserExpansion = false
+    }
+
+    /// A little wider than the triangle, so the click does not have to be exact.
+    fileprivate func disclosureStrip(atRow row: Int) -> NSRect {
+        frameOfOutlineCell(atRow: row).insetBy(dx: -3, dy: -2)
+    }
 
     override func expandItem(_ item: Any?, expandChildren: Bool) {
         if animatesDisclosure {
@@ -1593,14 +1811,32 @@ fileprivate final class SidebarRowView: NSTableRowView {
         drawBackground(in: dirtyRect)
     }
 
+    /// The disclosure strip belongs to the outline view, so a triangle click reaches
+    /// `SidebarOutlineView.mouseDown` instead of AppKit's private disclosure button.
+    /// That button only acts inside its own mouse tracking, and a click delivered
+    /// without it (the acceptance check, an inactive window) was dropped.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        if let outline = superview as? SidebarOutlineView {
+            let local = convert(point, from: superview)
+            let inOutline = outline.convert(local, from: self)
+            let row = outline.row(at: inOutline)
+            if row >= 0, outline.disclosureStrip(atRow: row).contains(inOutline) {
+                return nil
+            }
+        }
+        return super.hitTest(point)
+    }
+
     override func drawSelection(in dirtyRect: NSRect) {}
 
     override func drawBackground(in dirtyRect: NSRect) {
         guard let outline = enclosingOutline else { return }
         let row = outline.row(for: self)
         guard row >= 0 else { return }
-        let open = (outline.item(atRow: row) as? SidebarNode)?.relativePath == outline.openRelativePath
-        if open || outline.selectedRow == row {
+        // One row is selected. The open file is marked on its name instead (see
+        // `SidebarRowCell.refreshColors`); filling it here as well drew two highlights,
+        // and after clicking a folder it looked like the file was still selected.
+        if outline.selectedRow == row {
             NSColor.xyzSelection.setFill()
             bounds.fill()
         } else if outline.hoveredRowIndex == row {
@@ -1619,12 +1855,20 @@ fileprivate final class SidebarRowView: NSTableRowView {
     }
 }
 
+/// A label that never takes a click. `NSTextField` is an `NSControl`: it handled the
+/// mouse itself, so a click on a folder's name never reached the outline view and the
+/// folder could not be opened from its name.
+fileprivate final class SidebarPassthroughLabel: NSTextField {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 fileprivate final class SidebarRowCell: NSTableCellView {
     static let identifier = NSUserInterfaceItemIdentifier("row")
 
     private let icon = NSImageView()
-    private let label = NSTextField(labelWithString: "")
+    private let label = SidebarPassthroughLabel(labelWithString: "")
     private var fullName = ""
+    private var rowOpen = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -1680,9 +1924,10 @@ fileprivate final class SidebarRowCell: NSTableCellView {
         didSet { refreshColors() }
     }
 
-    fileprivate func apply(_ node: SidebarNode, expanded: Bool) {
+    fileprivate func apply(_ node: SidebarNode, expanded: Bool, open: Bool = false) {
         rowNode = node
         rowExpanded = expanded
+        rowOpen = open
         rowHit = nil
         fullName = node.name
         toolTip = node.name
@@ -1712,8 +1957,8 @@ fileprivate final class SidebarRowCell: NSTableCellView {
                 isExpanded: rowExpanded
             )
             icon.image = Self.image(symbol)
-            let base: NSColor = node.isHidden ? .xyzSecondaryText : .xyzInk
-            icon.contentTintColor = .xyzSecondaryText
+            let base: NSColor = node.isHidden ? .xyzSecondaryText : (rowOpen ? .xyzAccent : .xyzInk)
+            icon.contentTintColor = rowOpen ? .xyzAccent : .xyzSecondaryText
             label.attributedStringValue = Self.nameText(
                 node.name,
                 base: base,
@@ -1810,7 +2055,7 @@ fileprivate final class SidebarTextCell: NSTableCellView {
     static let sectionID = NSUserInterfaceItemIdentifier("section")
     static let messageID = NSUserInterfaceItemIdentifier("message")
 
-    private let label = NSTextField(labelWithString: "")
+    private let label = SidebarPassthroughLabel(labelWithString: "")
 
     init(identifier: NSUserInterfaceItemIdentifier, weight: NSFont.Weight) {
         super.init(frame: .zero)
