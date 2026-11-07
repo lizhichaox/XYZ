@@ -63,6 +63,10 @@ private struct WorkspaceSplit<Sidebar: View, Detail: View, Outline: View>: NSVie
         side.sizingOptions = []
         main.sizingOptions = []
         outlineHost.sizingOptions = []
+        for host in [side as NSView, main as NSView, outlineHost as NSView] {
+            host.wantsLayer = true
+            host.layer?.masksToBounds = true
+        }
         context.coordinator.side = side
         context.coordinator.detail = main
         context.coordinator.outline = outlineHost
@@ -118,6 +122,10 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
     private var savedOutline: CGFloat = 220
     private var sidebarShown = true
     private var outlineShown = false
+    /// What the last press asked for. `sidebarShown`/`outlineShown` describe which
+    /// columns are attached right now, and a hide stays attached until its slide ends.
+    private var sidebarWanted = true
+    private var outlineWanted = false
     private var adjusting = false
     private var dividerDrag = false
     /// A width that is easing between two values. `nil` when the columns are still.
@@ -285,6 +293,8 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
         self.outline = outline
         sidebarShown = showsSidebar
         outlineShown = showsOutline
+        sidebarWanted = showsSidebar
+        outlineWanted = showsOutline
         savedOutline = outlineWidth
         panes.addSubview(detail)
         syncPanes()
@@ -298,11 +308,12 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
     /// repainted. Only the column that changed now enters or leaves the split view;
     /// the editor stays attached and its text is laid out while the width eases.
     func setSidebarShown(_ shown: Bool) {
-        guard shown != sidebarShown else { return }
+        guard shown != sidebarWanted else { return }
         finishSlide()
         if sidebarShown, let sidebar, sidebar.superview != nil, sidebar.frame.width > 1 {
             savedPosition = max(220, sidebar.frame.width)
         }
+        sidebarWanted = shown
         if shown {
             sidebarShown = true
             syncPanes()
@@ -320,12 +331,13 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
 
     func setOutline(shown: Bool, width: CGFloat) {
         savedOutline = width
-        guard shown != outlineShown else {
+        guard shown != outlineWanted else {
             applyOutlineWidthIfNeeded()
             placeDividers()
             return
         }
         finishSlide()
+        outlineWanted = shown
         if shown {
             outlineShown = true
             syncPanes()
@@ -359,6 +371,7 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
         running.completion?()
         lockColumnFrames()
         placeDividers()
+        flushPaneLayout(paint: true)
     }
 
     private func startSlide(
@@ -374,6 +387,7 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
             slide = nil
             lockColumnFrames()
             placeDividers()
+            flushPaneLayout(paint: true)
             completion?()
             return
         }
@@ -388,6 +402,7 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
         )
         lockColumnFrames()
         placeDividers(updatingCursors: false)
+        flushPaneLayout()
         let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] timer in
             guard let self else {
                 timer.invalidate()
@@ -404,22 +419,44 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
                 self.slideTimer = nil
                 self.lockColumnFrames()
                 self.placeDividers()
+                self.flushPaneLayout(paint: true)
                 self.logToggle(edge: edge, shown: shown)
                 running.completion?()
                 return
             }
             self.lockColumnFrames()
+            self.flushPaneLayout()
             self.placeDividers(updatingCursors: false)
         }
         slideTimer = timer
         RunLoop.main.add(timer, forMode: .common)
     }
 
+    private var flushingPaneLayout = false
+
+    /// Applies the new frame to the SwiftUI content in the same turn. Without this
+    /// the hosted scroll view (and the web view in Reading) kept the previous width
+    /// while the column moved, so the note showed under the sidebar until the next
+    /// unrelated layout pass — the text looked covered while a column was open.
+    private func flushPaneLayout(paint: Bool = false) {
+        guard !flushingPaneLayout else { return }
+        flushingPaneLayout = true
+        panes.layoutSubtreeIfNeeded()
+        if paint {
+            sidebar?.needsDisplay = true
+            detail?.needsDisplay = true
+            outline?.needsDisplay = true
+            detail?.displayIfNeeded()
+        }
+        flushingPaneLayout = false
+    }
+
     private func logToggle(edge: ColumnSlide.Edge, shown: Bool) {
         guard XYZDiagnostics.enabled else { return }
         let name = edge == .left ? "sidebar" : "outline"
         let ms = Int((slideDuration * 1000).rounded())
-        XYZDiagnostics.note("\(name) shown=\(shown) eased in \(ms)ms")
+        let frames = "sidebar=\(Int(sidebar?.frame.width ?? 0)) detail=\(Int(detail?.frame.width ?? 0)) outline=\(Int(outline?.frame.width ?? 0))"
+        XYZDiagnostics.note("\(name) shown=\(shown) eased in \(ms)ms \(frames)")
     }
 
     /// Adds or removes only the column that changed. `addSubview(_:positioned:)` keeps
