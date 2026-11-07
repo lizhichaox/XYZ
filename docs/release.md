@@ -132,5 +132,10 @@ Run on the owner's Mac, macOS 27.2, Xcode 27.2, team `Z4FMG2KTPM`.
   (submission `a0e37293-3755-4566-908b-f48ac56616ed`, **Accepted**), stapled;
   `spctl -a -t open --context context:primary-signature -vv` reports **accepted**,
   `source=Notarized Developer ID`.
-- Not touched: the app was never opened, so the sandbox/iCloud/quit behaviour and the
-  Chinese UI are still unverified in a running app. No tag, no upload.
+- Installed: the notarized build was copied over `/Applications/XYZ.app` on 2026-11-07.
+  The previous 0.5.27 was moved aside for the swap and deleted once this build passed
+  its launch check, so the machine keeps one app and no rollback copy. It was launched
+  hidden once: the process came up and stayed up, with no crash report, then quit. No
+  window was used.
+- Not touched: the sandbox/iCloud/quit behaviour and the
+  Chinese UI are still unverified in an interactive session. No tag, no upload.
