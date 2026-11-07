@@ -359,7 +359,8 @@ XYZCore（纯逻辑、可单测）                  App target（AppKit/SwiftUI 
 - **P1-9 剩余**：目录加载本身（单次 `children` 调用）仍不可中断；`Task.detached` 取消只覆盖了有检查点的循环。
 - **P1-13** 每击键全文外传（editor → buffer → preview/outline/字数）未做节流；**P1-16** iOS Source 端样式/查找/着色仍落后；**P1-18** swizzling 收敛；**P1-19** 自检代码移出发布包；**P1-20** 手写 pbxproj 一致性。
 - **P2 死代码（部分）**：已删除 `ReadingLineMap`（+3 个测试）与 `ExplorerSection.fileCount`（+2 条断言），均无生产调用方；`SourceFormatting.swift` 的 6 个格式化命令与 `SourceEditing` 的行内 toggle **有意保留**——`FormatMenu.swift` 明确移除了 Format 菜单（"notes are written as Markdown text"），文件头已写明这一决定，删除需要产品层面确认。
-- **P2 其余**：6 套行号统一、lint/format 配置、macOS 产物里的 iOS-only plist 键、可访问性、仓库描述（"An AI Editor."）与发布定位。
+- **P2 其余**：6 套行号统一、lint/format 配置、可访问性、仓库描述（"An AI Editor."）与发布定位。
+- **P2 macOS 产物里的 iOS-only plist 键（试过，未成）**：把 6 个 `INFOPLIST_KEY_UI*` 改成 `[sdk=iphoneos*]`/`[sdk=iphonesimulator*]` 条件设置后，Xcode 的 Info.plist 生成器仍会在 macOS 产物里写出同名键（空值/false）——它按所有变体的键名合并、再取当前 SDK 的值。已回滚。要真正做到干净，需要关掉 `GENERATE_INFOPLIST_FILE` 改用完整 plist，或加一个删除这些键的 Process Info.plist 步骤；收益只是元数据整洁，未做。
 
 ### 9.5 本次验证基线
 
