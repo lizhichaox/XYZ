@@ -181,3 +181,19 @@ The sidebar round (folder clicks, selection, rapid clicking, disclosure drawing)
   Collapse/Expand button) and confirmed the sidebar is "丝滑多了" (much smoother).
 - Not touched: tag, upload, GitHub release. Everything unverified in 0.5.29 stays
   unverified (sandbox/iCloud/quit behaviour, Chinese UI).
+
+## 0.5.36 on 2026-11-07
+
+The performance follow-up to 0.5.35 (background index scan no longer rebuilds the sidebar;
+opening a folder patches the index in place instead of walking the vault). Same path:
+
+- Archive `build/XYZ.xcarchive` (52) and Developer ID export to `build/export/XYZ.app`.
+- App zip notarized: submission `eb83c100-89a4-4706-bb03-514d743f7294`, **Accepted**;
+  stapled and validated; `spctl -a -vv --type execute` **accepted**,
+  `source=Notarized Developer ID`.
+- DMG `build/XYZ-0.5.36.dmg`: signed with the Developer ID identity, notarized
+  (submission `1339a0e1-7c43-4194-8a9d-9c7e48674d3d`, **Accepted**), stapled;
+  `spctl -a -t open --context context:primary-signature -vv` **accepted**.
+- Installed over `/Applications/XYZ.app`; `mdfind` lists only that bundle. The owner had
+  already tried the equivalent test build and called the performance "差不多了".
+- Not touched: tag, upload, GitHub release.

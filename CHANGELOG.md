@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.5.36
+
+Build 52. Installed on this Mac, Developer ID signed, notarized and stapled. No tag or GitHub release.
+
+### What changed
+
+Follow-up performance pass after 0.5.35:
+
+- **A finished index scan no longer redraws the sidebar.** The sidebar snapshot carried
+  `indexedEntries.count`, so the background scan that runs after any folder listing change
+  made the snapshot differ and rebuilt the whole tree for a value the sidebar never shows.
+  The field is gone; index results reach the UI through the search tree only.
+- **Opening a folder no longer walks the whole vault.** The listing now patches the name
+  index in place: `WorkspaceIndexPatch` replaces that folder's direct entries and leaves the
+  rest alone. Structural operations (delete, move) still rescan the tree. Five unit tests
+  cover the patch (`swift test`: 220 tests, 0 failures).
+- **Saving stays synchronous, on purpose.** Moving the disk write off the main thread was
+  tried and reverted: `unsavedForClose`, `shutdown`, closing a tab and moving a tab all
+  check `isDirty` immediately after `flush()`, so a background write raced those checks and
+  could drop edits on quit. The reason is recorded next to `save`.
+
+### Where this was checked
+
+- `swift test --package-path XYZCore`: 220 tests, 0 failures.
+- `sh Scripts/xyz-test.sh`: 8 cases, all ok.
+- `-XYZCheckGutter`: `refresh` (opens a folder by clicking it) passes; the other cases still
+  fail on this Mac for the inactive-window reason described in 0.5.35.
+- The owner tried the intervening test build and reported the sidebar performance as
+  "差不多了" (good enough).
+- Release 0.5.36 (52): archive, Developer ID export, app notarized
+  (`eb83c100-89a4-4706-bb03-514d743f7294`) and stapled, DMG signed, notarized
+  (`1339a0e1-7c43-4194-8a9d-9c7e48674d3d`) and stapled, `spctl` accepted for both. Installed
+  over `/Applications/XYZ.app`; one app on the machine.
+
 ## 0.5.35
 
 Build 51. Installed on this Mac, Developer ID signed, notarized and stapled. No tag or GitHub release.
