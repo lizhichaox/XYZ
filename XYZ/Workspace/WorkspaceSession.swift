@@ -31,6 +31,10 @@ final class WorkspaceSession: ObservableObject {
     @Published private(set) var expanded: Set<String> = []
     @Published private(set) var loadErrors: [String: String] = [:]
     @Published var selectedPath: String?
+    /// The row the user last clicked in the sidebar, published or not. A folder click
+    /// only moves this: writing `selectedPath` there redrew the whole window body
+    /// (editor, preview, outline) on every click and made opening a folder feel slow.
+    var clickedPath: String?
     @Published private(set) var buffer: WorkspaceFileBuffer?
     @Published private(set) var tabStrip = EditorTabStrip()
     @Published var rootError: String?
@@ -296,6 +300,10 @@ final class WorkspaceSession: ObservableObject {
 
     /// Selected folder, or the folder that contains the selected file. Root when nothing is selected.
     func creationParent() -> String {
+        // A folder the user just clicked wins: that is where New File lands.
+        if let clicked = clickedPath, node(at: clicked)?.isDirectory == true {
+            return ExplorerSection.creationParent(selectedPath: clicked, isDirectory: true)
+        }
         let path = selectedPath ?? buffer?.relativePath
         let isDirectory = path.flatMap { node(at: $0)?.isDirectory } ?? false
         return ExplorerSection.creationParent(selectedPath: path, isDirectory: isDirectory)

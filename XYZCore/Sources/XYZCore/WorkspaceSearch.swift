@@ -16,6 +16,13 @@ public struct WorkspaceNameSpan: Equatable, Sendable, Hashable {
 public enum OutlineDisclosure {
     public static let inset: CGFloat = 20
     public static let minimumX: CGFloat = 8
+    /// Width of one indentation level. Matches the outline view's `indentationPerLevel`.
+    public static let step: CGFloat = 16
+    /// Where a level-0 disclosure sits. AppKit proposes a value that changes between
+    /// layout passes (0 or 2), and adding the inset to that moved the triangle by two
+    /// points after a folder was closed and opened again. This is computed from the
+    /// level, so it never moves.
+    public static let originBase: CGFloat = 22
 
     public static func shift(proposedX: CGFloat) -> CGFloat {
         max(inset, minimumX - proposedX)
@@ -23,6 +30,15 @@ public enum OutlineDisclosure {
 
     public static func originX(_ proposedX: CGFloat) -> CGFloat {
         proposedX + shift(proposedX: proposedX)
+    }
+
+    public static func originX(forLevel level: Int) -> CGFloat {
+        originBase + CGFloat(max(0, level)) * step
+    }
+
+    /// How far the cell has to move for the disclosure to land at its fixed place.
+    public static func shift(level: Int, proposedDisclosureX: CGFloat) -> CGFloat {
+        max(0, originX(forLevel: level) - proposedDisclosureX)
     }
 }
 

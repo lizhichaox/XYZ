@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.5.35
+
+Build 51. Installed on this Mac, Developer ID signed, notarized and stapled. No tag or GitHub release.
+
+### What changed
+
+This round is the Explorer sidebar feeling slow and jumpy, and one correctness bug found while
+chasing it:
+
+- **A quick series of clicks only opened.** AppKit numbers the clicks of a rapid series 1, 2,
+  3..., and the double-click guard added in 0.5.34 treated every click after the first as "the
+  same intent" and dropped it. Each click of a series toggles the folder again now.
+- **Clicking a folder redrew the whole window.** The click wrote `selectedPath`, a published
+  value the main window body reads, so editor, preview and outline were re-evaluated on every
+  click. A folder click now moves a non-published `clickedPath`; New File still lands next to
+  the folder the user picked.
+- **The view already showed the expansion, but the tree was rebuilt anyway.** After a click the
+  sidebar recorded a fresh snapshot, so the next update sees no difference and skips
+  `rebuild`/`reloadData`. A queued rebuild from before the click is cancelled by a generation
+  token, so it no longer replaces rows under the user's pointer and swallows the next click.
+- **Folder open/close is instant.** No disclosure animation and no animation context, which is
+  what used to draw AppKit's intermediate frames for a moment.
+- **The triangle no longer moves.** Its position comes from the level, not from the value AppKit
+  proposes (that changes between 0 and 2 between layout passes), so a collapse followed by an
+  expand leaves it exactly where it was. The custom cell shift was removed as well, so AppKit and
+  the row agree on one geometry.
+
+### Where this was checked
+
+- `swift test --package-path XYZCore`: 215 tests, 0 failures.
+- `sh Scripts/xyz-test.sh`: 8 cases, all ok.
+- `-XYZCheckGutter`: `refresh` (opens a folder by clicking it) passes; the remaining cases fail on
+  this Mac because the window is not active when the harness runs, so its posted clicks and menu
+  lookups are dropped. Those cases are unrelated to the sidebar.
+- The owner confirmed on the installed build: opening and closing folders, rapid clicking,
+  selection, the open-file marker, the scoped Collapse/Expand button and icon state all behave,
+  and the sidebar is "丝滑多了" (much smoother).
+- Release 0.5.35 (51): archive, Developer ID export, app notarized, stapled, DMG signed,
+  notarized and stapled, `spctl` accepted for both. Installed over `/Applications/XYZ.app`; one
+  app on the machine.
+
 ## 0.5.34
 
 Build 50. Installed on this Mac, Developer ID signed, notarized and stapled. No tag or GitHub release.

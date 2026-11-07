@@ -65,6 +65,21 @@ in the order they were found:
 - **Do not draw a second highlight for the open file.** The row painter filled both the
   selected row and the open file's row, which read as two selections. The open file is
   marked by its name color instead.
+- **AppKit numbers a quick series of clicks 1, 2, 3...** Treating `clickCount > 1` as a
+  double click silently dropped every click after the first: a folder opened once and
+  could not be closed while the user kept clicking. Every `mouseDown` is one toggle.
+- **Do not publish `selectedPath` for a folder click.** The main window body reads it, so
+  every click re-evaluated the editor, preview and outline and the sidebar felt slow. A
+  folder click moves the unpublished `clickedPath`; only opening a file publishes.
+- **A change the view already shows must not schedule a rebuild.** After the user opens or
+  closes a folder the sidebar records a fresh snapshot, and a generation token cancels a
+  rebuild that was queued earlier. Otherwise `reloadData` replaced rows under the pointer
+  and swallowed the next click.
+- **Do not hand-shift the disclosure or the cell.** AppKit proposes 0 or 2 for the same
+  row between layout passes; adding an inset to that proposal made the triangle move after
+  a close-and-open, and hiding AppKit's outline cell made `collapseItem` a no-op (verified:
+  `before=true after=true`). The sidebar now uses AppKit's own geometry, with
+  `-XYZCheckGutter`'s `refresh` case as the canary.
 
 `-XYZCheckGutter` runs these paths as acceptance cases (`refresh`, `collapse-header`,
 `nested-file`). The rest of the app must not be changed to make a harness pass, and a

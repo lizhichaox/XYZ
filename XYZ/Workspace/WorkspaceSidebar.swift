@@ -16,7 +16,7 @@ struct WorkspaceSidebar: NSViewRepresentable {
         outline.selectionHighlightStyle = .none
         outline.usesAlternatingRowBackgroundColors = false
         outline.floatsGroupRows = false
-        outline.indentationPerLevel = 16
+        outline.indentationPerLevel = OutlineDisclosure.step
         outline.rowHeight = 22
         outline.intercellSpacing = NSSize(width: 0, height: 0)
         outline.allowsMultipleSelection = false
@@ -61,6 +61,10 @@ struct WorkspaceSidebar: NSViewRepresentable {
         }
         outline.onActivate = { [weak coordinator = context.coordinator] in
             coordinator?.activateSelection()
+        }
+        outline.onExpansionApplied = { [weak coordinator = context.coordinator] in
+            guard let coordinator, let session = coordinator.session else { return }
+            coordinator.recordAppliedSnapshot(session)
         }
 
         column.applySidebarTint()
@@ -142,13 +146,26 @@ struct WorkspaceSidebar: NSViewRepresentable {
         }
 
         private var applyQueued = false
+        /// Bumped whenever the view already shows the newest state, so a rebuild queued
+        /// earlier does not run over the user's click and swallow it.
+        private var applyGeneration = 0
+
+        /// The view already shows the current expansion. Recording the snapshot here
+        /// keeps the next update from rebuilding the tree for a change it can see.
+        fileprivate func recordAppliedSnapshot(_ session: WorkspaceSession) {
+            snapshot = Snapshot(session)
+            applyQueued = false
+            applyGeneration += 1
+        }
 
         /// Rebuild after the outline finishes the click that expanded a folder.
         private func queueApply() {
             guard !applyQueued else { return }
             applyQueued = true
+            applyGeneration += 1
+            let generation = applyGeneration
             DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
+                guard let self, generation == self.applyGeneration else { return }
                 self.applyQueued = false
                 guard let session = self.session else { return }
                 self.snapshot = Snapshot(session)
@@ -188,6 +205,22 @@ struct WorkspaceSidebar: NSViewRepresentable {
             }
             column?.header.onCollapseAll = { [weak self] in
                 guard let self, let session = self.session else { return }
+                // The selected folder first: the button then opens or closes that one,
+                // not every folder in the tree.
+                if let path = session.clickedPath ?? session.selectedPath,
+                   let selected = session.node(at: path),
+                   selected.isDirectory,
+                   let item = self.nodeByPath[path] {
+                    self.outline?.marksUserExpansion = true
+                    if self.outline?.isItemExpanded(item) == true {
+                        self.outline?.collapseItem(item)
+                    } else {
+                        self.outline?.expandItem(item)
+                    }
+                    self.outline?.marksUserExpansion = false
+                    self.refreshRow(item)
+                    return
+                }
                 if session.expanded.isEmpty {
                     self.expandRootFolders(session)
                 } else {
@@ -222,6 +255,7 @@ struct WorkspaceSidebar: NSViewRepresentable {
             }
             guard !open.isEmpty else { return }
             suppressExpansionWrite = true
+            let animatesDisclosureWasOn = outline.animatesDisclosure
             outline.animatesDisclosure = false
             NSAnimationContext.beginGrouping()
             NSAnimationContext.current.duration = 0
@@ -229,13 +263,20 @@ struct WorkspaceSidebar: NSViewRepresentable {
                 outline.collapseItem(item)
             }
             NSAnimationContext.endGrouping()
-            outline.animatesDisclosure = true
+            outline.animatesDisclosure = animatesDisclosureWasOn
             suppressExpansionWrite = false
+            if let session { recordAppliedSnapshot(session) }
         }
 
         private func syncChrome(_ session: WorkspaceSession) {
             guard let column else { return }
-            column.header.showCollapseButton(collapses: !session.expanded.isEmpty)
+            if let path = session.clickedPath ?? session.selectedPath,
+               let selected = session.node(at: path),
+               selected.isDirectory {
+                column.header.showCollapseButton(collapses: session.isExpanded(path), focused: true)
+            } else {
+                column.header.showCollapseButton(collapses: !session.expanded.isEmpty, focused: false)
+            }
             let home = FileManager.default.homeDirectoryForCurrentUser.path
             column.header.show(
                 name: session.displayName,
@@ -268,6 +309,7 @@ struct WorkspaceSidebar: NSViewRepresentable {
                     } else {
                         outline.expandItem(node)
                     }
+                    recordAppliedSnapshot(session)
                 } else {
                     session.openFile(node.model, pin: true)
                     session.focusOpenEditor()
@@ -353,13 +395,15 @@ struct WorkspaceSidebar: NSViewRepresentable {
             guard row >= 0 else { return }
             let item = outline.item(atRow: row)
             if let node = item as? SidebarNode {
-                // Keep the clicked row. A folder is selected here as well as a file, so
-                // New File lands next to what the user picked.
-                session.selectedPath = node.relativePath
+                // The clicked row is remembered without publishing: a folder click only
+                // moves the sidebar highlight, and publishing redrew the whole window.
+                session.clickedPath = node.relativePath
                 if !node.isDirectory {
+                    session.selectedPath = node.relativePath
                     session.openFile(node.model)
                 }
             } else if let hit = item as? SidebarHit {
+                session.clickedPath = hit.relativePath
                 session.selectedPath = hit.relativePath
                 session.openRelative(hit.relativePath, pin: false, line: hit.hit.lineNumber)
             }
@@ -704,7 +748,7 @@ struct WorkspaceSidebar: NSViewRepresentable {
             }
             // Rows moved: put the highlight back on the row the user had, not on
             // whatever now sits at the old row number.
-            if let keep = session.selectedPath ?? selectedBefore, let item = nodeByPath[keep] {
+            if let keep = session.clickedPath ?? session.selectedPath ?? selectedBefore, let item = nodeByPath[keep] {
                 let row = outline.row(forItem: item)
                 if row >= 0, outline.selectedRow != row {
                     suppressSelection = true
@@ -1231,17 +1275,15 @@ fileprivate final class SidebarRootHeader: NSView {
 
     /// True when at least one folder is open, so the button collapses. False means the
     /// button will open the folders again, and its glyph points that way.
-    func showCollapseButton(collapses: Bool) {
+    /// `focused` means the button acts on the selected folder only, so its title drops
+    /// the "All". The glyph always says what a click will do.
+    func showCollapseButton(collapses: Bool, focused: Bool) {
+        let collapseTitle = focused ? String(localized: "Collapse") : String(localized: "Collapse All")
+        let expandTitle = focused ? String(localized: "Expand") : String(localized: "Expand All")
         if collapses {
-            collapseButton.show(
-                symbol: "rectangle.compress.vertical",
-                title: String(localized: "Collapse All")
-            )
+            collapseButton.show(symbol: "rectangle.compress.vertical", title: collapseTitle)
         } else {
-            collapseButton.show(
-                symbol: "rectangle.expand.vertical",
-                title: String(localized: "Expand All")
-            )
+            collapseButton.show(symbol: "rectangle.expand.vertical", title: expandTitle)
         }
     }
 
@@ -1541,9 +1583,15 @@ fileprivate final class SidebarOutlineView: NSOutlineView {
     /// True while the user's own click or key drives the change. AppKit also calls
     /// `expandItem`/`collapseItem` while it reloads; those must not edit the session.
     var marksUserExpansion = false
+    /// Called after the view changed a folder's state, so the list can remember that the
+    /// change is already on screen and skip a rebuild.
+    var onExpansionApplied: (() -> Void)?
     var onActivate: (() -> Void)?
 
-    var animatesDisclosure = true
+    /// Opening and closing a folder lands in one frame. The eased version drew AppKit's
+    /// own intermediate disclosure frames, which put the triangle at the left edge for a
+    /// moment before it settled.
+    var animatesDisclosure = false
     var openRelativePath: String?
 
     /// A click on a folder's disclosure opens or closes it here, not inside AppKit.
@@ -1559,12 +1607,11 @@ fileprivate final class SidebarOutlineView: NSOutlineView {
         let clickedRow = r
         super.mouseDown(with: event)
         // A row click also opens or closes a folder, the way a sidebar does in VS Code
-        // and Obsidian. Only a plain single click counts: a drag moved the row, and a
-        // double click belongs to the row's own action.
+        // and Obsidian. Every click of a quick series counts: AppKit numbers them
+        // 1, 2, 3... and skipping the later ones meant the folder opened once and then
+        // could not be closed while the user kept clicking.
         let rowNow = row(at: point)
-        guard event.clickCount == 1, clickedRow >= 0, clickedRow == rowNow else {
-            return
-        }
+        guard clickedRow >= 0, clickedRow == rowNow else { return }
         guard let item = item(atRow: clickedRow), let node = item as? SidebarNode, node.isDirectory else {
             return
         }
@@ -1603,6 +1650,8 @@ fileprivate final class SidebarOutlineView: NSOutlineView {
     /// One user open/close, marked as the user's so the session follows it.
     fileprivate func toggle(_ node: SidebarNode) {
         let wasExpanded = isItemExpanded(node)
+        let animated = animatesDisclosure
+        animatesDisclosure = false
         marksUserExpansion = true
         if wasExpanded {
             collapseItem(node)
@@ -1610,6 +1659,18 @@ fileprivate final class SidebarOutlineView: NSOutlineView {
             expandItem(node)
         }
         marksUserExpansion = false
+        onExpansionApplied?()
+        animatesDisclosure = animated
+        // The rows that appeared were laid out during the change; ask for their final
+        // geometry and a redraw, so no frame keeps the pre-layout triangle position.
+        needsLayout = true
+        enumerateAvailableRowViews { _, row in
+            guard let item = item(atRow: row),
+                  let cell = view(atColumn: 0, row: row, makeIfNecessary: false) as? SidebarRowCell,
+                  let node = item as? SidebarNode
+            else { return }
+            cell.apply(node, expanded: isItemExpanded(node), open: node.relativePath == openRelativePath)
+        }
     }
 
     /// A little wider than the triangle, so the click does not have to be exact.
@@ -1618,29 +1679,24 @@ fileprivate final class SidebarOutlineView: NSOutlineView {
     }
 
     override func expandItem(_ item: Any?, expandChildren: Bool) {
-        if animatesDisclosure {
-            NSAnimationContext.beginGrouping()
-            NSAnimationContext.current.duration = 0.16
-            NSAnimationContext.current.allowsImplicitAnimation = true
-            super.expandItem(item, expandChildren: expandChildren)
-            NSAnimationContext.endGrouping()
-        } else {
-            super.expandItem(item, expandChildren: expandChildren)
-        }
+        instant { super.expandItem(item, expandChildren: expandChildren) }
         if let item { onExpand?(item) }
     }
 
     override func collapseItem(_ item: Any?, collapseChildren: Bool) {
-        if animatesDisclosure {
-            NSAnimationContext.beginGrouping()
-            NSAnimationContext.current.duration = 0.16
-            NSAnimationContext.current.allowsImplicitAnimation = true
-            super.collapseItem(item, collapseChildren: collapseChildren)
-            NSAnimationContext.endGrouping()
-        } else {
-            super.collapseItem(item, collapseChildren: collapseChildren)
-        }
+        instant { super.collapseItem(item, collapseChildren: collapseChildren) }
         if let item { onCollapse?(item) }
+    }
+
+    /// One frame, no intermediate rows. Any animation here draws AppKit's own layout
+    /// frames, and those are where the disclosure appeared at the left edge for a
+    /// moment before settling.
+    private func instant(_ body: () -> Void) {
+        NSAnimationContext.beginGrouping()
+        NSAnimationContext.current.duration = 0
+        NSAnimationContext.current.allowsImplicitAnimation = false
+        body()
+        NSAnimationContext.endGrouping()
     }
 
     override func draw(_ dirtyRect: NSRect) {
@@ -1649,19 +1705,6 @@ fileprivate final class SidebarOutlineView: NSOutlineView {
     }
 
     /// Level-0 twisties are drawn left of the cell. A flush-left window then clips them off the screen.
-    override func frameOfOutlineCell(atRow row: Int) -> NSRect {
-        var frame = super.frameOfOutlineCell(atRow: row)
-        frame.origin.x = OutlineDisclosure.originX(frame.origin.x)
-        return frame
-    }
-
-    override func frameOfCell(atColumn column: Int, row: Int) -> NSRect {
-        var frame = super.frameOfCell(atColumn: column, row: row)
-        let shift = OutlineDisclosure.shift(proposedX: super.frameOfOutlineCell(atRow: row).origin.x)
-        frame.origin.x += shift
-        frame.size.width = max(0, frame.size.width - shift)
-        return frame
-    }
 
     /// Quiet vertical rules at each indent, in the gutter beside the disclosure triangles.
     private func drawIndentGuides() {
@@ -1674,7 +1717,7 @@ fileprivate final class SidebarOutlineView: NSOutlineView {
             guard level > 0 else { continue }
             let rect = rect(ofRow: row)
             for depth in 1...level {
-                let x = OutlineDisclosure.inset + (CGFloat(depth) - 0.5) * step
+                let x = CGFloat(depth) * step + 8
                 let path = NSBezierPath()
                 path.move(to: NSPoint(x: x, y: rect.minY))
                 path.line(to: NSPoint(x: x, y: rect.maxY))
