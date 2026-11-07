@@ -93,18 +93,34 @@ enum WordCountSetting {
     static let key = "xyz.view.wordCount"
 }
 
+/// Whether the folder sidebar lists dotfiles. On unless turned off.
+enum HiddenFilesSetting {
+    static let key = "xyz.workspace.showsHidden"
+}
+
 #if os(macOS)
 /// View → Zoom In, Zoom Out, Actual Size. They change the text size shared by Source and Reading.
 enum TextZoom {
+    /// The size before the first zoom step in this launch. ⌘0 returns to it.
+    private static var baseline: Double?
+
     static func step(_ delta: Double) {
         let defaults = UserDefaults.standard
         let current = defaults.object(forKey: XYZEditorStyle.fontSizeKey) as? Double ?? XYZEditorStyle.defaultFontSize
+        if baseline == nil {
+            baseline = current
+        }
         let next = XYZEditorStyle.clampedFontSize(current + delta)
         defaults.set(next, forKey: XYZEditorStyle.fontSizeKey)
+        XYZDiagnostics.note("zoom size=\(Int(next))")
     }
 
     static func reset() {
-        UserDefaults.standard.set(XYZEditorStyle.defaultFontSize, forKey: XYZEditorStyle.fontSizeKey)
+        let defaults = UserDefaults.standard
+        let restore = baseline ?? XYZEditorStyle.defaultFontSize
+        baseline = nil
+        defaults.set(restore, forKey: XYZEditorStyle.fontSizeKey)
+        XYZDiagnostics.note("zoom reset size=\(Int(restore.rounded()))")
     }
 }
 #endif

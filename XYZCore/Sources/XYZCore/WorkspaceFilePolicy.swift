@@ -5,9 +5,11 @@ public enum WorkspaceFileKind: Equatable, Sendable {
     case markdown
     /// Editor only. Covers source, JSON, and dotfiles that are text.
     case plainText
-    /// Not shown in the editor.
+    /// Selectable text that is not saved. Unknown bytes and files over the edit limit.
+    case readOnly
+    /// Not shown in the editor. Pictures, PDF, media, and Quick Look documents.
     case binary
-    /// Over the in-memory edit limit.
+    /// Over the in-memory edit limit. Opened as a truncated read-only preview.
     case tooLarge
 }
 
@@ -39,6 +41,10 @@ public enum WorkspaceFileClassifier {
         sample: Data,
         fullFile: Data? = nil
     ) -> WorkspaceFileKind {
+        // Pictures, PDF, and media stay viewable past the text limit.
+        if FileFormats.isViewerExtension(name) {
+            return .binary
+        }
         if byteCount > editLimit {
             return .tooLarge
         }
@@ -78,10 +84,13 @@ public enum WorkspaceFileClassifier {
         if byteCount > editLimit {
             return .tooLarge
         }
+        let ext = URL(fileURLWithPath: name).pathExtension.lowercased()
         if sample.contains(0) {
+            if TextBytes.looksLikeUTF16(sample, allowHeuristic: FileFormats.isTextualName(name)) {
+                return kind(forExtension: ext)
+            }
             return .binary
         }
-        let ext = URL(fileURLWithPath: name).pathExtension.lowercased()
         let decision = utf8Sample(sample, byteCount: byteCount)
         switch decision {
         case .text:
@@ -90,6 +99,10 @@ public enum WorkspaceFileClassifier {
             // A prefix that fails UTF-8 is not enough to reject these names.
             // The editor still checks the whole file before showing it.
             if sample.count < byteCount && (markdownExtensions.contains(ext) || plainExtensions.contains(ext)) {
+                return kind(forExtension: ext)
+            }
+            // A known text name that is not Unicode is Windows-1252, kept on save.
+            if FileFormats.isTextualName(name), String(data: sample, encoding: .windowsCP1252) != nil {
                 return kind(forExtension: ext)
             }
             return .binary
@@ -175,6 +188,39 @@ public enum WorkspaceFileClassifier {
     }
 }
 
+/// How a file is shown once its bytes have been classified.
+public enum FileOpenRoute: Equatable, Sendable {
+    case edit
+    case viewer(FileViewerKind)
+    case quickLook
+    case readOnlyPreview
+}
+
+/// Viewers stay viewers. Office documents stay on Quick Look. Everything else that is not editable text is a read-only preview.
+public enum FileOpenRouting {
+    public static func route(name: String, kind: WorkspaceFileKind) -> FileOpenRoute {
+        let ext = (name as NSString).pathExtension.lowercased()
+        if let viewer = FileFormats.viewerKind(forExtension: ext) {
+            return .viewer(viewer)
+        }
+        if quickLookExtensions.contains(ext) {
+            return .quickLook
+        }
+        switch kind {
+        case .markdown, .plainText:
+            return .edit
+        case .binary, .tooLarge, .readOnly:
+            return .readOnlyPreview
+        }
+    }
+
+    /// Packages Quick Look shows as a document rather than a byte dump.
+    private static let quickLookExtensions: Set<String> = [
+        "doc", "docx", "xls", "xlsx", "ppt", "pptx",
+        "pages", "key", "numbers", "odt", "ods", "odp",
+    ]
+}
+
 public enum WorkspaceDiskChange: Equatable, Sendable {
     case ignore
     case reload
@@ -215,5 +261,21 @@ public enum WorkspaceFilePolicy {
             return .write
         }
         return .conflict
+    }
+
+    /// A finished open may install only for the latest request, and only when that path has no buffer yet.
+    /// A later read must not replace a buffer that already holds edits.
+    public static func shouldInstallRead(request: Int, latest: Int, alreadyInstalled: Bool) -> Bool {
+        request == latest && !alreadyInstalled
+    }
+
+    /// A disk sample is applied only when the buffer has not been edited or saved since the sample started.
+    public static func isCurrentObservation(started: Int, current: Int) -> Bool {
+        started == current
+    }
+
+    /// The bytes just written are not the latest text. Another save has to follow.
+    public static func needsFollowUpSave(written: String, current: String) -> Bool {
+        written != current
     }
 }

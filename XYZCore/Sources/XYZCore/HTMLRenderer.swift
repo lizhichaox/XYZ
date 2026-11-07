@@ -47,11 +47,64 @@ private struct HTMLRenderingWalker: MarkupWalker {
     }
 
     mutating func visitBlockQuote(_ blockQuote: BlockQuote) {
+        if let callout = Callout.parsed(blockQuote) {
+            html.append("<aside class=\"callout\" data-callout=\"")
+            html.append(HTMLText.attribute(callout.kind))
+            html.append("\"")
+            html.append(lineMarkup(blockQuote))
+            html.append(">\n<p class=\"callout-title\">")
+            html.append(HTMLText.escape(callout.title))
+            html.append("</p>\n")
+            renderCalloutBody(blockQuote)
+            html.append("</aside>\n")
+            return
+        }
         html.append("<blockquote")
         html.append(lineMarkup(blockQuote))
         html.append(">\n")
         descendInto(blockQuote)
         html.append("</blockquote>\n")
+    }
+
+    /// The first line of the quote is the `[!kind]` marker. Everything after it is the body.
+    private mutating func renderCalloutBody(_ blockQuote: BlockQuote) {
+        var droppedLead = false
+        for index in 0..<blockQuote.childCount {
+            guard let child = blockQuote.child(at: index) else { continue }
+            if !droppedLead, let paragraph = child as? Paragraph {
+                droppedLead = true
+                renderParagraphAfterFirstLine(paragraph)
+                continue
+            }
+            child.accept(&self)
+        }
+    }
+
+    private mutating func renderParagraphAfterFirstLine(_ paragraph: Paragraph) {
+        var dropping = true
+        var wrote = false
+        var body = ""
+        let saved = html
+        html = ""
+        for index in 0..<paragraph.childCount {
+            guard let child = paragraph.child(at: index) else { continue }
+            if dropping {
+                if child is SoftBreak || child is LineBreak {
+                    dropping = false
+                }
+                continue
+            }
+            child.accept(&self)
+            wrote = true
+        }
+        body = html
+        html = saved
+        guard wrote, !body.isEmpty else { return }
+        html.append("<p")
+        html.append(lineMarkup(paragraph))
+        html.append(">")
+        html.append(body)
+        html.append("</p>\n")
     }
 
     mutating func visitCodeBlock(_ codeBlock: CodeBlock) {
@@ -300,7 +353,18 @@ private struct HTMLRenderingWalker: MarkupWalker {
         return cleaned.isEmpty ? nil : cleaned
     }
 
-    private static func plainText(_ markup: Markup) -> String {
+    /// The marker line only. A soft break is the next source line, not part of the title.
+    fileprivate static func firstLine(_ paragraph: Paragraph) -> String {
+        var result = ""
+        for index in 0..<paragraph.childCount {
+            guard let child = paragraph.child(at: index) else { continue }
+            if child is SoftBreak || child is LineBreak { break }
+            result.append(plainText(child))
+        }
+        return result
+    }
+
+    fileprivate static func plainText(_ markup: Markup) -> String {
         if let text = markup as? Text {
             return text.string
         }
@@ -353,6 +417,31 @@ public enum HeadingAnchor {
             used[candidate] = 1
             return candidate
         }
+    }
+}
+
+/// Obsidian callout: a block quote whose first line is `[!note]` or `[!warning] Title`.
+struct Callout {
+    var kind: String
+    var title: String
+
+    static func parsed(_ blockQuote: BlockQuote) -> Callout? {
+        guard let paragraph = blockQuote.child(at: 0) as? Paragraph else { return nil }
+        let trimmed = HTMLRenderingWalker.firstLine(paragraph).trimmingCharacters(in: .whitespaces)
+        guard trimmed.hasPrefix("[!"), trimmed.count > 3 else { return nil }
+        guard let end = trimmed.firstIndex(of: "]"), trimmed.index(after: trimmed.startIndex) < end else { return nil }
+        let kind = trimmed[trimmed.index(trimmed.startIndex, offsetBy: 2)..<end]
+            .trimmingCharacters(in: .whitespaces)
+            .lowercased()
+        guard !kind.isEmpty, kind.allSatisfy({ $0.isLetter }) else { return nil }
+        let rest = trimmed[trimmed.index(after: end)...].trimmingCharacters(in: .whitespaces)
+        let title = rest.isEmpty ? defaultTitle(kind) : rest
+        return Callout(kind: kind, title: title)
+    }
+
+    private static func defaultTitle(_ kind: String) -> String {
+        guard let first = kind.first else { return kind }
+        return first.uppercased() + kind.dropFirst()
     }
 }
 

@@ -95,11 +95,15 @@ enum WorkspaceFileCoordination {
     }
 
     /// Read the current bytes and maybe replace them, inside one coordinated write.
+    /// The editor text uses `\n`. `encoding` and `lineEnding` are what the file had.
     static func updateText(
         at url: URL,
         editor: String,
         lastSaved: String,
-        force: Bool
+        encoding: TextEncoding,
+        lineEnding: LineEnding,
+        force: Bool,
+        rewrite: Bool = false
     ) throws -> (WorkspaceWriteDecision, String?) {
         var decision = WorkspaceWriteDecision.upToDate
         var diskText: String?
@@ -115,11 +119,11 @@ enum WorkspaceFileCoordination {
                 let disk: String?
                 if exists {
                     let data = try Data(contentsOf: url)
-                    guard let text = String(data: data, encoding: .utf8), !data.contains(0) else {
+                    guard let decoded = TextBytes.decode(data, allowLegacy: true) else {
                         decision = .conflict
                         return
                     }
-                    disk = text
+                    disk = decoded.text
                 } else {
                     disk = nil
                 }
@@ -130,8 +134,15 @@ enum WorkspaceFileCoordination {
                     disk: disk,
                     force: force
                 )
-                if decision == .write {
-                    try Data(editor.utf8).write(to: url, options: .atomic)
+                let shouldWrite = decision == .write || (rewrite && decision == .upToDate && disk != nil)
+                if shouldWrite {
+                    guard let bytes = TextBytes.encode(editor, encoding: encoding, lineEnding: lineEnding) else {
+                        throw TextBytes.EncodingError.unrepresentable
+                    }
+                    try bytes.write(to: url, options: .atomic)
+                    if decision == .upToDate {
+                        decision = .write
+                    }
                 }
             } catch {
                 inner = error
@@ -140,6 +151,38 @@ enum WorkspaceFileCoordination {
         if let coordinationError { throw coordinationError }
         if let inner { throw inner }
         return (decision, diskText)
+    }
+
+    /// Writes editor text back in the file's encoding and line ending.
+    static func writeEncodedText(
+        _ text: String,
+        encoding: TextEncoding,
+        lineEnding: LineEnding,
+        to url: URL
+    ) throws {
+        guard let bytes = TextBytes.encode(text, encoding: encoding, lineEnding: lineEnding) else {
+            throw TextBytes.EncodingError.unrepresentable
+        }
+        try writeData(bytes, to: url)
+    }
+
+    /// Puts the previous bytes back. Used so undo restores the file exactly.
+    static func writeData(_ data: Data, to url: URL) throws {
+        var inner: Error?
+        var coordinationError: NSError?
+        NSFileCoordinator().coordinate(
+            writingItemAt: url,
+            options: .forReplacing,
+            error: &coordinationError
+        ) { url in
+            do {
+                try data.write(to: url, options: .atomic)
+            } catch {
+                inner = error
+            }
+        }
+        if let coordinationError { throw coordinationError }
+        if let inner { throw inner }
     }
 
     private static func coordinatedRead<T>(at url: URL, _ body: (URL) throws -> T) throws -> T {
@@ -166,6 +209,20 @@ struct WorkspaceBookmark: Codable, Identifiable, Equatable {
     var id: UUID
     var name: String
     var data: Data
+}
+
+/// One folder window to open again next launch, including the tabs that were in it.
+struct PersistedWorkspaceWindow: Codable, Equatable {
+    var bookmark: WorkspaceBookmark
+    var tabs: [WorkspaceTabState]
+    var activePath: String?
+
+    init(bookmark: WorkspaceBookmark, state: WorkspaceWindowState) {
+        let state = state.normalized()
+        self.bookmark = bookmark
+        self.tabs = state.tabs
+        self.activePath = state.activePath
+    }
 }
 
 enum WorkspaceBookmarks {
@@ -220,14 +277,24 @@ final class WorkspaceLibrary: ObservableObject {
 
     @Published private(set) var recents: [WorkspaceBookmark] = []
     @Published private(set) var openBookmarks: [WorkspaceBookmark] = []
+    @Published private(set) var windows: [PersistedWorkspaceWindow] = []
 
     private let recentsKey = "xyz.workspace.recents"
     private let openKey = "xyz.workspace.open"
+    private let windowsKey = "xyz.workspace.windows"
     private let limit = 10
 
     private init() {
         recents = Self.load(recentsKey)
-        openBookmarks = Self.load(openKey)
+        if let stored = Self.loadWindows(windowsKey) {
+            windows = stored
+            openBookmarks = stored.map(\.bookmark)
+        } else {
+            openBookmarks = Self.load(openKey)
+            windows = openBookmarks.map {
+                PersistedWorkspaceWindow(bookmark: $0, state: WorkspaceWindowState(tabs: [], activePath: nil))
+            }
+        }
     }
 
     func remember(name: String, data: Data, url: URL) {
@@ -254,6 +321,24 @@ final class WorkspaceLibrary: ObservableObject {
         openBookmarks = bookmarks
         Self.store(bookmarks, key: openKey)
         WorkspaceLog.bookmarksStored(kind: "open-windows", count: bookmarks.count)
+    }
+
+    func syncWindows(_ stored: [PersistedWorkspaceWindow]) {
+        windows = stored
+        openBookmarks = stored.map(\.bookmark)
+        Self.store(stored, key: windowsKey)
+        Self.store(openBookmarks, key: openKey)
+        WorkspaceLog.bookmarksStored(kind: "open-windows", count: stored.count)
+    }
+
+    private static func loadWindows(_ key: String) -> [PersistedWorkspaceWindow]? {
+        guard let data = UserDefaults.standard.data(forKey: key) else { return nil }
+        return try? JSONDecoder().decode([PersistedWorkspaceWindow].self, from: data)
+    }
+
+    private static func store(_ windows: [PersistedWorkspaceWindow], key: String) {
+        guard let data = try? JSONEncoder().encode(windows) else { return }
+        UserDefaults.standard.set(data, forKey: key)
     }
 
     private static func load(_ key: String) -> [WorkspaceBookmark] {

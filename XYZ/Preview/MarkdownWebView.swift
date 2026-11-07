@@ -27,6 +27,7 @@ final class PreviewWebHost {
         coordinator.openFile = { [weak self] url in self?.openFile?(url) }
         created.navigationDelegate = coordinator
         created.configuration.userContentController.add(coordinator, name: "xyzAnchor")
+        created.configuration.userContentController.add(coordinator, name: "xyzGutter")
         storage = created
         coordinatorStorage = coordinator
         PreviewLog.logger.notice("webview created")
@@ -43,12 +44,46 @@ final class PreviewWebHost {
 /// editor, and whether the column stops at a readable width.
 struct PreviewPrefs: Equatable {
     var fontSize: Double = XYZEditorStyle.defaultFontSize
+    var lineSpacing: Double = XYZEditorStyle.defaultLineSpacing
+    var latin = "system"
+    var cjk = "pingfang"
     var readableWidth = false
+    var lineNumbers = false
     /// `<base href>` for the note's folder. Set before the content, so its pictures resolve.
     var baseHref = ""
 
     var script: String {
-        "setPrefs(\(Int(XYZEditorStyle.clampedFontSize(fontSize))), \(readableWidth));"
+        let size = Int(XYZEditorStyle.clampedFontSize(fontSize))
+        let spacing = XYZEditorStyle.clampedLineSpacing(lineSpacing)
+        let latinCSS = PreviewPage.javaScriptLiteral(PreviewFontCSS.latin(latin))
+        let cjkCSS = PreviewPage.javaScriptLiteral(PreviewFontCSS.cjk(cjk))
+        let monoCSS = PreviewPage.javaScriptLiteral(PreviewFontCSS.mono(latin))
+        _ = lineNumbers
+        return "setPrefs(\(size), \(readableWidth), \(spacing), \(latinCSS), \(cjkCSS), \(monoCSS)); setLineNumbers(false);"
+    }
+}
+
+enum PreviewFontCSS {
+    static func latin(_ id: String) -> String {
+        switch id {
+        case "sfmono": return "\"SF Mono\", ui-monospace, Menlo"
+        case "menlo": return "Menlo, \"SF Mono\", ui-monospace"
+        case "jetbrains": return "\"JetBrains Mono\", \"SF Mono\", ui-monospace, Menlo"
+        default: return "-apple-system, BlinkMacSystemFont, \"SF Pro Text\""
+        }
+    }
+
+    static func cjk(_ id: String) -> String {
+        switch id {
+        case "songti": return "\"Songti SC\", \"STSong\""
+        case "heiti": return "\"Heiti SC\", \"STHeiti\""
+        default: return "\"PingFang SC\", \"Hiragino Sans GB\""
+        }
+    }
+
+    static func mono(_ latinID: String) -> String {
+        if XYZEditorStyle.latinIsMono(latinID) { return latin(latinID) }
+        return "ui-monospace, \"SF Mono\", Menlo"
     }
 }
 
@@ -60,12 +95,19 @@ struct MarkdownWebView: View {
     var scrollLink: EditorScrollLink
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage(XYZEditorStyle.fontSizeKey) private var fontSize = XYZEditorStyle.defaultFontSize
+    @AppStorage(XYZEditorStyle.lineSpacingKey) private var lineSpacing = XYZEditorStyle.defaultLineSpacing
+    @AppStorage(XYZEditorStyle.latinFontKey) private var latinFont = "system"
+    @AppStorage(XYZEditorStyle.cjkFontKey) private var cjkFont = "pingfang"
     @AppStorage(XYZEditorStyle.readableWidthKey) private var readableWidth = false
 
     var body: some View {
         let prefs = PreviewPrefs(
             fontSize: fontSize,
+            lineSpacing: lineSpacing,
+            latin: latinFont,
+            cjk: cjkFont,
             readableWidth: readableWidth,
+            lineNumbers: false,
             baseHref: LocalAssets.baseHref(for: baseDirectory)
         )
         #if os(macOS)
@@ -123,19 +165,26 @@ final class XYZPreviewWebView: WKWebView {
         return super.performKeyEquivalent(with: event)
     }
 
-    /// Edit → Find. `performTextFinderAction` is on `NSResponder` (macOS 10.7).
+    /// Edit → Find. Only the actions Reading handles are claimed. The superclass is
+    /// asked only when it actually implements the selector.
     override func performTextFinderAction(_ sender: Any?) {
         let tag = (sender as? NSMenuItem)?.tag ?? NSTextFinder.Action.showFindInterface.rawValue
         guard let action = NSTextFinder.Action(rawValue: tag) else {
-            super.performTextFinderAction(sender)
+            forwardTextFinder(sender)
             return
         }
         switch action {
         case .showFindInterface, .nextMatch, .previousMatch:
             surface?.perform(action)
         default:
-            super.performTextFinderAction(sender)
+            forwardTextFinder(sender)
         }
+    }
+
+    private func forwardTextFinder(_ sender: Any?) {
+        let sel = #selector(NSResponder.performTextFinderAction(_:))
+        guard let superclass = XYZPreviewWebView.superclass(), superclass.instancesRespond(to: sel) else { return }
+        super.performTextFinderAction(sender)
     }
 }
 
@@ -154,7 +203,6 @@ final class ReadingSurface: NSView, NSSearchFieldDelegate {
     private let findHost = NSView()
     private let findField = NSSearchField()
     private var webView: XYZPreviewWebView?
-    private var collapsed: NSLayoutConstraint?
     private var fieldTop: NSLayoutConstraint!
     private var fieldBottom: NSLayoutConstraint!
     private var backwards = false
@@ -171,19 +219,17 @@ final class ReadingSurface: NSView, NSSearchFieldDelegate {
         findField.setContentHuggingPriority(.required, for: .vertical)
         findField.setContentCompressionResistancePriority(.required, for: .vertical)
         findHost.setContentCompressionResistancePriority(.required, for: .vertical)
+        findHost.wantsLayer = true
+        findHost.layer?.backgroundColor = NSColor.textBackgroundColor.cgColor
         findHost.addSubview(findField)
         addSubview(findHost)
-        let collapsed = findHost.heightAnchor.constraint(equalToConstant: 0)
-        self.collapsed = collapsed
         fieldTop = findField.topAnchor.constraint(equalTo: findHost.topAnchor, constant: 8)
         fieldBottom = findField.bottomAnchor.constraint(equalTo: findHost.bottomAnchor, constant: -8)
-        fieldTop.priority = NSLayoutConstraint.Priority(rawValue: 750)
-        fieldBottom.priority = NSLayoutConstraint.Priority(rawValue: 750)
         NSLayoutConstraint.activate([
             findHost.topAnchor.constraint(equalTo: topAnchor),
             findHost.leadingAnchor.constraint(equalTo: leadingAnchor),
             findHost.trailingAnchor.constraint(equalTo: trailingAnchor),
-            collapsed,
+            findHost.heightAnchor.constraint(equalToConstant: 36),
             fieldTop,
             fieldBottom,
             findField.leadingAnchor.constraint(equalTo: findHost.leadingAnchor, constant: 12),
@@ -205,11 +251,12 @@ final class ReadingSurface: NSView, NSSearchFieldDelegate {
         webView.translatesAutoresizingMaskIntoConstraints = false
         addSubview(webView)
         NSLayoutConstraint.activate([
-            webView.topAnchor.constraint(equalTo: findHost.bottomAnchor),
+            webView.topAnchor.constraint(equalTo: topAnchor),
             webView.leadingAnchor.constraint(equalTo: leadingAnchor),
             webView.trailingAnchor.constraint(equalTo: trailingAnchor),
             webView.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+        addSubview(findHost)
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
@@ -238,7 +285,7 @@ final class ReadingSurface: NSView, NSSearchFieldDelegate {
 
     func controlTextDidChange(_ obj: Notification) {
         backwards = false
-        runFind(fromStart: true)
+        scheduleFind(fromStart: true)
     }
 
     func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
@@ -259,20 +306,57 @@ final class ReadingSurface: NSView, NSSearchFieldDelegate {
         window?.makeFirstResponder(findField)
         let length = (findField.stringValue as NSString).length
         findField.currentEditor()?.selectedRange = NSRange(location: 0, length: length)
-        if run { runFind(fromStart: fromStart) }
+        if run { scheduleFind(fromStart: fromStart) }
     }
 
     private func hideFind() {
+        findTask?.cancel()
         setFindVisible(false)
-        window?.makeFirstResponder(webView)
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            self.window?.makeFirstResponder(self.webView)
+        }
+    }
+
+    /// Esc from the window monitor. The web view does not forward the key to this field.
+    func dismissFindFromEscape() -> Bool {
+        guard !findHost.isHidden else { return false }
+        hideFind()
+        return true
+    }
+
+    static func dismissFind(in window: NSWindow?) -> Bool {
+        guard let content = window?.contentView else { return false }
+        return dismissFind(in: content)
+    }
+
+    private static func dismissFind(in view: NSView) -> Bool {
+        if view.isHidden { return false }
+        if let surface = view as? ReadingSurface, surface.dismissFindFromEscape() {
+            return true
+        }
+        for child in view.subviews {
+            if dismissFind(in: child) { return true }
+        }
+        return false
+    }
+
+    private var findTask: Task<Void, Never>?
+
+    private func scheduleFind(fromStart: Bool) {
+        findTask?.cancel()
+        findTask = Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(80))
+            guard !Task.isCancelled else { return }
+            runFind(fromStart: fromStart)
+        }
     }
 
     private func setFindVisible(_ visible: Bool) {
         findHost.isHidden = !visible
-        collapsed?.isActive = !visible
-        let priority: NSLayoutConstraint.Priority = visible ? .required : NSLayoutConstraint.Priority(rawValue: 750)
-        fieldTop.priority = priority
-        fieldBottom.priority = priority
+        if visible {
+            addSubview(findHost)
+        }
     }
 
     /// `WKWebView.find(_:configuration:completionHandler:)` is public on macOS 11.
@@ -387,13 +471,40 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate, WKScriptMessa
     private var pendingReadingAlign: Int?
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
+        if message.name == "xyzGutter" {
+            #if os(macOS)
+            let body = message.body as? [String: Any]
+            let count = Self.intValue(body?["count"])
+            let pairs = body?["pairs"] as? String ?? ""
+            let wrap = Self.intValue(body?["wrap"]) == 1
+            XYZDiagnostics.gutterDraw(
+                dirty: .zero,
+                bounds: .zero,
+                lines: count,
+                first: 0,
+                last: 0,
+                color: "reading",
+                api: "webview",
+                pairs: pairs,
+                wrap: wrap,
+                mode: "reading"
+            )
+            #endif
+            return
+        }
         guard message.name == "xyzAnchor" else { return }
         let body = message.body as? [String: Any]
         let line = Self.intValue(body?["line"])
         let fraction = min(1, max(0, Self.doubleValue(body?["fraction"])))
         let apply = {
-            self.readingLine = max(0, line)
+            let next = max(0, line)
+            self.readingLine = next
             self.readingFraction = fraction
+            if next > 0 {
+                MainActor.assumeIsolated { () -> Void in
+                    self.scrollLink?.onViewportLine?(next)
+                }
+            }
             if let requested = self.pendingReadingAlign {
                 self.pendingReadingAlign = nil
                 ViewAnchorLog.aligned(to: "reading", requested: requested, landed: self.readingLine)
@@ -428,6 +539,9 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate, WKScriptMessa
         }
         guard isReady else { return }
         push(to: webView)
+        if let line = scrollLink.takeQueuedReveal() {
+            evaluate(webView, "xyzRevealLine(\(max(1, line)));")
+        }
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -435,6 +549,9 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate, WKScriptMessa
         PreviewWebChrome.apply(to: webView)
         PreviewLog.logger.notice("navigation finished")
         push(to: webView)
+        if let line = scrollLink?.takeQueuedReveal() {
+            evaluate(webView, "xyzRevealLine(\(max(1, line)));")
+        }
     }
 
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
@@ -707,7 +824,7 @@ private enum HTMLAttribute {
     }
 }
 
-private enum PreviewStyles {
+enum PreviewStyles {
     static func load() -> String {
         if let url = Bundle.main.url(forResource: "Preview", withExtension: "css"),
            let css = try? String(contentsOf: url, encoding: .utf8),
@@ -718,7 +835,7 @@ private enum PreviewStyles {
     }
 }
 
-private enum PreviewPage {
+enum PreviewPage {
     static func shell(css: String, html: String, theme: String, prefs: PreviewPrefs) -> String {
         let themeName = theme == "dark" ? "dark" : "light"
         return """
@@ -742,11 +859,16 @@ private enum PreviewPage {
         var xyzPinned = 0;
         var xyzPinUntil = 0;
         function setContent(html) {
+          var selection = window.getSelection();
+          if (selection) selection.removeAllRanges();
+          if (typeof xyzClearFind === "function") xyzClearFind();
           var node = document.getElementById("content");
           if (node) node.innerHTML = html;
           xyzPinned = 0;
           xyzPinUntil = 0;
           xyzDecorate();
+          xyzGutterSignature = "";
+          if (typeof xyzScheduleGutter === "function") xyzScheduleGutter();
         }
         function setBase(href) {
           var base = document.getElementById("xyz-base");
@@ -754,12 +876,254 @@ private enum PreviewPage {
         }
         if (window.hljs) hljs.configure({ignoreUnescapedHTML: true});
         // Code colors for fenced blocks that name a language, and the alt text for a picture that cannot load.
+        function xyzEscapeLiteral(text) {
+          var special = ".*+?^${}()|[]\\\\";
+          var out = "";
+          for (var i = 0; i < text.length; i++) {
+            var ch = text.charAt(i);
+            if (special.indexOf(ch) !== -1) out += "\\\\" + ch;
+            else out += ch;
+          }
+          return out;
+        }
+        function xyzClearFind() {
+          var root = document.getElementById("content");
+          if (!root) return;
+          var marks = root.querySelectorAll("mark.xyz-find");
+          for (var i = marks.length - 1; i >= 0; i--) {
+            var mark = marks[i];
+            var parent = mark.parentNode;
+            if (!parent) continue;
+            parent.replaceChild(document.createTextNode(mark.textContent || ""), mark);
+            parent.normalize();
+          }
+        }
+        function xyzHighlightFind(spec) {
+          xyzClearFind();
+          if (!spec || !spec.pattern) return {count: 0, index: 0, wrapped: false, invalid: false};
+          var source = spec.pattern;
+          if (!spec.regex) source = xyzEscapeLiteral(source);
+          if (spec.wholeWord) source = "(?<![\\\\p{L}\\\\p{N}_])(?:" + source + ")(?![\\\\p{L}\\\\p{N}_])";
+          var flags = spec.matchCase ? "gu" : "giu";
+          var expression;
+          try { expression = new RegExp(source, flags); }
+          catch (error) { return {count: 0, index: 0, wrapped: false, invalid: true}; }
+          var root = document.getElementById("content");
+          if (!root) return {count: 0, index: 0, wrapped: false, invalid: false};
+          var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+          var nodes = [];
+          while (walker.nextNode()) nodes.push(walker.currentNode);
+          var marks = [];
+          for (var n = 0; n < nodes.length && marks.length < 2000; n++) {
+            var node = nodes[n];
+            var text = node.nodeValue || "";
+            if (!text) continue;
+            var parent = node.parentNode;
+            if (!parent || (parent.closest && parent.closest("script, style"))) continue;
+            expression.lastIndex = 0;
+            var match = expression.exec(text);
+            if (!match) continue;
+            var frag = document.createDocumentFragment();
+            var last = 0;
+            while (match && marks.length < 2000) {
+              if (match.index > last) frag.appendChild(document.createTextNode(text.slice(last, match.index)));
+              var mark = document.createElement("mark");
+              mark.className = "xyz-find";
+              mark.textContent = match[0];
+              frag.appendChild(mark);
+              marks.push(mark);
+              last = match.index + match[0].length;
+              if (match[0].length === 0) expression.lastIndex++;
+              match = expression.exec(text);
+            }
+            if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+            parent.replaceChild(frag, node);
+          }
+          var count = marks.length;
+          if (!count) return {count: 0, index: 0, wrapped: false, invalid: false};
+          var cursor = spec.index | 0;
+          if (cursor < 0) cursor = 0;
+          var direction = spec.direction | 0;
+          var wrapped = false;
+          if (direction > 0) {
+            var next = cursor + 1;
+            if (next >= count) { next = 0; wrapped = true; }
+            cursor = next;
+          } else if (direction < 0) {
+            var prev = cursor - 1;
+            if (prev < 0) { prev = count - 1; wrapped = true; }
+            cursor = prev;
+          } else if (cursor >= count) {
+            cursor = 0;
+          }
+          marks[cursor].className = "xyz-find xyz-find-current";
+          xyzScrollMark(marks[cursor]);
+          return {count: count, index: cursor + 1, wrapped: wrapped, invalid: false};
+        }
+        function xyzScrollMark(mark) {
+          function place() {
+            if (!mark || !mark.getBoundingClientRect) return;
+            var rect = mark.getBoundingClientRect();
+            var viewH = window.innerHeight || document.documentElement.clientHeight || 0;
+            if (viewH < 1) return;
+            var margin = Math.max(48, Math.min(120, viewH * 0.15));
+            var top = window.scrollY + rect.top;
+            var bottom = top + Math.max(rect.height, 1);
+            var viewTop = window.scrollY + margin;
+            var viewBottom = window.scrollY + viewH - margin;
+            if (top >= viewTop && bottom <= viewBottom) return;
+            var next = top - (viewH - rect.height) / 2;
+            var max = Math.max(0, document.documentElement.scrollHeight - viewH);
+            xyzPinned = 0;
+            xyzPinUntil = 0;
+            window.scrollTo(0, Math.max(0, Math.min(max, next)));
+          }
+          requestAnimationFrame(function() { requestAnimationFrame(place); });
+        }
+        var xyzGutterTimer = 0;
+        var xyzGutterSignature = "";
+        function setLineNumbers(on) {
+          document.documentElement.removeAttribute("data-lines");
+          var host = document.getElementById("xyz-gutter");
+          if (host) host.remove();
+        }
+        function xyzScheduleGutter() {
+          if (xyzGutterTimer) return;
+          xyzGutterTimer = setTimeout(function() {
+            xyzGutterTimer = 0;
+            xyzLayoutGutter();
+          }, 80);
+        }
+        function xyzLeafBlocks(content) {
+          var all = content.querySelectorAll("[data-line]");
+          var leaves = [];
+          for (var i = 0; i < all.length; i++) {
+            if (all[i].querySelector("[data-line]")) continue;
+            leaves.push(all[i]);
+          }
+          return leaves;
+        }
+        // The first visual line of the block, not the block box. A heading's border box
+        // starts at the line box's top, and a small number pinned there sits above the glyphs.
+        function xyzFirstTextRow(element) {
+          var block = element.getBoundingClientRect();
+          var text = null;
+          var walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT, null);
+          while (walker.nextNode()) {
+            var value = walker.currentNode.nodeValue || "";
+            var ink = false;
+            for (var c = 0; c < value.length; c++) {
+              var code = value.charCodeAt(c);
+              if (code !== 32 && code !== 9 && code !== 10 && code !== 13) { ink = true; break; }
+            }
+            if (ink) {
+              text = walker.currentNode;
+              break;
+            }
+          }
+          if (!text) {
+            var parent = element.parentElement || element;
+            var fontSize = parseFloat(window.getComputedStyle(parent).fontSize) || 16;
+            var line = parseFloat(window.getComputedStyle(element).lineHeight);
+            if (!(line > 0)) line = fontSize * 1.7;
+            return {top: block.top, height: Math.min(Math.max(block.height, 1), line), blockTop: block.top, blockHeight: block.height};
+          }
+          var range = document.createRange();
+          range.selectNodeContents(text);
+          var rects = range.getClientRects();
+          for (var r = 0; r < rects.length; r++) {
+            if (rects[r].height >= 1 && rects[r].width >= 1) {
+              return {top: rects[r].top, height: rects[r].height, blockTop: block.top, blockHeight: block.height};
+            }
+          }
+          return {top: block.top, height: Math.max(block.height, 1), blockTop: block.top, blockHeight: block.height};
+        }
+        function xyzLayoutGutter() {
+          var host = document.getElementById("xyz-gutter");
+          if (!host) {
+            host = document.createElement("div");
+            host.id = "xyz-gutter";
+            document.body.appendChild(host);
+          }
+          if (document.documentElement.getAttribute("data-lines") !== "true") {
+            if (xyzGutterSignature !== "off") {
+              xyzGutterSignature = "off";
+              host.textContent = "";
+            }
+            return;
+          }
+          var content = document.getElementById("content");
+          if (!content) return;
+          var gutterRect = host.getBoundingClientRect();
+          var numberHeight = parseFloat(window.getComputedStyle(host).fontSize) || 12;
+          var minGap = Math.max(8, numberHeight - 1);
+          var leaves = xyzLeafBlocks(content);
+          var placed = [];
+          var lastY = -100000;
+          for (var i = 0; i < leaves.length; i++) {
+            var start = parseInt(leaves[i].getAttribute("data-line"), 10) || 0;
+            if (start < 1) continue;
+            var row = xyzFirstTextRow(leaves[i]);
+            if (row.height < 1 && row.blockHeight < 1) continue;
+            // Center the number on that first row. A wrapped block keeps the number there,
+            // not in the middle of every visual row.
+            var y = Math.round(row.top - gutterRect.top + (row.height - numberHeight) / 2);
+            if (y < lastY + minGap) continue;
+            placed.push({line: start, y: y, mid: row.top - gutterRect.top + row.height / 2});
+            lastY = y;
+          }
+          var parts = [];
+          for (var p = 0; p < Math.min(placed.length, 6); p++) parts.push(placed[p].line + ":" + placed[p].y);
+          var signature = placed.length + "|" + parts.join(",");
+          if (signature === xyzGutterSignature) {
+            xyzMarkCurrentLine();
+            return;
+          }
+          xyzGutterSignature = signature;
+          host.textContent = "";
+          for (var n = 0; n < placed.length; n++) {
+            var label = document.createElement("div");
+            label.className = "xyz-ln";
+            label.setAttribute("data-source-line", String(placed[n].line));
+            label.textContent = String(placed[n].line);
+            label.style.top = placed[n].y + "px";
+            label.setAttribute("data-row-mid", String(placed[n].mid));
+            host.appendChild(label);
+          }
+          // font-size is only the estimate. The placed box is what the reader sees.
+          var drawn = host.children;
+          for (var d = 0; d < drawn.length; d++) {
+            var item = drawn[d];
+            var mid = parseFloat(item.getAttribute("data-row-mid"));
+            if (isNaN(mid)) continue;
+            var box = item.getBoundingClientRect();
+            var current = (box.top - gutterRect.top) + box.height / 2;
+            item.style.top = Math.round(parseFloat(item.style.top) + (mid - current)) + "px";
+          }
+          xyzMarkCurrentLine();
+          var handlers = window.webkit && window.webkit.messageHandlers;
+          if (handlers && handlers.xyzGutter) {
+            handlers.xyzGutter.postMessage({count: placed.length, pairs: parts.join(","), wrap: 1, mode: "reading"});
+          }
+        }
+        function xyzMarkCurrentLine() {
+          var host = document.getElementById("xyz-gutter");
+          if (!host) return;
+          var found = xyzTop();
+          var current = found && found.line ? String(found.line) : "";
+          var labels = host.querySelectorAll(".xyz-ln");
+          for (var i = 0; i < labels.length; i++) {
+            if (labels[i].getAttribute("data-source-line") === current) labels[i].className = "xyz-ln xyz-ln-current";
+            else labels[i].className = "xyz-ln";
+          }
+        }
         function xyzDecorate() {
           var root = document.getElementById("content");
           if (!root) return;
           var images = root.querySelectorAll("img");
           for (var i = 0; i < images.length; i++) {
             images[i].addEventListener("error", xyzMissingImage, {once: true});
+            images[i].addEventListener("load", xyzScheduleGutter, {once: true});
           }
           if (!window.hljs) return;
           var blocks = root.querySelectorAll("pre code[class*='language-']");
@@ -774,6 +1138,7 @@ private enum PreviewPage {
           label.className = "missing-image";
           label.textContent = image.getAttribute("alt") || image.getAttribute("src") || "";
           image.replaceWith(label);
+          if (typeof xyzScheduleGutter === "function") xyzScheduleGutter();
         }
         // #fragment links scroll to the heading. The page's <base> would otherwise turn them into a navigation.
         document.addEventListener("click", function(event) {
@@ -792,10 +1157,17 @@ private enum PreviewPage {
         function setTheme(theme) {
           document.documentElement.setAttribute("data-theme", theme);
         }
-        function setPrefs(size, readable) {
+        function setPrefs(size, readable, spacing, latin, cjk, mono) {
+          var kept = xyzTop();
           var root = document.documentElement;
           root.style.setProperty("--text-size", (size | 0) + "px");
+          if (spacing) root.style.setProperty("--line-height", String(spacing));
+          if (latin) root.style.setProperty("--font-latin", latin);
+          if (cjk) root.style.setProperty("--font-cjk", cjk);
+          if (mono) root.style.setProperty("--font-mono", mono);
           root.setAttribute("data-readable", readable ? "true" : "false");
+          if (kept && kept.line) xyzRevealLine(kept.line);
+          if (typeof xyzLayoutGutter === "function") xyzLayoutGutter();
         }
         function xyzSourceLine(start, end, fraction) {
           start = Math.max(1, start | 0);
@@ -882,7 +1254,8 @@ private enum PreviewPage {
           window.scrollTo(0, max * Math.min(1, Math.max(0, +fraction || 0)));
           xyzReport();
         }
-        window.addEventListener("scroll", function() { xyzReport(); }, {passive: true});
+        window.addEventListener("scroll", function() { xyzReport(); if (typeof xyzMarkCurrentLine === "function") xyzMarkCurrentLine(); }, {passive: true});
+        window.addEventListener("resize", function() { if (typeof xyzScheduleGutter === "function") xyzScheduleGutter(); });
         function xyzUnpin() { xyzPinned = 0; xyzPinUntil = 0; }
         window.addEventListener("wheel", xyzUnpin, {passive: true});
         window.addEventListener("touchmove", xyzUnpin, {passive: true});

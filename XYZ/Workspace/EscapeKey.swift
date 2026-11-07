@@ -2,37 +2,147 @@
 import AppKit
 import SwiftUI
 
-/// Esc closes every window XYZ shows on top of a document: Settings (⌘,) and About.
+/// Esc closes the topmost transient UI, wherever focus sits.
 ///
-/// One local key monitor checks the key window against the windows registered here, so Esc
-/// works wherever focus sits inside them, including a picker or the selectable credit line.
-/// The command palette, the Reading find bar, the sidebar filter, and the system's open panels
-/// already handle Esc themselves. Alerts use ``NSAlert/runModalClosingOnEscape()``.
+/// The field editor and `WKWebView` treat Esc as `cancelOperation:` and never forward it, so a
+/// find field, the palette, or the Reading view swallows the key before a panel sees it. This
+/// monitor runs before delivery. It closes one layer (a menu, a sheet, folder search, the
+/// palette, the tab switcher, or a find bar) and returns focus to the editor. An input method
+/// that is still composing keeps the key.
 @MainActor
 enum EscapeKey {
     private static var monitor: Any?
+    private static var menuObservers: [NSObjectProtocol] = []
+    private static weak var trackingMenu: NSMenu?
     private static let windows = NSHashTable<NSWindow>.weakObjects()
 
     static func install() {
         guard monitor == nil else { return }
+        watchMenus()
         monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            guard event.keyCode == 53,
-                  event.modifierFlags.intersection([.command, .option, .control, .shift]).isEmpty else {
-                return event
+            guard event.keyCode == 53 else { return event }
+            let flags = event.modifierFlags.intersection([.command, .option, .control, .shift])
+            let closed = MainActor.assumeIsolated { () -> Bool in
+                if flags.isEmpty {
+                    return dismissTopmost()
+                }
+                // ⌃Tab is still holding Control (and maybe Shift). Esc cancels that list.
+                if flags.isSubset(of: [.control, .shift]), !markedTextIsActive() {
+                    return EditorCommands.shared.cancelTabSwitchIfShowing()
+                }
+                return false
             }
-            let closed = MainActor.assumeIsolated { closeKeyWindow() }
             return closed ? nil : event
         }
+    }
+
+    /// Closes one layer. Settings and About use this too, including from the window controller.
+    @discardableResult
+    static func dismissTopmost() -> Bool {
+        if markedTextIsActive() { return false }
+        let closed = dismissMenu()
+            || dismissModal()
+            || dismissSheet()
+            || EditorCommands.shared.dismissTransient()
+            || closeKeyWindow()
+        if closed {
+            EditorCommands.shared.focusEditor()
+        }
+        return closed
+    }
+
+    static func register(_ window: NSWindow) {
+        windows.add(window)
+    }
+
+    static func isRegistered(_ window: NSWindow) -> Bool {
+        windows.contains(window)
+    }
+
+    private static func watchMenus() {
+        let center = NotificationCenter.default
+        menuObservers.append(center.addObserver(
+            forName: NSMenu.didBeginTrackingNotification,
+            object: nil,
+            queue: .main
+        ) { note in
+            MainActor.assumeIsolated { () -> Void in
+                trackingMenu = note.object as? NSMenu
+            }
+        })
+        menuObservers.append(center.addObserver(
+            forName: NSMenu.didEndTrackingNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            MainActor.assumeIsolated { () -> Void in
+                trackingMenu = nil
+            }
+        })
+    }
+
+    /// A composing input method uses Esc to drop the marked text. Leave that key alone.
+    private static func markedTextIsActive() -> Bool {
+        guard let text = NSApp.keyWindow?.firstResponder as? NSTextView else { return false }
+        return text.hasMarkedText()
+    }
+
+    private static func dismissMenu() -> Bool {
+        if let menu = trackingMenu, menu.highlightedItem != nil {
+            menu.cancelTracking()
+            trackingMenu = nil
+            return true
+        }
+        if let menu = highlightedMenu(NSApp.mainMenu) {
+            menu.cancelTracking()
+            return true
+        }
+        var closed = false
+        for window in NSApp.windows where window.isVisible && isMenuWindow(window) {
+            window.orderOut(nil)
+            closed = true
+        }
+        return closed
+    }
+
+    private static func highlightedMenu(_ menu: NSMenu?) -> NSMenu? {
+        guard let menu else { return nil }
+        if menu.highlightedItem != nil { return menu }
+        for item in menu.items {
+            if let found = highlightedMenu(item.submenu) { return found }
+        }
+        return nil
+    }
+
+    private static func isMenuWindow(_ window: NSWindow) -> Bool {
+        let name = NSStringFromClass(type(of: window))
+        return name.contains("MenuWindow") || name.contains("CarbonMenu") || name.contains("ContextMenu")
+    }
+
+    private static func dismissModal() -> Bool {
+        guard NSApp.modalWindow != nil else { return false }
+        NSApp.stopModal(withCode: .cancel)
+        return true
+    }
+
+    private static func dismissSheet() -> Bool {
+        if let key = NSApp.keyWindow, let sheet = key.attachedSheet {
+            key.endSheet(sheet, returnCode: .cancel)
+            return true
+        }
+        for window in NSApp.windows {
+            if let sheet = window.attachedSheet {
+                window.endSheet(sheet, returnCode: .cancel)
+                return true
+            }
+        }
+        return false
     }
 
     private static func closeKeyWindow() -> Bool {
         guard let window = NSApp.keyWindow, windows.contains(window) else { return false }
         window.performClose(nil)
         return true
-    }
-
-    static func register(_ window: NSWindow) {
-        windows.add(window)
     }
 }
 

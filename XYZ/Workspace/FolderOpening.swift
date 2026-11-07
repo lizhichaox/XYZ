@@ -11,9 +11,28 @@ enum FolderOpening {
     private static var didInstallEarly = false
     private static var didHookOpenDocument = false
     private static var didHookOpenPanel = false
+    private static var didHookUntitled = false
+    /// True through launch, so DocumentGroup does not present an Open panel on its own.
+    private static var suppressDocumentOpenPanel = true
 
     static var openDocumentHooked: Bool { didHookOpenDocument }
     static var openPanelHooked: Bool { didHookOpenPanel }
+
+    /// One automatic document Open panel is cancelled. File → Open Folder is left alone.
+    static func allowDocumentOpenPanels() {
+        suppressDocumentOpenPanel = false
+    }
+
+    static func suppressNextAutomaticDocumentOpenPanel() {
+        suppressDocumentOpenPanel = true
+        for window in NSApp.windows {
+            guard let panel = window as? NSOpenPanel, panel.isVisible, panel.canChooseFiles else { continue }
+            panel.cancel(nil)
+            suppressDocumentOpenPanel = false
+            WorkspaceLog.panelCancelled(kind: "document-open-after-restore")
+            return
+        }
+    }
 
     static func installEarly() {
         guard !didInstallEarly else { return }
@@ -26,7 +45,9 @@ enum FolderOpening {
     /// Touching `NSDocumentController.shared` earlier would create the wrong controller and crash launch.
     static func installLate() {
         installEarly()
-        hookOpenDocument(on: type(of: NSDocumentController.shared))
+        let controller = type(of: NSDocumentController.shared)
+        hookOpenDocument(on: controller)
+        hookAutomaticUntitled(on: controller)
     }
 
     /// Document Open panel: files stay selectable, and a chosen folder becomes a workspace.
@@ -45,6 +66,10 @@ enum FolderOpening {
         let began = hook(cls, NSSelectorFromString("beginWithCompletionHandler:")) { original, selector in
             let block: @convention(block) (AnyObject, AnyObject?) -> Void = { panel, handler in
                 if let open = panel as? NSOpenPanel {
+                    if suppressAutomaticDocumentOpen(open) {
+                        finishOpenPanel(handler, response: NSApplication.ModalResponse.cancel.rawValue)
+                        return
+                    }
                     noteOpenPanel(open, via: "begin")
                 }
                 let call = unsafeBitCast(original, to: (@convention(c) (AnyObject, Selector, AnyObject?) -> Void).self)
@@ -55,6 +80,10 @@ enum FolderOpening {
         let sheet = hook(cls, NSSelectorFromString("beginSheetModalForWindow:completionHandler:")) { original, selector in
             let block: @convention(block) (AnyObject, AnyObject, AnyObject?) -> Void = { panel, window, handler in
                 if let open = panel as? NSOpenPanel {
+                    if suppressAutomaticDocumentOpen(open) {
+                        finishOpenPanel(handler, response: NSApplication.ModalResponse.cancel.rawValue)
+                        return
+                    }
                     noteOpenPanel(open, via: "sheet")
                 }
                 let call = unsafeBitCast(
@@ -68,6 +97,9 @@ enum FolderOpening {
         let modal = hook(cls, NSSelectorFromString("runModal")) { original, selector in
             let block: @convention(block) (AnyObject) -> Int = { panel in
                 if let open = panel as? NSOpenPanel {
+                    if suppressAutomaticDocumentOpen(open) {
+                        return NSApplication.ModalResponse.cancel.rawValue
+                    }
                     noteOpenPanel(open, via: "runModal")
                 }
                 let call = unsafeBitCast(original, to: (@convention(c) (AnyObject, Selector) -> Int).self)
@@ -112,6 +144,107 @@ enum FolderOpening {
         didHookOpenDocument = true
     }
 
+    /// Set only while `newDocument:` is running, so File → New and ⌘N still work.
+    /// ⌘K is also a key event; it must not be treated as a request for an untitled window.
+    private static var allowUntitled = false
+    /// File → New stays hidden for a moment while it is filled to the screen. Don't close it then.
+    private static var keepUntitledUntil = Date.distantPast
+
+    static var keepsNewDocument: Bool {
+        allowUntitled || Date() < keepUntitledUntil
+    }
+
+    /// DocumentGroup creates an untitled document on its own, some time after launch, because the
+    /// folder windows are not documents. That window stays at SwiftUI's default 500×500 and is never
+    /// shown. Opening ⌘K can do the same at the full screen size. File → New still goes through.
+    private static func hookAutomaticUntitled(on cls: AnyClass) {
+        guard !didHookUntitled else { return }
+        let untitled = NSSelectorFromString("openUntitledDocumentAndDisplay:error:")
+        let hookedUntitled = hook(cls, untitled) { original, selector in
+            let block: @convention(block) (AnyObject, Bool, UnsafeMutablePointer<NSError?>?) -> AnyObject? = { controller, display, errorOut in
+                if !userAskedForUntitled() {
+                    errorOut?.pointee = NSError(
+                        domain: NSCocoaErrorDomain,
+                        code: CocoaError.userCancelled.rawValue
+                    )
+                    return nil
+                }
+                let call = unsafeBitCast(
+                    original,
+                    to: (@convention(c) (AnyObject, Selector, Bool, UnsafeMutablePointer<NSError?>?) -> AnyObject?).self
+                )
+                return call(controller, selector, display, errorOut)
+            }
+            return imp_implementationWithBlock(block)
+        }
+        let reopen = NSSelectorFromString("reopenDocumentForURL:withContentsOfURL:display:completionHandler:")
+        let hookedReopen = hook(cls, reopen) { original, selector in
+            let block: @convention(block) (AnyObject, AnyObject?, AnyObject?, Bool, AnyObject) -> Void = { controller, url, contents, display, completion in
+                if url == nil {
+                    let cancel = NSError(
+                        domain: NSCocoaErrorDomain,
+                        code: CocoaError.userCancelled.rawValue
+                    )
+                    let finish = unsafeBitCast(
+                        completion,
+                        to: (@convention(block) (AnyObject?, Bool, NSError?) -> Void).self
+                    )
+                    finish(nil, false, cancel)
+                    return
+                }
+                let call = unsafeBitCast(
+                    original,
+                    to: (@convention(c) (AnyObject, Selector, AnyObject?, AnyObject?, Bool, AnyObject) -> Void).self
+                )
+                call(controller, selector, url, contents, display, completion)
+            }
+            return imp_implementationWithBlock(block)
+        }
+        let makeUntitled = NSSelectorFromString("makeUntitledDocumentOfType:error:")
+        let hookedMake = hook(cls, makeUntitled) { original, selector in
+            let block: @convention(block) (AnyObject, NSString, UnsafeMutablePointer<NSError?>?) -> AnyObject? = { controller, typeName, errorOut in
+                if !userAskedForUntitled() {
+                    errorOut?.pointee = NSError(
+                        domain: NSCocoaErrorDomain,
+                        code: CocoaError.userCancelled.rawValue
+                    )
+                    return nil
+                }
+                let call = unsafeBitCast(
+                    original,
+                    to: (@convention(c) (AnyObject, Selector, NSString, UnsafeMutablePointer<NSError?>?) -> AnyObject?).self
+                )
+                return call(controller, selector, typeName, errorOut)
+            }
+            return imp_implementationWithBlock(block)
+        }
+        let newDocument = NSSelectorFromString("newDocument:")
+        let hookedNew = hook(cls, newDocument) { original, selector in
+            let block: @convention(block) (AnyObject, AnyObject?) -> Void = { controller, sender in
+                allowUntitled = true
+                let call = unsafeBitCast(
+                    original,
+                    to: (@convention(c) (AnyObject, Selector, AnyObject?) -> Void).self
+                )
+                call(controller, selector, sender)
+                allowUntitled = false
+                keepUntitledUntil = Date().addingTimeInterval(1)
+            }
+            return imp_implementationWithBlock(block)
+        }
+        didHookUntitled = hookedUntitled || hookedReopen || hookedMake || hookedNew
+    }
+
+    /// File → New, or ⌘N. Any other key, including ⌘K, is not a new document.
+    private static func userAskedForUntitled() -> Bool {
+        if allowUntitled { return true }
+        guard let event = NSApp.currentEvent else { return false }
+        guard event.type == .keyDown || event.type == .keyUp else { return false }
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        let key = event.charactersIgnoringModifiers?.lowercased() ?? ""
+        return flags == .command && key == "n"
+    }
+
     @discardableResult
     private static func hook(_ cls: AnyClass, _ sel: Selector, _ make: (IMP, Selector) -> IMP) -> Bool {
         guard let method = class_getInstanceMethod(cls, sel) else { return false }
@@ -137,8 +270,22 @@ enum FolderOpening {
         if Thread.isMainThread {
             open()
         } else {
-            DispatchQueue.main.async(execute: open)
+            DispatchQueue.main.async { _ = open() }
         }
+    }
+
+    /// True once, for the document Open panel DocumentGroup shows at launch after folder windows were restored.
+    private static func suppressAutomaticDocumentOpen(_ panel: NSOpenPanel) -> Bool {
+        guard suppressDocumentOpenPanel, panel.canChooseFiles else { return false }
+        suppressDocumentOpenPanel = false
+        WorkspaceLog.panelCancelled(kind: "document-open-after-restore")
+        return true
+    }
+
+    private static func finishOpenPanel(_ handler: AnyObject?, response: Int) {
+        guard let handler else { return }
+        let finish = unsafeBitCast(handler, to: (@convention(block) (Int) -> Void).self)
+        finish(response)
     }
 
     /// Logs the panel that is about to appear, after the document panel has been allowed to choose folders.

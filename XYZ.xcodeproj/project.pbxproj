@@ -32,8 +32,14 @@
 		8C000000000000000000001E /* WordCountBar.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B000000000000000000001E /* WordCountBar.swift */; };
 		8C000000000000000000001F /* highlight.min.js in Resources */ = {isa = PBXBuildFile; fileRef = 8B000000000000000000001F /* highlight.min.js */; };
 		8C0000000000000000000020 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000020 /* Localizable.xcstrings */; };
+		8C0000000000000000000028 /* bin in Resources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000028 /* bin */; };
 		8C0000000000000000000021 /* EscapeKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000021 /* EscapeKey.swift */; };
 		8C0000000000000000000022 /* LineNumberGutter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000022 /* LineNumberGutter.swift */; };
+		8C0000000000000000000026 /* GutterSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000026 /* GutterSnapshot.swift */; };
+		8C0000000000000000000023 /* EditorChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000023 /* EditorChrome.swift */; };
+		8C0000000000000000000024 /* FileSurfaces.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000024 /* FileSurfaces.swift */; };
+		8C0000000000000000000025 /* GlobalSearchPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000025 /* GlobalSearchPanel.swift */; };
+		8C0000000000000000000027 /* XYZDiagnostics.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000027 /* XYZDiagnostics.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -68,8 +74,14 @@
 		8B000000000000000000001E /* WordCountBar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WordCountBar.swift; sourceTree = "<group>"; };
 		8B000000000000000000001F /* highlight.min.js */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.javascript; path = highlight.min.js; sourceTree = "<group>"; };
 		8B0000000000000000000020 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
+		8B0000000000000000000028 /* bin */ = {isa = PBXFileReference; lastKnownFileType = folder; path = bin; sourceTree = "<group>"; };
 		8B0000000000000000000021 /* EscapeKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EscapeKey.swift; sourceTree = "<group>"; };
 		8B0000000000000000000022 /* LineNumberGutter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineNumberGutter.swift; sourceTree = "<group>"; };
+		8B0000000000000000000026 /* GutterSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GutterSnapshot.swift; sourceTree = "<group>"; };
+		8B0000000000000000000023 /* EditorChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorChrome.swift; sourceTree = "<group>"; };
+		8B0000000000000000000024 /* FileSurfaces.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSurfaces.swift; sourceTree = "<group>"; };
+		8B0000000000000000000025 /* GlobalSearchPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalSearchPanel.swift; sourceTree = "<group>"; };
+		8B0000000000000000000027 /* XYZDiagnostics.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = XYZDiagnostics.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -128,6 +140,7 @@
 				8B000000000000000000001A /* FormatMenu.swift */,
 				8B000000000000000000001E /* WordCountBar.swift */,
 				8B0000000000000000000022 /* LineNumberGutter.swift */,
+				8B0000000000000000000026 /* GutterSnapshot.swift */,
 			);
 			path = Editor;
 			sourceTree = "<group>";
@@ -163,6 +176,10 @@
 				8B0000000000000000000016 /* WorkspaceLog.swift */,
 				8B0000000000000000000019 /* EditorCommands.swift */,
 				8B0000000000000000000021 /* EscapeKey.swift */,
+				8B0000000000000000000023 /* EditorChrome.swift */,
+				8B0000000000000000000024 /* FileSurfaces.swift */,
+				8B0000000000000000000025 /* GlobalSearchPanel.swift */,
+				8B0000000000000000000027 /* XYZDiagnostics.swift */,
 			);
 			path = Workspace;
 			sourceTree = "<group>";
@@ -183,6 +200,7 @@
 				8B0000000000000000000009 /* Preview.css */,
 				8B000000000000000000001F /* highlight.min.js */,
 				8B0000000000000000000020 /* Localizable.xcstrings */,
+				8B0000000000000000000028 /* bin */,
 			);
 			path = Resources;
 			sourceTree = "<group>";
@@ -197,6 +215,7 @@
 				8A0000000000000000000003 /* Sources */,
 				8A0000000000000000000004 /* Frameworks */,
 				8A0000000000000000000005 /* Resources */,
+				8A0000000000000000000018 /* Make xyz executable */,
 			);
 			buildRules = (
 			);
@@ -256,10 +275,28 @@
 				8C0000000000000000000009 /* Preview.css in Resources */,
 				8C000000000000000000001F /* highlight.min.js in Resources */,
 				8C0000000000000000000020 /* Localizable.xcstrings in Resources */,
+				8C0000000000000000000028 /* bin in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		8A0000000000000000000018 /* Make xyz executable */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputPaths = (
+			);
+			name = "Make xyz executable";
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "dest=\"${TARGET_BUILD_DIR}/${UNLOCALIZED_RESOURCES_FOLDER_PATH}/bin/xyz\"\nif [ ! -f \"$dest\" ]; then\n  if [ \"${PLATFORM_NAME}\" = \"macosx\" ]; then\n    echo \"xyz launcher was not copied to $dest\" >&2\n    exit 1\n  fi\n  exit 0\nfi\nchmod +x \"$dest\"\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		8A0000000000000000000003 /* Sources */ = {
@@ -288,6 +325,11 @@
 				8C000000000000000000001E /* WordCountBar.swift in Sources */,
 				8C0000000000000000000021 /* EscapeKey.swift in Sources */,
 				8C0000000000000000000022 /* LineNumberGutter.swift in Sources */,
+				8C0000000000000000000026 /* GutterSnapshot.swift in Sources */,
+				8C0000000000000000000023 /* EditorChrome.swift in Sources */,
+				8C0000000000000000000024 /* FileSurfaces.swift in Sources */,
+				8C0000000000000000000025 /* GlobalSearchPanel.swift in Sources */,
+				8C0000000000000000000027 /* XYZDiagnostics.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -20,6 +20,19 @@ public struct WorkspaceNode: Identifiable, Hashable, Sendable {
     }
 }
 
+public struct WorkspaceCrumb: Equatable, Sendable, Identifiable {
+    public var name: String
+    /// Empty for the workspace root.
+    public var relativePath: String
+
+    public var id: String { relativePath.isEmpty ? "." : relativePath }
+
+    public init(name: String, relativePath: String) {
+        self.name = name
+        self.relativePath = relativePath
+    }
+}
+
 public enum WorkspacePaths {
     public static func child(parent: String, name: String) -> String {
         parent.isEmpty ? name : parent + "/" + name
@@ -41,6 +54,28 @@ public enum WorkspacePaths {
         return chain.reversed()
     }
 
+    /// Root, then each folder, then the file. `relativePath` is empty for the root.
+    public static func crumbs(rootName: String, relativePath: String) -> [WorkspaceCrumb] {
+        var items = [WorkspaceCrumb(name: rootName, relativePath: "")]
+        guard !relativePath.isEmpty else { return items }
+        var path = ""
+        for part in relativePath.split(separator: "/") {
+            let name = String(part)
+            path = path.isEmpty ? name : path + "/" + name
+            items.append(WorkspaceCrumb(name: name, relativePath: path))
+        }
+        return items
+    }
+
+    /// Rewrites `relativePath` when `old` is renamed to `new`, including descendants.
+    public static func replacing(_ relativePath: String, from old: String, to new: String) -> String {
+        if old.isEmpty || old == new { return relativePath }
+        if relativePath == old { return new }
+        let prefix = old + "/"
+        guard relativePath.hasPrefix(prefix) else { return relativePath }
+        return new + relativePath.dropFirst(old.count)
+    }
+
     /// The folders a file sits in, from the workspace root down, for the window subtitle.
     /// A deep path keeps the root and the nearest folders with `…` between: `root › … › b › c`.
     public static func breadcrumb(rootName: String, relativePath: String, limit: Int = 5) -> [String] {
@@ -55,6 +90,17 @@ public enum WorkspacePaths {
     /// Dotfiles, and names the platform already marked hidden.
     public static func isHidden(name: String, resourceHidden: Bool) -> Bool {
         name.hasPrefix(".") || resourceHidden
+    }
+
+    /// `~/Documents` when `path` lives inside `home`. The home directory is an argument, never a fixed path.
+    public static func abbreviatedHomePath(_ path: String, home: String) -> String {
+        let path = (path as NSString).standardizingPath
+        let home = (home as NSString).standardizingPath
+        if home.isEmpty { return path }
+        if path == home { return "~" }
+        let prefix = home.hasSuffix("/") ? home : home + "/"
+        guard path.hasPrefix(prefix) else { return path }
+        return "~/" + path.dropFirst(prefix.count)
     }
 }
 

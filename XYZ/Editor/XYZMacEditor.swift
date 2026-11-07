@@ -8,33 +8,34 @@ final class XYZMacTextView: NSTextView {
     weak var documentUndoManager: UndoManager?
     var onAppearanceChange: (() -> Void)?
     var allowsMarkup = true
+    /// The open file's language, for comment toggling.
+    var sourceLanguage: SyntaxLanguage = .plain
     /// Size and measure from Settings. Layout derives the side padding from it.
     var style = XYZEditorStyle() {
         didSet {
             if showsLineNumbers, style != oldValue {
-                gutter.needsDisplay = true
+                editorPane?.gutter.needsDisplay = true
             }
         }
     }
-    /// Settings → Show line numbers. The left padding grows to fit them.
+    /// Settings → Show line numbers. The gutter is a sibling of the scroll view, not a subview of it.
     var showsLineNumbers = false {
         didSet {
             guard showsLineNumbers != oldValue else { return }
-            gutter.isHidden = !showsLineNumbers
-            if showsLineNumbers {
-                gutter.invalidateLines()
-            }
+            editorPane?.gutter.invalidateLines()
+            editorPane?.needsLayout = true
             needsLayout = true
         }
     }
-    private lazy var gutter: LineNumberGutter = {
-        let view = LineNumberGutter()
-        view.textView = self
-        view.isHidden = true
-        view.autoresizingMask = [.height]
-        addSubview(view)
-        return view
-    }()
+    /// The pane that owns this text view and its gutter. Set when the pane attaches the document.
+    weak var editorPane: EditorPane?
+    /// The live gutter, for the offscreen snapshot. Nil until line numbers are turned on.
+    var lineNumberGutter: LineNumberGutter? {
+        guard showsLineNumbers, let gutter = editorPane?.gutter, gutter.superview != nil, !gutter.isHidden else {
+            return nil
+        }
+        return gutter
+    }
     /// Restored once, after the view is in a window and the inset matches the pane.
     private var pendingAnchor: EditorScrollAnchor?
     private var isAligning = false
@@ -53,6 +54,12 @@ final class XYZMacTextView: NSTextView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
+        let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        selectedTextAttributes = [
+            .backgroundColor: dark
+                ? NSColor(srgbRed: 38 / 255, green: 79 / 255, blue: 120 / 255, alpha: 1)
+                : NSColor.selectedTextBackgroundColor,
+        ]
         onAppearanceChange?()
     }
 
@@ -60,17 +67,21 @@ final class XYZMacTextView: NSTextView {
         if EditorCommands.shared.handleKeyEquivalent(event) {
             return true
         }
-        // Format shortcuts work here even while SwiftUI is rebuilding the main menu.
-        if let item = FormatMenu.item(matching: event), isEditable, allowsMarkup {
-            NSApp.sendAction(item.action, to: self, from: item.menuItem())
-            return true
-        }
         return super.performKeyEquivalent(with: event)
     }
 
     override func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
-        if let action = menuItem.action, FormatMenu.actions.contains(action) {
-            return isEditable && allowsMarkup
+        if let action = menuItem.action, LineEditMenu.actions.contains(action) {
+            guard isEditable else { return false }
+            if action == #selector(xyzToggleComment(_:)) {
+                return TextTransforms.lineComment(for: sourceLanguage) != nil
+            }
+            if action == #selector(xyzMakeUppercase(_:))
+                || action == #selector(xyzMakeLowercase(_:))
+                || action == #selector(xyzMakeTitleCase(_:)) {
+                return selectedRange().length > 0
+            }
+            return true
         }
         return super.validateMenuItem(menuItem)
     }
@@ -115,55 +126,640 @@ final class XYZMacTextView: NSTextView {
         return true
     }
 
+    /// One replacement, one undo group. Used for find-and-replace and line edits on every text file.
+    @discardableResult
+    func applySourceEdit(_ edit: SourceReplacement?) -> Bool {
+        guard isEditable, !hasMarkedText(), let edit, let storage = textStorage else { return false }
+        let range = NSRange(location: edit.range.location, length: edit.range.length)
+        undoManager?.beginUndoGrouping()
+        defer { undoManager?.endUndoGrouping() }
+        guard shouldChangeText(in: range, replacementString: edit.text) else { return false }
+        storage.replaceCharacters(in: range, with: edit.text)
+        didChangeText()
+        let length = (string as NSString).length
+        let location = min(max(0, edit.selection.location), length)
+        let selectionLength = min(max(0, edit.selection.length), max(length - location, 0))
+        setSelectedRange(NSRange(location: location, length: selectionLength))
+        return true
+    }
+
+    @objc func xyzDuplicateLineDown(_ sender: Any?) {
+        _ = applySourceEdit(TextTransforms.duplicateLine(in: string, selection: sourceSelection(), above: false))
+    }
+
+    @objc func xyzDuplicateLineUp(_ sender: Any?) {
+        _ = applySourceEdit(TextTransforms.duplicateLine(in: string, selection: sourceSelection(), above: true))
+    }
+
+    @objc func xyzMoveLineDown(_ sender: Any?) {
+        _ = applySourceEdit(TextTransforms.moveLine(in: string, selection: sourceSelection(), up: false))
+    }
+
+    @objc func xyzMoveLineUp(_ sender: Any?) {
+        _ = applySourceEdit(TextTransforms.moveLine(in: string, selection: sourceSelection(), up: true))
+    }
+
+    @objc func xyzDeleteLine(_ sender: Any?) {
+        _ = applySourceEdit(TextTransforms.deleteLine(in: string, selection: sourceSelection()))
+    }
+
+    @objc func xyzIndentLines(_ sender: Any?) {
+        _ = applySourceEdit(TextTransforms.indentLines(in: string, selection: sourceSelection(), outdent: false))
+    }
+
+    @objc func xyzOutdentLines(_ sender: Any?) {
+        _ = applySourceEdit(TextTransforms.indentLines(in: string, selection: sourceSelection(), outdent: true))
+    }
+
+    @objc func xyzToggleComment(_ sender: Any?) {
+        guard let prefix = TextTransforms.lineComment(for: sourceLanguage) else { return }
+        let suffix = TextTransforms.lineCommentSuffix(for: sourceLanguage)
+        _ = applySourceEdit(TextTransforms.toggleComment(in: string, selection: sourceSelection(), prefix: prefix, suffix: suffix))
+    }
+
+    @objc func xyzJoinLines(_ sender: Any?) {
+        _ = applySourceEdit(TextTransforms.joinLines(in: string, selection: sourceSelection()))
+    }
+
+    @objc func xyzSortLines(_ sender: Any?) {
+        _ = applySourceEdit(TextTransforms.sortLines(in: string, selection: sourceSelection()))
+    }
+
+    @objc func xyzTrimTrailingWhitespace(_ sender: Any?) {
+        _ = applySourceEdit(TextTransforms.trimTrailingWhitespace(in: string, selection: sourceSelection()))
+    }
+
+    @objc func xyzMakeUppercase(_ sender: Any?) {
+        _ = applySourceEdit(TextTransforms.transformCase(in: string, selection: sourceSelection(), style: .upper))
+    }
+
+    @objc func xyzMakeLowercase(_ sender: Any?) {
+        _ = applySourceEdit(TextTransforms.transformCase(in: string, selection: sourceSelection(), style: .lower))
+    }
+
+    @objc func xyzMakeTitleCase(_ sender: Any?) {
+        _ = applySourceEdit(TextTransforms.transformCase(in: string, selection: sourceSelection(), style: .title))
+    }
+
+    override func performFindPanelAction(_ sender: Any?) {
+        let tag = (sender as? NSMenuItem)?.tag ?? 0
+        let useSelection = tag == NSTextFinder.Action.setSearchString.rawValue
+            || tag == Int(NSFindPanelAction.setFindString.rawValue)
+        if useSelection {
+            findAction?(.useSelection)
+            return
+        }
+        let sel = #selector(NSTextView.performFindPanelAction(_:))
+        guard let superclass = XYZMacTextView.superclass(), superclass.instancesRespond(to: sel) else { return }
+        super.performFindPanelAction(sender)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if event.modifierFlags.contains(.option), event.clickCount == 1, isEditable {
+            let point = convert(event.locationInWindow, from: nil)
+            let index = characterIndexForInsertion(at: point)
+            guard index != NSNotFound else {
+                super.mouseDown(with: event)
+                return
+            }
+            var ranges = selectedRanges.compactMap { ($0 as? NSValue)?.rangeValue }
+            ranges.append(NSRange(location: index, length: 0))
+            selectedRanges = ranges.map { NSValue(range: $0) }
+            window?.makeFirstResponder(self)
+            return
+        }
+        super.mouseDown(with: event)
+    }
+
+    override func insertText(_ insertString: Any, replacementRange: NSRange) {
+        let ranges = selectedRanges.compactMap { ($0 as? NSValue)?.rangeValue }
+        guard ranges.count > 1, let text = insertString as? String, replacementRange.location == NSNotFound else {
+            super.insertText(insertString, replacementRange: replacementRange)
+            return
+        }
+        undoManager?.beginUndoGrouping()
+        for range in ranges.sorted(by: { $0.location > $1.location }) {
+            super.insertText(text, replacementRange: range)
+        }
+        undoManager?.endUndoGrouping()
+    }
+
+    weak var findModel: EditorFindModel?
+    var findAction: ((FindBarAction) -> Void)?
+
+    func runFind(_ action: FindBarAction) {
+        guard let model = findModel else { return }
+        switch action {
+        case .refresh:
+            scheduleReveal(model, forward: true, stayIfAlreadyThere: true)
+        case .next:
+            revealCached(model, forward: true, stayIfAlreadyThere: false)
+        case .previous:
+            revealCached(model, forward: false, stayIfAlreadyThere: false)
+        case .replaceOne:
+            replaceCurrent(model)
+        case .replaceAll:
+            replaceEvery(model)
+        case .useSelection:
+            let selected = sourceSelection()
+            guard selected.length > 0 else { return }
+            let ns = string as NSString
+            model.pattern = ns.substring(with: NSRange(location: selected.location, length: selected.length))
+            model.visible = true
+            model.scheduleRefresh()
+        case .selectNextOccurrence:
+            selectNextOccurrence()
+        case .focus:
+            model.focusToken &+= 1
+        case .cancel:
+            findTask?.cancel()
+            findGeneration += 1
+            findMarks = []
+            findMarkIndex = nil
+            paintFindMarks()
+        }
+    }
+
+    private var findTask: Task<Void, Never>?
+    private var findGeneration = 0
+    private var cachedQuery: FindQuery?
+    private var cachedMatches: [FindMatch] = []
+    private var findMarks: [FindMatch] = []
+    private var findMarkIndex: Int?
+
+    /// Drop the previous document's caret, selection, and find marks before the new text is shown.
+    func clearDocumentChrome() {
+        findMarks = []
+        findMarkIndex = nil
+        setSelectedRange(NSRange(location: 0, length: 0))
+        paintFindMarks()
+    }
+
+    /// Accent marks for every match. The current one is darker. Called again after syntax styling, which clears backgrounds.
+    func paintFindMarks() {
+        guard let storage = textStorage else { return }
+        let full = NSRange(location: 0, length: storage.length)
+        undoManager?.disableUndoRegistration()
+        storage.beginEditing()
+        if full.length > 0 {
+            storage.removeAttribute(.backgroundColor, range: full)
+        }
+        let faint = NSColor.xyzFindMatch
+        let strong = NSColor.xyzFindCurrent
+        let cap = min(findMarks.count, 2_000)
+        if cap > 0 {
+            for index in 0..<cap {
+                let match = findMarks[index].range
+                let range = NSRange(location: match.location, length: match.length)
+                guard range.location >= 0, NSMaxRange(range) <= storage.length, range.length > 0 else { continue }
+                let color = index == findMarkIndex ? strong : faint
+                storage.addAttribute(.backgroundColor, value: color, range: range)
+            }
+        }
+        storage.endEditing()
+        undoManager?.enableUndoRegistration()
+    }
+
+    func singleLineSelection() -> String? {
+        let selected = sourceSelection()
+        guard selected.length > 0, selected.length < 2_000 else { return nil }
+        let ns = string as NSString
+        guard NSMaxRange(NSRange(location: selected.location, length: selected.length)) <= ns.length else { return nil }
+        let text = ns.substring(with: NSRange(location: selected.location, length: selected.length))
+        guard !text.contains("\n"), !text.contains("\r"), !text.isEmpty else { return nil }
+        return text
+    }
+
+    /// Counts matches off the main thread. A newer keystroke cancels this pass.
+    private func scheduleReveal(_ model: EditorFindModel, forward: Bool, stayIfAlreadyThere: Bool) {
+        findTask?.cancel()
+        let text = string
+        let query = model.query
+        let selection = sourceSelection()
+        findGeneration += 1
+        let token = findGeneration
+        findTask = Task { [weak self] in
+            let scanned = await Task.detached(priority: .userInitiated) {
+                FindScan.make(text: text, query: query, selection: selection, forward: forward, stay: stayIfAlreadyThere)
+            }.value
+            await MainActor.run { [weak self] in
+                guard let self, token == self.findGeneration else { return }
+                self.apply(scanned, model: model, query: query)
+            }
+        }
+    }
+
+    private func revealCached(_ model: EditorFindModel, forward: Bool, stayIfAlreadyThere: Bool) {
+        guard cachedQuery == model.query else {
+            scheduleReveal(model, forward: forward, stayIfAlreadyThere: stayIfAlreadyThere)
+            return
+        }
+        apply(FindScan.pick(text: string, matches: cachedMatches, query: model.query, selection: sourceSelection(), forward: forward, stay: stayIfAlreadyThere), model: model, query: model.query)
+    }
+
+    private func apply(_ scanned: FindScan, model: EditorFindModel, query: FindQuery) {
+        cachedQuery = query
+        cachedMatches = scanned.matches
+        model.count = scanned.count
+        model.regexInvalid = scanned.invalid
+        model.index = scanned.index
+        model.wrapped = scanned.wrapped
+        findMarks = query.pattern.isEmpty ? [] : scanned.matches
+        findMarkIndex = scanned.index > 0 ? scanned.index - 1 : nil
+        paintFindMarks()
+        guard query.pattern.isEmpty == false, let range = scanned.range else { return }
+        let nsRange = NSRange(location: range.location, length: range.length)
+        setSelectedRange(nsRange)
+        revealFindRange(nsRange)
+    }
+
+    /// Puts the current match on screen, with a margin. A later layout pass repeats it,
+    /// because TextKit 2 can put the clip back.
+    func revealFindRange(_ range: NSRange) {
+        scrollFindRange(range)
+        DispatchQueue.main.async { [weak self] in
+            self?.scrollFindRange(range)
+        }
+    }
+
+    private func scrollFindRange(_ range: NSRange) {
+        guard let scroll = enclosingScrollView, let rect = findRect(range) else { return }
+        let visible = scroll.contentView.bounds
+        if rect.maxY + visible.height > bounds.height, let manager = textLayoutManager {
+            let used = manager.usageBoundsForTextContainer
+            let fitted = ceil(max(used.maxY + textContainerInset.height * 2, rect.maxY + visible.height))
+            if bounds.height + 1 < fitted {
+                setFrameSize(NSSize(width: bounds.width, height: fitted))
+            }
+        }
+        let y = FindScroll.origin(
+            matchMin: rect.minY,
+            matchMax: rect.maxY,
+            visibleOrigin: visible.origin.y,
+            visibleLength: visible.height,
+            contentLength: bounds.height,
+            margin: 48
+        )
+        var x = visible.origin.x
+        if rect.minX < visible.minX + 12 || rect.maxX > visible.maxX - 12 {
+            let maxX = max(0, bounds.width - visible.width)
+            x = min(max(0, rect.midX - visible.width / 2), maxX)
+        }
+        guard abs(y - visible.origin.y) > 1 || abs(x - visible.origin.x) > 1 else { return }
+        NSAnimationContext.beginGrouping()
+        NSAnimationContext.current.duration = 0
+        NSAnimationContext.current.allowsImplicitAnimation = false
+        scroll.contentView.scroll(to: NSPoint(x: x, y: y))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        NSAnimationContext.endGrouping()
+    }
+
+    private func findRect(_ range: NSRange) -> NSRect? {
+        guard let manager = textLayoutManager, let content = manager.textContentManager else { return nil }
+        let length = (string as NSString).length
+        let startOffset = min(max(0, range.location), length)
+        let document = content.documentRange
+        let start = content.location(document.location, offsetBy: startOffset) ?? document.location
+        let end = content.location(start, offsetBy: max(range.length, 1)) ?? document.endLocation
+        if let layoutRange = NSTextRange(location: document.location, end: end) {
+            manager.ensureLayout(for: layoutRange)
+        }
+        guard let fragment = manager.textLayoutFragment(for: start) else { return nil }
+        var frame = fragment.layoutFragmentFrame
+        let base = content.offset(from: document.location, to: fragment.rangeInElement.location)
+        if let lineFragment = fragment.textLineFragments.first(where: {
+            let doc = base + $0.characterRange.location
+            return doc <= startOffset && startOffset < doc + max($0.characterRange.length, 1)
+        }) {
+            let bounds = lineFragment.typographicBounds
+            frame = NSRect(
+                x: frame.minX + bounds.minX,
+                y: frame.minY + bounds.minY,
+                width: max(bounds.width, 1),
+                height: max(bounds.height, 1)
+            )
+        }
+        let origin = textContainerOrigin
+        return NSRect(x: origin.x + frame.minX, y: origin.y + frame.minY, width: max(frame.width, 1), height: max(frame.height, 1))
+    }
+
+    private func revealMatch(_ model: EditorFindModel, forward: Bool, stayIfAlreadyThere: Bool) {
+        scheduleReveal(model, forward: forward, stayIfAlreadyThere: stayIfAlreadyThere)
+    }
+
+/// A find pass. The heavy scan runs off the main thread.
+private struct FindScan {
+    var matches: [FindMatch]
+    var count: Int
+    var index: Int
+    var invalid: Bool
+    var range: SourceRange?
+    var line: Int
+    var wrapped: Bool
+
+    static func make(text: String, query: FindQuery, selection: SourceRange, forward: Bool, stay: Bool) -> FindScan {
+        let result = TextFind.scan(text: text, query: query, selection: selection, forward: forward, stay: stay)
+        return FindScan(
+            matches: result.matches,
+            count: result.count,
+            index: result.index,
+            invalid: result.invalid,
+            range: result.range,
+            line: result.line,
+            wrapped: result.wrapped
+        )
+    }
+
+    static func pick(
+        text: String,
+        matches: [FindMatch],
+        query: FindQuery,
+        selection: SourceRange,
+        forward: Bool,
+        stay: Bool
+    ) -> FindScan {
+        let invalid = !query.pattern.isEmpty && !TextFind.isValid(query)
+        guard !matches.isEmpty else {
+            return FindScan(matches: matches, count: 0, index: 0, invalid: invalid, range: nil, line: 1, wrapped: false)
+        }
+        let index: Int
+        let wrapped: Bool
+        if stay, let current = matches.firstIndex(where: {
+            $0.range.location == selection.location && $0.range.length == selection.length
+        }) {
+            index = current
+            wrapped = false
+        } else if let stepped = TextFind.stepDetail(from: selection, matches: matches, forward: forward) {
+            index = stepped.index
+            wrapped = stepped.wrapped
+        } else {
+            index = 0
+            wrapped = false
+        }
+        let range = matches[index].range
+        return FindScan(
+            matches: matches,
+            count: matches.count,
+            index: index + 1,
+            invalid: invalid,
+            range: range,
+            line: TextFind.lineNumber(in: text, utf16: range.location),
+            wrapped: wrapped
+        )
+    }
+}
+
+    private func replaceCurrent(_ model: EditorFindModel) {
+        guard isEditable else { return }
+        var matches = TextFind.matches(in: string, query: model.query)
+        var selection = sourceSelection()
+        var index = matches.firstIndex(where: {
+            $0.range.location == selection.location && $0.range.length == selection.length
+        })
+        if index == nil {
+            revealMatch(model, forward: true, stayIfAlreadyThere: false)
+            matches = TextFind.matches(in: string, query: model.query)
+            selection = sourceSelection()
+            index = matches.firstIndex(where: {
+                $0.range.location == selection.location && $0.range.length == selection.length
+            })
+        }
+        guard let index else { return }
+        let match = matches[index]
+        let piece = model.replacementText(for: string, match: match)
+        guard applySourceEdit(SourceReplacement(
+            range: match.range,
+            text: piece,
+            selection: SourceRange(location: match.range.location, length: (piece as NSString).length)
+        )) else { return }
+        revealMatch(model, forward: true, stayIfAlreadyThere: false)
+    }
+
+    private func replaceEvery(_ model: EditorFindModel) {
+        guard isEditable else { return }
+        let replaced = TextFind.replaceAll(in: string, query: model.query, with: model.replacement)
+        guard replaced.count > 0 else { return }
+        let full = SourceRange(location: 0, length: (string as NSString).length)
+        _ = applySourceEdit(SourceReplacement(
+            range: full,
+            text: replaced.text,
+            selection: SourceRange(location: 0, length: 0)
+        ))
+        revealMatch(model, forward: true, stayIfAlreadyThere: true)
+    }
+
+    func selectNextOccurrence() {
+        let ns = string as NSString
+        let current = selectedRanges.compactMap { ($0 as? NSValue)?.rangeValue }.sorted { $0.location < $1.location }
+        let seedRange = current.last(where: { $0.length > 0 }) ?? current.last
+        let seed: String
+        if let seedRange, seedRange.length > 0 {
+            seed = ns.substring(with: seedRange)
+        } else {
+            let origin = seedRange?.location ?? selectedRange().location
+            let word = ns.rangeOfCharacter(from: .alphanumerics.inverted, options: .backwards, range: NSRange(location: 0, length: origin))
+            let start = word.location == NSNotFound ? 0 : NSMaxRange(word)
+            let forward = ns.rangeOfCharacter(from: .alphanumerics.inverted, options: [], range: NSRange(location: origin, length: ns.length - origin))
+            let end = forward.location == NSNotFound ? ns.length : forward.location
+            guard end > start else { return }
+            seed = ns.substring(with: NSRange(location: start, length: end - start))
+            setSelectedRange(NSRange(location: start, length: end - start))
+        }
+        guard !seed.isEmpty else { return }
+        let matches = TextFind.matches(in: string, query: FindQuery(pattern: seed, matchCase: true))
+        let after = current.last?.location ?? 0
+        guard let next = matches.first(where: { $0.range.location > after }) ?? matches.first(where: { $0.range.location != after }) else { return }
+        var ranges = current.filter { $0.length > 0 }
+        if ranges.isEmpty, let seedRange {
+            ranges = [seedRange]
+        }
+        let added = NSRange(location: next.range.location, length: next.range.length)
+        if !ranges.contains(where: { NSEqualRanges($0, added) }) {
+            ranges.append(added)
+        }
+        selectedRanges = ranges.map { NSValue(range: $0) }
+        scrollRangeToVisible(added)
+    }
+
     override func layout() {
         super.layout()
         guard !isAligning else { return }
         guard let width = enclosingScrollView?.contentSize.width, width > 1 else { return }
+        textContainer?.lineFragmentPadding = 0
+        enclosingScrollView?.rulersVisible = false
         let next = expectedInset(for: width)
         if textContainerInset != next {
             textContainerInset = next
             needsLayout = true
             return
         }
-        if showsLineNumbers {
-            placeGutter()
-        }
+        editorPane?.noteTextLayout()
         alignIfReady()
     }
 
-    /// The side padding from Settings, widened when line numbers need more room.
+    /// Turns numbers on or off on this view. Called from SwiftUI updates, including a mode
+    /// change on a text view that is already on screen.
+    func syncLineNumbers(_ show: Bool) {
+        if showsLineNumbers != show {
+            showsLineNumbers = show
+            showViewport()
+        } else if show {
+            editorPane?.needsLayout = true
+            editorPane?.gutter.needsDisplay = true
+        }
+    }
+
+    /// TextKit 2 only draws the laid-out viewport. A mode change has to ask for it again.
+    func showViewport() {
+        textLayoutManager?.textViewportLayoutController.layoutViewport()
+        needsDisplay = true
+        enclosingScrollView?.needsDisplay = true
+    }
+
+    /// The side padding from Settings. Line numbers live in the sibling gutter, not in this inset.
     private func expectedInset(for paneWidth: CGFloat) -> NSSize {
-        var side = style.sideInset(for: paneWidth)
-        if showsLineNumbers {
-            side = max(side, gutter.numberWidth(fontSize: style.fontSize) + LineNumberGutter.gap + 12)
-        }
-        return NSSize(width: side, height: style.verticalInset)
+        NSSize(width: style.sideInset(for: paneWidth), height: style.verticalInset)
     }
 
-    /// The gutter covers the left padding, above TextKit's own fragment views.
-    private func placeGutter() {
-        let frame = NSRect(x: 0, y: 0, width: textContainerInset.width, height: bounds.height)
-        if gutter.frame != frame {
-            gutter.frame = frame
-            gutter.needsDisplay = true
-        }
-        if subviews.last !== gutter {
-            addSubview(gutter, positioned: .above, relativeTo: nil)
-        }
-    }
-
-    /// The text changed: renumber, and widen the padding when the count gains a digit.
+    /// The text changed: renumber. A wider number asks the pane to grow the gutter.
     func lineNumbersChanged() {
         guard showsLineNumbers else { return }
-        if gutter.invalidateLines() {
-            needsLayout = true
+        editorPane?.gutter.invalidateLines()
+        editorPane?.needsLayout = true
+    }
+
+    /// The caret's number is darker, and Editing draws a band behind that line.
+    func caretMoved() {
+        if showsLineNumbers {
+            editorPane?.gutter.needsDisplay = true
+        }
+        guard isEditable else { return }
+        guard let band = currentLineBand() else { return }
+        if let previous = lastLineBand, !previous.equalTo(band) {
+            setNeedsDisplay(previous)
+        }
+        lastLineBand = band
+        setNeedsDisplay(band)
+    }
+
+    private var lastLineBand: NSRect?
+    private var lineIndexCache: LineIndex?
+    private var lineIndexToken = 0
+
+    /// Line starts for the status bar. Built off the main thread so closing find does not scan the file.
+    func warmLineIndex() {
+        lineIndexToken += 1
+        let token = lineIndexToken
+        let text = string
+        Task.detached(priority: .utility) { [weak self] in
+            let index = LineIndex(text)
+            await MainActor.run { [weak self] in
+                guard let self, token == self.lineIndexToken else { return }
+                self.lineIndexCache = index
+            }
         }
     }
 
-    /// The caret's number is darker, so a selection change redraws the numbers in view.
-    func caretMoved() {
-        guard showsLineNumbers else { return }
-        gutter.setNeedsDisplay(visibleRect)
+    func cachedLineIndex() -> LineIndex? {
+        lineIndexCache
+    }
+
+    /// The current line, already laid out. Does not ask TextKit to lay out the rest of the file.
+    private func currentLineBand() -> NSRect? {
+        guard let manager = textLayoutManager, let content = manager.textContentManager else { return nil }
+        let length = (string as NSString).length
+        let clamped = min(max(0, selectedRange().location), length)
+        guard let start = content.location(content.documentRange.location, offsetBy: clamped),
+              let fragment = manager.textLayoutFragment(for: start) else { return nil }
+        return NSRect(
+            x: 0,
+            y: textContainerOrigin.y + fragment.layoutFragmentFrame.minY,
+            width: bounds.width,
+            height: fragment.layoutFragmentFrame.height
+        )
+    }
+
+    override func drawBackground(in rect: NSRect) {
+        NSColor.xyzEditor.setFill()
+        rect.fill()
+        guard isEditable else { return }
+        drawCurrentLineBand(in: rect)
+        drawIndentGuides(in: rect)
+    }
+
+    /// Full-width band for the caret's source line. Wrapping uses the laid-out fragment,
+    /// which covers every visual row of that line. A uniform box is only for an unwrapped file.
+    private func drawCurrentLineBand(in rect: NSRect) {
+        let band: NSRect
+        if style.wraps, let laid = currentLineBand() {
+            band = laid
+        } else {
+            let box = lineBoxHeight()
+            let line = EditorScrollAnchor.lineNumber(at: selectedRange().location, in: string)
+            let y = textContainerOrigin.y + CGFloat(max(0, line - 1)) * box
+            band = NSRect(x: 0, y: y, width: bounds.width, height: box)
+        }
+        guard band.intersects(rect) else { return }
+        NSColor.xyzCurrentLine.setFill()
+        band.intersection(NSRect(x: 0, y: band.minY, width: bounds.width, height: band.height)).fill()
+    }
+
+    /// A hairline at each 2-space or tab indent. Editing only. Drawn from the source line, not a layout fragment.
+    private func drawIndentGuides(in rect: NSRect) {
+        let ns = string as NSString
+        guard ns.length > 0 else { return }
+        let index = lineIndexCache ?? LineIndex(string)
+        let box = lineBoxHeight()
+        let originY = textContainerOrigin.y
+        let first = max(1, Int(floor((rect.minY - originY) / box)) + 1)
+        let last = min(index.count, max(first, Int(ceil((rect.maxY - originY) / box)) + 1))
+        guard first <= last else { return }
+        let face = font ?? NSFont.systemFont(ofSize: style.fontSize)
+        let step = max(6, ("  " as NSString).size(withAttributes: [.font: face]).width)
+        let originX = textContainerOrigin.x
+        if effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua {
+            NSColor.xyzSecondaryText.withAlphaComponent(0.45).setStroke()
+        } else {
+            NSColor.xyzDivider.setStroke()
+        }
+        let path = NSBezierPath()
+        for line in first...last {
+            let start = index.starts[line - 1]
+            let end = line < index.count ? index.starts[line] : ns.length
+            guard end > start else { continue }
+            let levels = Self.indentLevels(ns.substring(with: NSRange(location: start, length: end - start)))
+            guard levels > 0 else { continue }
+            let top = originY + CGFloat(line - 1) * box
+            let bottom = top + box
+            for level in 1...levels {
+                let x = originX + CGFloat(level) * step
+                path.move(to: NSPoint(x: x, y: top))
+                path.line(to: NSPoint(x: x, y: bottom))
+            }
+        }
+        path.lineWidth = 1
+        path.stroke()
+    }
+
+    private func lineBoxHeight() -> CGFloat {
+        let face = font ?? NSFont.systemFont(ofSize: style.fontSize)
+        let natural = face.ascender - face.descender + face.leading
+        return max(1, style.paragraphStyle(naturalLineHeight: natural).minimumLineHeight)
+    }
+
+    /// Two spaces, or one tab, are one indent.
+    private static func indentLevels(_ line: String) -> Int {
+        var columns = 0
+        for character in line {
+            if character == " " {
+                columns += 1
+            } else if character == "\t" {
+                columns += 2
+            } else {
+                break
+            }
+        }
+        return columns / 2
     }
 
     override func viewDidMoveToWindow() {
@@ -200,13 +796,31 @@ final class XYZMacTextView: NSTextView {
         return EditorScrollAnchor(fraction: fraction, probe: probe, line: line)
     }
 
-    /// Go to Heading: the caret at the start of the line, and the line at the top of the pane.
-    func jump(toLine line: Int) {
+    /// Go to Heading, or Go to Line. The caret sits on that line and column, and the line is at the top.
+    func jump(toLine line: Int, column: Int = 1, selecting needle: String? = nil) {
         let length = (string as NSString).length
-        let location = min(max(0, EditorScrollAnchor.utf16Location(ofLine: line, in: string)), length)
-        setSelectedRange(NSRange(location: location, length: 0))
+        let location = min(max(0, GoToPosition.utf16Offset(in: string, line: line, column: column)), length)
+        if let needle, !needle.isEmpty {
+            select(needle, onLineAt: location)
+        } else {
+            setSelectedRange(NSRange(location: location, length: 0))
+        }
         window?.makeFirstResponder(self)
         reveal(EditorScrollAnchor(fraction: 0, probe: "", line: line))
+    }
+
+    /// Selects the first case-insensitive match on the line. The caret stays on the line when there is none.
+    private func select(_ needle: String, onLineAt location: Int) {
+        let ns = string as NSString
+        guard ns.length > 0 else { return }
+        let probe = min(max(0, location), ns.length - 1)
+        let lineRange = ns.lineRange(for: NSRange(location: probe, length: 0))
+        let found = ns.range(of: needle, options: [.caseInsensitive], range: lineRange)
+        if found.location != NSNotFound {
+            setSelectedRange(found)
+        } else {
+            setSelectedRange(NSRange(location: min(location, ns.length), length: 0))
+        }
     }
 
     /// Remember the line and align on the next layout that has a window and a real inset.
@@ -276,7 +890,7 @@ final class XYZMacTextView: NSTextView {
         if let layoutRange {
             manager.ensureLayout(for: layoutRange)
         } else {
-            manager.ensureLayout(for: manager.documentRange)
+            manager.textViewportLayoutController.layoutViewport()
         }
         let fragment = manager.textLayoutFragment(for: start)
             ?? (clamped > 0 ? content.location(document.location, offsetBy: clamped - 1).flatMap { manager.textLayoutFragment(for: $0) } : nil)
@@ -288,25 +902,140 @@ final class XYZMacTextView: NSTextView {
     /// The source line whose top is at the viewport's content top.
     /// Uses the same fragment frame as `lineOffset`, so capture and restore name one line.
     private func viewportTopLine() -> Int {
-        guard let scroll = enclosingScrollView,
-              let manager = textLayoutManager,
+        guard let manager = textLayoutManager,
               let content = manager.textContentManager else { return 1 }
-        let marker = scroll.contentView.bounds.origin.y + 0.5
-        var found: NSTextLayoutFragment?
-        manager.enumerateTextLayoutFragments(
-            from: content.documentRange.location,
-            options: [.ensuresLayout]
-        ) { fragment in
-            let bottom = textContainerOrigin.y + fragment.layoutFragmentFrame.maxY - textContainerInset.height
-            if bottom > marker {
-                found = fragment
-                return false
-            }
-            return true
+        // Walking from the start with `.ensuresLayout` lays out the whole file and, on macOS 27,
+        // leaves the viewport with nothing to draw.
+        let viewport = manager.textViewportLayoutController
+        viewport.layoutViewport()
+        guard let location = viewport.viewportRange?.location else { return 1 }
+        let offset = content.offset(from: content.documentRange.location, to: location)
+        if let index = lineIndexCache {
+            return max(1, index.line(at: max(0, offset)))
         }
-        guard let found else { return 1 }
-        let offset = content.offset(from: content.documentRange.location, to: found.rangeInElement.location)
-        return EditorScrollAnchor.lineNumber(at: max(0, offset), in: string)
+        return max(1, EditorScrollAnchor.lineNumber(at: max(0, offset), in: string))
+    }
+
+    /// The first source line already in the viewport. Does not lay out the rest of the file.
+    func viewportLine() -> Int? {
+        guard let manager = textLayoutManager,
+              let content = manager.textContentManager,
+              let location = manager.textViewportLayoutController.viewportRange?.location,
+              let index = lineIndexCache else { return nil }
+        let offset = content.offset(from: content.documentRange.location, to: location)
+        return max(1, index.line(at: max(0, offset)))
+    }
+}
+
+/// The editor scroller. Line numbers are not a subview of this view: `NSScrollView` would cover them.
+final class EditorScrollView: NSScrollView {}
+
+/// Gutter and scroller, side by side. The pair stops at the top of the status bar.
+final class EditorPane: NSView {
+    let gutter = LineNumberGutter()
+    let scrollView = EditorScrollView()
+    private var clamping = false
+    private var scrollObserver: NSObjectProtocol?
+
+    override var isFlipped: Bool { true }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        gutter.translatesAutoresizingMaskIntoConstraints = true
+        scrollView.translatesAutoresizingMaskIntoConstraints = true
+        addSubview(gutter)
+        addSubview(scrollView)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        nil
+    }
+
+    deinit {
+        if let scrollObserver {
+            NotificationCenter.default.removeObserver(scrollObserver)
+        }
+    }
+
+    func attach(_ textView: XYZMacTextView) {
+        textView.editorPane = self
+        gutter.textView = textView
+        scrollView.documentView = textView
+        let clip = scrollView.contentView
+        clip.postsBoundsChangedNotifications = true
+        if let scrollObserver {
+            NotificationCenter.default.removeObserver(scrollObserver)
+        }
+        scrollObserver = NotificationCenter.default.addObserver(
+            forName: NSView.boundsDidChangeNotification,
+            object: clip,
+            queue: .main
+        ) { [weak self] _ in
+            MainActor.assumeIsolated { () -> Void in
+                self?.gutter.noteGeometryChanged()
+            }
+        }
+        needsLayout = true
+    }
+
+    func noteTextLayout() {
+        // Display only. Marking the pane dirty from the text view's layout never finishes.
+        gutter.noteGeometryChanged()
+    }
+
+    override func layout() {
+        super.layout()
+        guard !clamping else { return }
+        clamping = true
+        clampAboveStatusBar()
+        clamping = false
+        let show = gutter.textView?.showsLineNumbers == true
+        gutter.isHidden = !show
+        let width: CGFloat
+        if show, let textView = gutter.textView {
+            width = max(36, gutter.numberWidth(fontSize: textView.style.fontSize) + 16)
+        } else {
+            width = 0
+        }
+        let gutterFrame = NSRect(x: 0, y: 0, width: width, height: bounds.height)
+        let scrollFrame = NSRect(x: width, y: 0, width: max(1, bounds.width - width), height: bounds.height)
+        let frameChanged = gutter.frame != gutterFrame || scrollView.frame != scrollFrame
+        if gutter.frame != gutterFrame { gutter.frame = gutterFrame }
+        if scrollView.frame != scrollFrame { scrollView.frame = scrollFrame }
+        if frameChanged {
+            gutter.noteGeometryChanged()
+        }
+    }
+
+    /// The hosting view includes the status bar. Keep this pane above that bar.
+    private func clampAboveStatusBar() {
+        guard let content = window?.contentView, let parent = superview else { return }
+        guard let bar = Self.statusBar(in: content) else { return }
+        let barBox = bar.convert(bar.bounds, to: content)
+        guard barBox.height > 8, barBox.height < 48 else { return }
+        var mine = convert(bounds, to: content)
+        if content.isFlipped {
+            let overlap = mine.maxY - barBox.minY
+            guard overlap > 0.5, mine.height - overlap > 1 else { return }
+            mine.size.height -= overlap
+        } else {
+            let overlap = barBox.maxY - mine.minY
+            guard overlap > 0.5, mine.height - overlap > 1 else { return }
+            mine.origin.y += overlap
+            mine.size.height -= overlap
+        }
+        let next = content.convert(mine, to: parent)
+        guard next.height > 1, next != frame else { return }
+        frame = next
+    }
+
+    private static func statusBar(in root: NSView) -> NSView? {
+        if root.identifier?.rawValue == "xyz.statusBar" { return root }
+        for child in root.subviews {
+            if let found = statusBar(in: child) { return found }
+        }
+        return nil
     }
 }
 
@@ -319,10 +1048,13 @@ struct XYZMacEditor: NSViewRepresentable {
     var scrollLink: EditorScrollLink
     var markup: Bool
     var spellCheck: Bool
+    var syntax: SyntaxLanguage
     var lineNumbers: Bool
+    var find: EditorFindModel?
+    var onSelection: ((EditorCaret) -> Void)?
     var onTextChange: (String) -> Void
 
-    func makeNSView(context: Context) -> NSScrollView {
+    func makeNSView(context: Context) -> EditorPane {
         let textView = XYZMacTextView(usingTextLayoutManager: true)
         textView.isRichText = true
         textView.importsGraphics = false
@@ -331,7 +1063,6 @@ struct XYZMacEditor: NSViewRepresentable {
         textView.isEditable = isEditable
         textView.isSelectable = true
         textView.allowsUndo = true
-        textView.usesAdaptiveColorMappingForDarkAppearance = true
         textView.isAutomaticQuoteSubstitutionEnabled = false
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticDataDetectionEnabled = false
@@ -340,13 +1071,13 @@ struct XYZMacEditor: NSViewRepresentable {
         textView.isAutomaticSpellingCorrectionEnabled = false
         textView.isContinuousSpellCheckingEnabled = spellCheck
         textView.isGrammarCheckingEnabled = false
-        textView.usesFindBar = true
+        textView.usesFindBar = false
         textView.isIncrementalSearchingEnabled = true
         textView.drawsBackground = true
+        // The clip view's background layer sits over TextKit 2 fragments once the gutter is added.
+        textView.clipsToBounds = true
+        textView.usesAdaptiveColorMappingForDarkAppearance = false
         textView.isVerticallyResizable = true
-        textView.isHorizontallyResizable = false
-        textView.autoresizingMask = [.width]
-        textView.textContainer?.widthTracksTextView = true
         textView.textContainer?.lineFragmentPadding = 0
         textView.minSize = NSSize(width: 0, height: 0)
         textView.maxSize = NSSize(
@@ -357,16 +1088,18 @@ struct XYZMacEditor: NSViewRepresentable {
 
         context.coordinator.textView = textView
         context.coordinator.onTextChange = onTextChange
+        context.coordinator.onSelection = onSelection
         context.coordinator.style = style
+        context.coordinator.syntax = syntax
         textView.allowsMarkup = markup
-        textView.showsLineNumbers = lineNumbers
         textView.delegate = context.coordinator
         textView.documentUndoManager = undoManager
         textView.onAppearanceChange = { [weak coordinator = context.coordinator] in
             coordinator?.restyle(edited: nil)
         }
 
-        let scrollView = NSScrollView()
+        let pane = EditorPane()
+        let scrollView = pane.scrollView
         scrollView.drawsBackground = true
         scrollView.hasVerticalScroller = true
         scrollView.hasHorizontalScroller = false
@@ -379,30 +1112,53 @@ struct XYZMacEditor: NSViewRepresentable {
         scrollView.horizontalScrollElasticity = .none
         scrollView.contentView.automaticallyAdjustsContentInsets = false
         scrollView.contentView.contentInsets = NSEdgeInsets()
-        scrollView.contentView.drawsBackground = true
-        scrollView.documentView = textView
+        // The clip view's background layer sits over TextKit 2 fragments. The text view paints
+        // the canvas itself.
+        scrollView.clipsToBounds = true
+        scrollView.contentView.clipsToBounds = true
+        scrollView.contentView.drawsBackground = false
+        pane.attach(textView)
+        textView.syncLineNumbers(lineNumbers)
         applyChrome(textView: textView, scrollView: scrollView, style: style)
         textView.string = text
+        textView.warmLineIndex()
         context.coordinator.restyle(edited: nil)
-        textView.textContainer?.containerSize = NSSize(
-            width: scrollView.contentSize.width,
-            height: CGFloat.greatestFiniteMagnitude
-        )
-        assert(textView.textLayoutManager != nil, "XYZEditor requires TextKit 2")
-        return scrollView
+        context.coordinator.observeScroll(of: scrollView)
+        applyWrap(textView: textView, scrollView: scrollView, wraps: style.wraps)
+        textView.layoutManager?.allowsNonContiguousLayout = true
+        return pane
     }
 
-    func updateNSView(_ scrollView: NSScrollView, context: Context) {
+    func updateNSView(_ pane: EditorPane, context: Context) {
+        let scrollView = pane.scrollView
         guard let textView = scrollView.documentView as? XYZMacTextView else { return }
         context.coordinator.onTextChange = onTextChange
+        context.coordinator.onSelection = onSelection
         context.coordinator.scrollLink = scrollLink
+        let editingChanged = textView.isEditable != isEditable
         textView.isEditable = isEditable
+        textView.insertionPointColor = isEditable ? .labelColor : .clear
+        if editingChanged {
+            textView.showViewport()
+            if !isEditable {
+                context.coordinator.forgetViewportLine()
+            }
+        }
         let markupChanged = textView.allowsMarkup != markup
         textView.allowsMarkup = markup
         if textView.isContinuousSpellCheckingEnabled != spellCheck {
             textView.isContinuousSpellCheckingEnabled = spellCheck
         }
-        textView.showsLineNumbers = lineNumbers
+        textView.syncLineNumbers(lineNumbers)
+        textView.textContainer?.lineFragmentPadding = 0
+        scrollView.automaticallyAdjustsContentInsets = false
+        scrollView.contentInsets = NSEdgeInsets()
+        scrollView.scrollerInsets = NSEdgeInsets()
+        scrollView.contentView.automaticallyAdjustsContentInsets = false
+        scrollView.contentView.contentInsets = NSEdgeInsets()
+        scrollView.clipsToBounds = true
+        scrollView.contentView.clipsToBounds = true
+        scrollView.contentView.drawsBackground = false
         textView.documentUndoManager = undoManager
         scrollLink.capture = { [weak textView] in
             textView?.scrollAnchor() ?? EditorScrollAnchor(fraction: 0, probe: "", line: 1)
@@ -410,23 +1166,77 @@ struct XYZMacEditor: NSViewRepresentable {
         scrollLink.revealLine = { [weak textView] line in
             textView?.jump(toLine: line)
         }
-        let styleChanged = context.coordinator.style != style || markupChanged
-        if context.coordinator.style != style {
+        scrollLink.revealMatch = { [weak textView] line, needle in
+            textView?.jump(toLine: line, selecting: needle)
+        }
+        scrollLink.revealPosition = { [weak textView] line, column in
+            textView?.jump(toLine: line, column: column)
+        }
+        scrollLink.focusEditor = { [weak textView] in
+            guard let textView, let window = textView.window else { return }
+            window.makeFirstResponder(textView)
+        }
+        textView.findModel = find
+        textView.sourceLanguage = syntax
+        find?.language = syntax
+        let hadEditor = find?.editorView != nil
+        find?.editorView = textView
+        if !hadEditor, find?.visible == true, find?.surface == .editor {
+            find?.scheduleRefresh()
+        }
+        find?.edit = { [weak textView] make in
+            guard let textView else { return }
+            textView.applySourceEdit(make(textView.string, textView.sourceSelection()))
+        }
+        textView.findAction = { [weak textView] action in
+            textView?.runFind(action)
+        }
+        let previous = context.coordinator.style
+        let syntaxChanged = context.coordinator.syntax != syntax
+        context.coordinator.syntax = syntax
+        if previous != style {
             context.coordinator.style = style
             applyChrome(textView: textView, scrollView: scrollView, style: style)
+            if previous.wraps != style.wraps {
+                applyWrap(textView: textView, scrollView: scrollView, wraps: style.wraps)
+            }
+            // Size, face, and wrap change the line boxes. Color and heading sizes follow once.
+            let metrics = previous.fontSize != style.fontSize
+                || previous.monospaced != style.monospaced
+                || previous.lineHeight != style.lineHeight
+                || previous.latin != style.latin
+                || previous.cjk != style.cjk
+                || previous.wraps != style.wraps
+            if metrics {
+                context.coordinator.applyMetrics()
+                context.coordinator.scheduleRecolor()
+            }
         }
         if context.coordinator.reloadToken != reloadToken {
             context.coordinator.reloadToken = reloadToken
+            context.coordinator.forgetViewportLine()
             if textView.string != text {
                 context.coordinator.perform(.replaceContents(text))
-            } else if styleChanged {
-                context.coordinator.restyle(edited: nil)
+            } else {
+                textView.clearDocumentChrome()
+                if markupChanged || syntaxChanged {
+                    context.coordinator.restyle(edited: nil)
+                }
             }
-        } else if styleChanged {
+        } else if markupChanged || syntaxChanged {
             context.coordinator.restyle(edited: nil)
         }
         if let anchor = scrollLink.take(for: .source) {
             textView.reveal(anchor)
+            if anchor.line > 1 {
+                scrollLink.onViewportLine?(anchor.line)
+            }
+        }
+        if let queued = scrollLink.takeQueuedEditorReveal() {
+            textView.jump(toLine: queued.line, column: queued.column, selecting: queued.needle)
+        }
+        if !isEditable {
+            context.coordinator.publishViewportLine()
         }
     }
 
@@ -434,8 +1244,11 @@ struct XYZMacEditor: NSViewRepresentable {
         Coordinator()
     }
 
-    func sizeThatFits(_ proposal: ProposedViewSize, nsView: NSScrollView, context: Context) -> CGSize? {
-        CGSize(width: proposal.width ?? 640, height: proposal.height ?? 480)
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: EditorPane, context: Context) -> CGSize? {
+        let width = proposal.width.flatMap { $0.isFinite && $0 > 1 ? $0 : nil } ?? 640
+        let offered = proposal.height ?? nsView.bounds.height
+        let height = offered.isFinite && offered > 1 ? offered : 480
+        return CGSize(width: width, height: height)
     }
 
     private func applyChrome(textView: XYZMacTextView, scrollView: NSScrollView, style: XYZEditorStyle) {
@@ -443,31 +1256,114 @@ struct XYZMacEditor: NSViewRepresentable {
         textView.needsLayout = true
         let font = EditorTypography.baseFont(style)
         let paragraph = style.paragraphStyle(naturalLineHeight: EditorTypography.naturalLineHeight(font))
-        textView.backgroundColor = .textBackgroundColor
-        textView.textColor = .labelColor
+        textView.backgroundColor = .xyzEditor
+        textView.textColor = .xyzInk
         textView.insertionPointColor = .labelColor
         textView.defaultParagraphStyle = paragraph
         textView.typingAttributes = [
             .font: font,
-            .foregroundColor: NSColor.labelColor,
+            .foregroundColor: NSColor.xyzInk,
             .paragraphStyle: paragraph,
         ]
-        textView.textContainerInset = NSSize(width: style.horizontalInset, height: style.verticalInset)
-        scrollView.backgroundColor = .textBackgroundColor
-        scrollView.contentView.drawsBackground = true
-        scrollView.contentView.backgroundColor = .textBackgroundColor
+        scrollView.backgroundColor = .xyzEditor
+        scrollView.clipsToBounds = true
+        scrollView.contentView.clipsToBounds = true
+        scrollView.contentView.drawsBackground = false
+        textView.insertionPointColor = textView.isEditable ? .labelColor : .clear
+        applySelectionChrome(textView)
+    }
+
+    private func applySelectionChrome(_ textView: XYZMacTextView) {
+        let dark = textView.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        let background: NSColor = dark
+            ? NSColor(srgbRed: 38 / 255, green: 79 / 255, blue: 120 / 255, alpha: 1)
+            : .selectedTextBackgroundColor
+        textView.selectedTextAttributes = [.backgroundColor: background]
+    }
+
+    /// Wrap tracks the pane. With wrap off, the line keeps its length and the pane scrolls sideways.
+    private func applyWrap(textView: XYZMacTextView, scrollView: NSScrollView, wraps: Bool) {
+        textView.textContainer?.widthTracksTextView = wraps
+        textView.isHorizontallyResizable = !wraps
+        scrollView.hasHorizontalScroller = !wraps
+        scrollView.horizontalScrollElasticity = .none
+        if wraps {
+            textView.autoresizingMask = [.width]
+            let width = max(scrollView.contentView.bounds.width, scrollView.bounds.width, 1)
+            textView.setFrameSize(NSSize(width: width, height: max(textView.bounds.height, 1)))
+            textView.textContainer?.containerSize = NSSize(width: max(1, width - 1), height: CGFloat.greatestFiniteMagnitude)
+        } else {
+            textView.autoresizingMask = [.width, .height]
+            textView.textContainer?.containerSize = NSSize(
+                width: CGFloat.greatestFiniteMagnitude,
+                height: CGFloat.greatestFiniteMagnitude
+            )
+        }
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate, XYZTextEditing {
         var textView: XYZMacTextView?
         var onTextChange: (String) -> Void = { _ in }
+        var onSelection: ((EditorCaret) -> Void)?
         var scrollLink: EditorScrollLink?
         var reloadToken = 0
         var style = XYZEditorStyle()
+        var syntax = SyntaxLanguage.plain
         private var isApplyingExternalText = false
         private var isRestyling = false
         private var editedRange: NSRange?
         private var laterRestyle: DispatchWorkItem?
+        private var metricRecolor: DispatchWorkItem?
+        private var scrollObserver: NSObjectProtocol?
+        private var scrollRecolor: DispatchWorkItem?
+        private var publishedViewportLine = 0
+
+        deinit {
+            if let scrollObserver {
+                NotificationCenter.default.removeObserver(scrollObserver)
+            }
+        }
+
+        /// A large file is colored as it scrolls. Small files are already colored in full.
+        func observeScroll(of scrollView: NSScrollView) {
+            if let scrollObserver {
+                NotificationCenter.default.removeObserver(scrollObserver)
+            }
+            scrollView.contentView.postsBoundsChangedNotifications = true
+            scrollObserver = NotificationCenter.default.addObserver(
+                forName: NSView.boundsDidChangeNotification,
+                object: scrollView.contentView,
+                queue: .main
+            ) { [weak self] _ in
+                MainActor.assumeIsolated { () -> Void in
+                    self?.scheduleVisibleRecolor()
+                    self?.publishViewportLine()
+                }
+            }
+        }
+
+        func forgetViewportLine() {
+            publishedViewportLine = 0
+        }
+
+        /// The line at the top of the page, in Reading and while Editing is scrolled.
+        func publishViewportLine() {
+            guard let textView, let scrollLink else { return }
+            guard let line = textView.viewportLine(), line != publishedViewportLine else { return }
+            publishedViewportLine = line
+            scrollLink.onViewportLine?(line)
+        }
+
+        private func scheduleVisibleRecolor() {
+            guard let textView else { return }
+            guard (textView.string as NSString).length > EditorTypography.immediateLimit else { return }
+            scrollRecolor?.cancel()
+            let item = DispatchWorkItem { [weak self] in
+                self?.restyle(edited: nil)
+            }
+            scrollRecolor = item
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(40), execute: item)
+        }
 
         var text: String {
             textView?.string ?? ""
@@ -482,11 +1378,17 @@ struct XYZMacEditor: NSViewRepresentable {
             switch command {
             case .replaceContents(let replacement):
                 isApplyingExternalText = true
+                textView.undoManager?.disableUndoRegistration()
                 textView.string = replacement
+                textView.clearDocumentChrome()
+                textView.undoManager?.enableUndoRegistration()
                 laterRestyle?.cancel()
-                restyle(edited: nil)
+                textView.warmLineIndex()
                 isApplyingExternalText = false
-                onTextChange(replacement)
+                let visible = EditorTypography.visibleSpan(in: textView)
+                DispatchQueue.main.async { [weak self] in
+                    self?.restyle(edited: visible)
+                }
             }
         }
 
@@ -501,7 +1403,20 @@ struct XYZMacEditor: NSViewRepresentable {
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
-            (notification.object as? XYZMacTextView)?.caretMoved()
+            guard let textView = notification.object as? XYZMacTextView else { return }
+            textView.caretMoved()
+            reportSelection(textView)
+        }
+
+        private func reportSelection(_ textView: NSTextView) {
+            guard let textView = textView as? XYZMacTextView, let index = textView.cachedLineIndex() else { return }
+            let range = textView.selectedRange()
+            onSelection?(EditorCaret.measure(
+                text: textView.string,
+                utf16Location: range.location,
+                utf16Length: range.length,
+                index: index
+            ))
         }
 
         func textDidChange(_ notification: Notification) {
@@ -525,11 +1440,41 @@ struct XYZMacEditor: NSViewRepresentable {
             onTextChange(textView.string)
         }
 
+        /// Font, line box, and wrap. One attribute pass, then the viewport lays itself out.
+        func applyMetrics() {
+            guard let textView, !textView.hasMarkedText() else { return }
+            isRestyling = true
+            defer { isRestyling = false }
+            EditorTypography.applyMetrics(to: textView, style: style)
+            textView.lineNumbersChanged()
+        }
+
+        /// Heading sizes and syntax colors after the last size step, not on every ⌘−.
+        func scheduleRecolor() {
+            metricRecolor?.cancel()
+            let item = DispatchWorkItem { [weak self] in
+                guard let self else { return }
+                if self.textView?.hasMarkedText() == true {
+                    self.scheduleRecolor()
+                    return
+                }
+                self.restyle(edited: nil)
+            }
+            metricRecolor = item
+            DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(120), execute: item)
+        }
+
         func restyle(edited: NSRange?) {
             guard let textView, !isRestyling, !textView.hasMarkedText() else { return }
             isRestyling = true
             defer { isRestyling = false }
-            EditorTypography.apply(to: textView, style: style, markup: textView.allowsMarkup, edited: edited)
+            EditorTypography.apply(
+                to: textView,
+                style: style,
+                markup: textView.allowsMarkup,
+                language: syntax,
+                edited: edited
+            )
             textView.lineNumbersChanged()
         }
     }
@@ -541,10 +1486,7 @@ enum EditorTypography {
     static let immediateLimit = 80_000
 
     static func baseFont(_ style: XYZEditorStyle) -> NSFont {
-        if style.monospaced {
-            return NSFont.monospacedSystemFont(ofSize: style.fontSize, weight: .regular)
-        }
-        return proportional(size: style.fontSize, weight: .regular)
+        face(style, size: style.fontSize, weight: .regular)
     }
 
     static func headingFont(_ style: XYZEditorStyle, level: Int) -> NSFont {
@@ -556,46 +1498,91 @@ enum EditorTypography {
         default: scale = 1.04
         }
         let size = (style.fontSize * scale).rounded()
-        if style.monospaced {
-            return NSFont.monospacedSystemFont(ofSize: size, weight: .semibold)
-        }
-        return proportional(size: size, weight: .semibold)
+        return face(style, size: size, weight: .semibold)
     }
 
     static func markerFont(_ style: XYZEditorStyle) -> NSFont {
         let size = max(12, (style.fontSize * 0.86).rounded())
-        if style.monospaced {
-            return NSFont.monospacedSystemFont(ofSize: size, weight: .regular)
-        }
-        return proportional(size: size, weight: .regular)
+        return face(style, size: size, weight: .regular)
     }
 
     static func codeFont(_ style: XYZEditorStyle) -> NSFont {
-        NSFont.monospacedSystemFont(ofSize: (style.fontSize * 0.92).rounded(), weight: .regular)
+        var code = style
+        if !XYZEditorStyle.latinIsMono(style.latin) {
+            code.latin = "sfmono"
+            code.monospaced = true
+        }
+        return face(code, size: (style.fontSize * 0.92).rounded(), weight: .regular)
     }
 
     static func naturalLineHeight(_ font: NSFont) -> CGFloat {
         font.ascender - font.descender + font.leading
     }
 
+    /// Latin face, with the chosen CJK face for characters the Latin font does not cover.
+    static func face(_ style: XYZEditorStyle, size: CGFloat, weight: NSFont.Weight) -> NSFont {
+        let latin = latinFont(style, size: size, weight: weight)
+        let cjkName: String
+        switch style.cjk {
+        case "songti": cjkName = "Songti SC"
+        case "heiti": cjkName = "Heiti SC"
+        default: cjkName = "PingFang SC"
+        }
+        guard let cjk = NSFont(name: cjkName, size: size) else { return latin }
+        let descriptor = latin.fontDescriptor.addingAttributes([
+            .cascadeList: [cjk.fontDescriptor],
+        ])
+        return NSFont(descriptor: descriptor, size: size) ?? latin
+    }
+
+    private static func latinFont(_ style: XYZEditorStyle, size: CGFloat, weight: NSFont.Weight) -> NSFont {
+        let names: [String]
+        switch style.latin {
+        case "sfmono": names = ["SF Mono", "SFMono-Regular"]
+        case "menlo": names = ["Menlo"]
+        case "jetbrains": names = ["JetBrains Mono", "JetBrainsMono-Regular"]
+        default: names = []
+        }
+        if names.isEmpty {
+            if style.monospaced {
+                return NSFont.monospacedSystemFont(ofSize: size, weight: weight)
+            }
+            return NSFont.systemFont(ofSize: size, weight: weight)
+        }
+        for name in names {
+            if let font = NSFont(name: name, size: size) {
+                if weight == .regular || weight == .medium { return font }
+                return NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
+            }
+        }
+        return NSFont.monospacedSystemFont(ofSize: size, weight: weight)
+    }
+
     /// SF Pro for Latin, PingFang SC when the primary face has no glyph.
     static func proportional(size: CGFloat, weight: NSFont.Weight) -> NSFont {
-        let base = NSFont.systemFont(ofSize: size, weight: weight)
-        let fallback = NSFontDescriptor(fontAttributes: [.name: "PingFang SC"])
-        let descriptor = base.fontDescriptor.addingAttributes([
-            .cascadeList: [fallback],
-        ])
-        return NSFont(descriptor: descriptor, size: size) ?? base
+        face(XYZEditorStyle(), size: size, weight: weight)
     }
 
     /// Base font and line height everywhere; heading sizes and tinted markers only when `markup` is on.
-    static func apply(to textView: NSTextView, style: XYZEditorStyle, markup: Bool, edited: NSRange?) {
+    static func apply(
+        to textView: NSTextView,
+        style: XYZEditorStyle,
+        markup: Bool,
+        language: SyntaxLanguage = .plain,
+        edited: NSRange?
+    ) {
         guard let storage = textView.textStorage else { return }
         let font = baseFont(style)
         let paragraph = style.paragraphStyle(naturalLineHeight: naturalLineHeight(font))
         let ns = storage.string as NSString
         let full = NSRange(location: 0, length: ns.length)
-        let span = full.length > immediateLimit ? lineSpan(ns, around: edited) : full
+        let span: NSRange
+        if full.length > immediateLimit {
+            let focus = lineSpan(ns, around: edited ?? visibleSpan(in: textView))
+            span = expanded(focus, in: ns, pad: 2_000)
+        } else {
+            span = full
+        }
         textView.undoManager?.disableUndoRegistration()
         storage.beginEditing()
         if span.length > 0, span.location >= 0, NSMaxRange(span) <= ns.length {
@@ -606,6 +1593,10 @@ enum EditorTypography {
             ], range: span)
             if markup, full.length <= stylingLimit {
                 styleMarkup(storage, style: style, within: span)
+            } else if !markup, language != .plain, language != .markdown,
+                      full.length <= stylingLimit || span.length <= 64_000 {
+                // A multi-megabyte file is not scanned from the top. The span is the visible lines.
+                styleSyntax(storage, style: style, language: language, within: span)
             }
         }
         storage.endEditing()
@@ -615,9 +1606,98 @@ enum EditorTypography {
             .foregroundColor: NSColor.labelColor,
             .paragraphStyle: paragraph,
         ]
-        if full.length <= immediateLimit, let manager = textView.textLayoutManager {
-            manager.ensureLayout(for: manager.documentRange)
+        if let editor = textView as? XYZMacTextView {
+            editor.paintFindMarks()
         }
+        keepViewportLayout(textView)
+    }
+
+    /// The size change itself. Colors and heading sizes are a later pass.
+    /// Laying out `documentRange` here turns viewport layout off for good, so later typing lays out the whole note.
+    static func applyMetrics(to textView: NSTextView, style: XYZEditorStyle) {
+        guard let storage = textView.textStorage else { return }
+        let font = baseFont(style)
+        let paragraph = style.paragraphStyle(naturalLineHeight: naturalLineHeight(font))
+        let full = NSRange(location: 0, length: storage.length)
+        textView.undoManager?.disableUndoRegistration()
+        storage.beginEditing()
+        if full.length > 0 {
+            storage.addAttribute(.font, value: font, range: full)
+            storage.addAttribute(.paragraphStyle, value: paragraph, range: full)
+        }
+        storage.endEditing()
+        textView.undoManager?.enableUndoRegistration()
+        textView.defaultParagraphStyle = paragraph
+        textView.typingAttributes = [
+            .font: font,
+            .foregroundColor: NSColor.xyzInk,
+            .paragraphStyle: paragraph,
+        ]
+        keepViewportLayout(textView, displayViewport: true)
+    }
+
+    /// `setAttributes` can clear `allowsNonContiguousLayout`. Put it back so scrolling stays on the viewport.
+    private static func keepViewportLayout(_ textView: NSTextView, displayViewport: Bool = false) {
+        textView.layoutManager?.allowsNonContiguousLayout = true
+        guard displayViewport, let manager = textView.textLayoutManager else { return }
+        manager.textViewportLayoutController.layoutViewport()
+    }
+
+    /// Muted colors in the spirit of VS Code Dark Modern and Light Modern.
+    private static func syntaxColor(_ kind: SyntaxTokenKind) -> NSColor {
+        let dark = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+        switch kind {
+        case .comment:
+            return .tertiaryLabelColor
+        case .string:
+            return dark
+                ? NSColor(srgbRed: 0.81, green: 0.57, blue: 0.47, alpha: 1)
+                : NSColor(srgbRed: 0.64, green: 0.08, blue: 0.08, alpha: 1)
+        case .number:
+            return dark
+                ? NSColor(srgbRed: 0.71, green: 0.81, blue: 0.66, alpha: 1)
+                : NSColor(srgbRed: 0.04, green: 0.53, blue: 0.35, alpha: 1)
+        case .keyword:
+            return dark
+                ? NSColor(srgbRed: 0.34, green: 0.61, blue: 0.84, alpha: 1)
+                : NSColor(srgbRed: 0.08, green: 0.16, blue: 0.65, alpha: 1)
+        case .type:
+            return dark
+                ? NSColor(srgbRed: 0.31, green: 0.79, blue: 0.69, alpha: 1)
+                : NSColor(srgbRed: 0.15, green: 0.50, blue: 0.60, alpha: 1)
+        case .key:
+            return dark
+                ? NSColor(srgbRed: 0.61, green: 0.86, blue: 1.0, alpha: 1)
+                : NSColor(srgbRed: 0.02, green: 0.32, blue: 0.65, alpha: 1)
+        }
+    }
+
+    /// The characters already on screen. Does not lay out the rest of the file.
+    static func visibleSpan(in textView: NSTextView) -> NSRange {
+        let ns = textView.string as NSString
+        guard ns.length > 0,
+              let manager = textView.textLayoutManager,
+              let content = manager.textContentManager,
+              let viewport = manager.textViewportLayoutController.viewportRange else {
+            return NSRange(location: 0, length: min(ns.length, 4_000))
+        }
+        let start = content.offset(from: content.documentRange.location, to: viewport.location)
+        let end = content.offset(from: content.documentRange.location, to: viewport.endLocation)
+        let location = min(max(0, start), ns.length)
+        let length = min(max(0, end - location), ns.length - location)
+        return NSRange(location: location, length: length)
+    }
+
+    /// A few lines past the viewport, so a short scroll is already colored.
+    private static func expanded(_ span: NSRange, in ns: NSString, pad: Int) -> NSRange {
+        guard ns.length > 0, span.length > 0 else { return span }
+        let lower = max(0, span.location - pad)
+        let upper = min(ns.length, NSMaxRange(span) + pad)
+        let startLine = ns.lineRange(for: NSRange(location: min(lower, ns.length - 1), length: 0))
+        let endLine = ns.lineRange(for: NSRange(location: min(max(0, upper - 1), ns.length - 1), length: 0))
+        let location = startLine.location
+        let end = NSMaxRange(endLine)
+        return NSRange(location: location, length: max(0, end - location))
     }
 
     private static func lineSpan(_ ns: NSString, around edited: NSRange?) -> NSRange {
@@ -628,6 +1708,29 @@ enum EditorTypography {
         let start = ns.lineRange(for: NSRange(location: startLoc, length: 0))
         let end = ns.lineRange(for: NSRange(location: endLoc, length: 0))
         return NSUnionRange(start, end)
+    }
+
+    private static func styleSyntax(
+        _ storage: NSTextStorage,
+        style: XYZEditorStyle,
+        language: SyntaxLanguage,
+        within span: NSRange
+    ) {
+        let ns = storage.string as NSString
+        guard span.length > 0, NSMaxRange(span) <= ns.length else { return }
+        let range = span.location..<(span.location + span.length)
+        let spans = SyntaxColoring.spans(in: storage.string, language: language, within: range)
+        let keyword = style.monospaced
+            ? NSFont.monospacedSystemFont(ofSize: style.fontSize, weight: .semibold)
+            : proportional(size: style.fontSize, weight: .semibold)
+        for item in spans {
+            let colored = NSRange(location: item.location, length: item.length)
+            guard colored.location >= 0, NSMaxRange(colored) <= ns.length, colored.length > 0 else { continue }
+            storage.addAttribute(.foregroundColor, value: syntaxColor(item.kind), range: colored)
+            if item.kind == .keyword {
+                storage.addAttribute(.font, value: keyword, range: colored)
+            }
+        }
     }
 
     private static func styleMarkup(_ storage: NSTextStorage, style: XYZEditorStyle, within span: NSRange) {

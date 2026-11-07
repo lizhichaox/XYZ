@@ -11,6 +11,88 @@ public struct WorkspaceNameSpan: Equatable, Sendable, Hashable {
     }
 }
 
+/// Keeps an outline disclosure on screen when the window is flush with the left edge.
+/// AppKit places a level-0 twisty to the left of the cell, often at a negative x.
+public enum OutlineDisclosure {
+    public static let inset: CGFloat = 20
+    public static let minimumX: CGFloat = 8
+
+    public static func shift(proposedX: CGFloat) -> CGFloat {
+        max(inset, minimumX - proposedX)
+    }
+
+    public static func originX(_ proposedX: CGFloat) -> CGFloat {
+        proposedX + shift(proposedX: proposedX)
+    }
+}
+
+/// Parents to open so a file can be selected in the sidebar.
+/// A refresh that is not an explicit reveal returns nothing, so collapsing a folder stays collapsed
+/// while a file inside it is the open tab.
+public enum SidebarReveal {
+    public static func ancestorsToExpand(of path: String, explicitReveal: Bool) -> [String] {
+        guard explicitReveal, !path.isEmpty else { return [] }
+        return WorkspacePaths.ancestors(of: path)
+    }
+}
+
+/// One double-click fit. The result stays inside the same limits as a drag, and leaves the editor 480 points when both sidebars are open.
+public enum SidebarFit {
+    public static let sidebarMinimum: CGFloat = 220
+    public static let outlineMinimum: CGFloat = 160
+    public static let editorMinimum: CGFloat = 480
+
+    public static func sidebar(
+        content: CGFloat,
+        window: CGFloat,
+        outline: CGFloat,
+        outlineShown: Bool
+    ) -> CGFloat {
+        let cap = max(260, floor(window * 0.4))
+        let other = outlineShown ? max(outlineMinimum, outline) : 0
+        let room = window - other - editorMinimum
+        let upper = min(cap, max(sidebarMinimum, room))
+        let desired = max(sidebarMinimum, content.rounded(.up))
+        return min(desired, max(sidebarMinimum, upper))
+    }
+
+    public static func outline(
+        content: CGFloat,
+        window: CGFloat,
+        sidebar: CGFloat,
+        sidebarShown: Bool
+    ) -> CGFloat {
+        let other = sidebarShown ? max(sidebarMinimum, sidebar) : 0
+        let hardMax = window - (sidebarShown ? sidebarMinimum + editorMinimum : editorMinimum)
+        let editorCap = window - other - editorMinimum
+        let upper = max(outlineMinimum, min(hardMax, editorCap))
+        let desired = max(outlineMinimum, content.rounded(.up))
+        return min(desired, upper)
+    }
+}
+
+/// The Explorer section for the open folder. Collapsed hides the file list and stays that way for the session.
+public enum ExplorerSection {
+    public static func toggle(_ expanded: Bool) -> Bool { !expanded }
+
+    /// Where New File and New Folder land. A selected folder is the parent.
+    /// A selected file uses its folder. Nothing selected uses the workspace root.
+    public static func creationParent(selectedPath: String?, isDirectory: Bool) -> String {
+        guard let selectedPath, !selectedPath.isEmpty else { return "" }
+        if isDirectory { return selectedPath }
+        return WorkspacePaths.parent(of: selectedPath)
+    }
+
+    /// Files in the tree. Directories are not counted. Hidden files count only while they are listed.
+    public static func fileCount(entries: [WorkspacePathEntry], showsHidden: Bool) -> Int {
+        entries.reduce(into: 0) { total, entry in
+            if entry.isDirectory { return }
+            if !showsHidden, entry.isHidden { return }
+            total += 1
+        }
+    }
+}
+
 /// One path discovered while indexing a folder. The scanner lives in the app; matching does not.
 public struct WorkspacePathEntry: Equatable, Sendable, Hashable {
     public var name: String
@@ -288,7 +370,7 @@ public enum WorkspaceContentSearch {
                 found.append(WorkspaceContentHit(
                     relativePath: relativePath,
                     lineNumber: lineNumber,
-                    excerpt: excerpt(String(line))
+                    excerpt: excerpt(String(line), around: needle)
                 ))
             }
             lineNumber += 1
@@ -299,9 +381,58 @@ public enum WorkspaceContentSearch {
         return found
     }
 
-    public static func excerpt(_ line: String) -> String {
+    /// The same preview list, using the find bar's case, word, and regex rules. One row per line.
+    public static func hits(in text: String, relativePath: String, query: FindQuery, limit: Int) -> [WorkspaceContentHit] {
+        guard limit > 0, TextFind.isValid(query) else { return [] }
+        let ns = text as NSString
+        var found: [WorkspaceContentHit] = []
+        var seen: Set<Int> = []
+        for match in TextFind.matches(in: text, query: query) {
+            if found.count >= limit { break }
+            let location = min(max(match.range.location, 0), ns.length)
+            let probe = ns.length == 0 ? 0 : min(location, ns.length - 1)
+            let lineRange = ns.lineRange(for: NSRange(location: probe, length: 0))
+            let lineNumber = 1 + newlineCount(in: ns, upTo: lineRange.location)
+            if !seen.insert(lineNumber).inserted { continue }
+            let line = ns.substring(with: lineRange).trimmingCharacters(in: .newlines)
+            let around = query.regex ? "" : query.pattern
+            found.append(WorkspaceContentHit(
+                relativePath: relativePath,
+                lineNumber: lineNumber,
+                excerpt: excerpt(line, around: around)
+            ))
+        }
+        return found
+    }
+
+    private static func newlineCount(in ns: NSString, upTo location: Int) -> Int {
+        guard location > 0 else { return 0 }
+        let prefix = ns.substring(with: NSRange(location: 0, length: min(location, ns.length)))
+        var count = 0
+        for scalar in prefix.unicodeScalars where scalar == "\n" {
+            count += 1
+        }
+        return count
+    }
+
+    /// A short line, with the match kept in view when `around` occurs in it.
+    public static func excerpt(_ line: String, around needle: String = "") -> String {
         let collapsed = line.split(whereSeparator: \.isWhitespace).joined(separator: " ")
-        if collapsed.count <= 96 { return collapsed }
-        return String(collapsed.prefix(96)) + "…"
+        let needle = needle.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !needle.isEmpty,
+              let range = collapsed.range(of: needle, options: [.caseInsensitive, .diacriticInsensitive]) else {
+            if collapsed.count <= 96 { return collapsed }
+            return String(collapsed.prefix(96)) + "…"
+        }
+        let matchStart = collapsed.distance(from: collapsed.startIndex, to: range.lowerBound)
+        let matchEnd = collapsed.distance(from: collapsed.startIndex, to: range.upperBound)
+        let start = max(0, matchStart - 28)
+        let end = min(collapsed.count, max(matchEnd + 48, start + 96))
+        let lower = collapsed.index(collapsed.startIndex, offsetBy: start)
+        let upper = collapsed.index(collapsed.startIndex, offsetBy: end)
+        var text = String(collapsed[lower..<upper])
+        if start > 0 { text = "…" + text }
+        if end < collapsed.count { text += "…" }
+        return text
     }
 }

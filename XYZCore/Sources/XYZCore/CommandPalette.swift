@@ -92,11 +92,11 @@ public struct PaletteCommand: Equatable, Sendable, Identifiable {
     }
 
     public static let builtIn: [PaletteCommand] = [
-        PaletteCommand(id: "view.source", title: "Source", keywords: ["mode", "edit", "coding"]),
+        PaletteCommand(id: "view.source", title: "Editing", keywords: ["mode", "edit", "coding", "source"]),
         PaletteCommand(id: "view.reading", title: "Reading", keywords: ["mode"]),
         PaletteCommand(
             id: "view.toggleSource",
-            title: "Toggle Source and Reading",
+            title: "Toggle Reading and Editing",
             shortcut: "⌘/",
             keywords: ["reading", "source", "coding", "edit"]
         ),
@@ -106,12 +106,13 @@ public struct PaletteCommand: Equatable, Sendable, Identifiable {
             shortcut: "⌘R",
             keywords: ["outline", "toc", "heading", "jump"]
         ),
-        PaletteCommand(id: "workspace.toggleSidebar", title: "Toggle Sidebar", keywords: ["sidebar"]),
+        PaletteCommand(id: "view.outline", title: "Toggle Outline", shortcut: "⌥⌘B", keywords: ["outline", "symbols", "toc", "sidebar", "show", "hide", "close", "toggle"]),
+        PaletteCommand(id: "workspace.toggleSidebar", title: "Toggle Sidebar", shortcut: "⌘B", keywords: ["sidebar"]),
         PaletteCommand(
             id: "workspace.focusFilter",
-            title: "Filter Files",
-            shortcut: "⇧⌘F",
-            keywords: ["search", "filter"]
+            title: "Search Notes",
+            shortcut: "⌘K",
+            keywords: ["search", "filter", "grep", "contents", "folder"]
         ),
         PaletteCommand(id: "file.new", title: "New File", keywords: ["create"]),
         PaletteCommand(id: "folder.new", title: "New Folder", keywords: ["create"]),
@@ -121,10 +122,19 @@ public struct PaletteCommand: Equatable, Sendable, Identifiable {
             shortcut: "⇧⌘O",
             keywords: ["open", "workspace"]
         ),
+        PaletteCommand(id: "window.new", title: "New Window", shortcut: "⇧⌘N", keywords: ["window"]),
         PaletteCommand(id: "file.reveal", title: "Reveal in Finder", keywords: ["finder", "show"]),
+        PaletteCommand(id: "file.revealInSidebar", title: "Reveal Active File", keywords: ["sidebar", "reveal", "active"]),
+        PaletteCommand(id: "view.goToLine", title: "Go to Line", shortcut: "⌃G", keywords: ["line", "column", "jump"]),
+        PaletteCommand(id: "tab.reopen", title: "Reopen Closed Tab", shortcut: "⇧⌘T", keywords: ["reopen", "undo", "close"]),
+        PaletteCommand(id: "view.wordWrap", title: "Wrap Lines", shortcut: "⌥Z", keywords: ["wrap", "word"]),
         PaletteCommand(id: "file.copyPath", title: "Copy Path", keywords: ["path", "clipboard"]),
+        PaletteCommand(id: "file.copyRelativePath", title: "Copy Relative Path", keywords: ["path", "relative", "clipboard"]),
+        PaletteCommand(id: "tab.close", title: "Close Tab", shortcut: "⌘W", keywords: ["close", "tab"]),
         PaletteCommand(id: "file.reload", title: "Reload", keywords: ["refresh", "disk"]),
         PaletteCommand(id: "app.about", title: "About XYZ", keywords: ["about"]),
+        PaletteCommand(id: "app.installCLI", title: "Install 'xyz' Command in PATH", keywords: ["cli", "terminal", "shell", "command", "path", "install"]),
+        PaletteCommand(id: "app.uninstallCLI", title: "Uninstall 'xyz' Command", keywords: ["cli", "terminal", "uninstall", "path"]),
     ]
 }
 
@@ -149,6 +159,7 @@ public enum PaletteRow: Equatable, Sendable, Identifiable {
     case file(PaletteFile, FuzzyMatch)
     case command(PaletteCommand, FuzzyMatch)
     case heading(OutlineHeading, FuzzyMatch)
+    case line(GoToPosition)
 
     public var id: String {
         switch self {
@@ -158,6 +169,8 @@ public enum PaletteRow: Equatable, Sendable, Identifiable {
             return "command:" + command.id
         case .heading(let heading, _):
             return "heading:\(heading.line)"
+        case .line(let position):
+            return "line:\(position.line):\(position.column)"
         }
     }
 
@@ -165,6 +178,8 @@ public enum PaletteRow: Equatable, Sendable, Identifiable {
         switch self {
         case .file(_, let match), .command(_, let match), .heading(_, let match):
             return match
+        case .line:
+            return FuzzyMatch(score: 0, characterIndices: [])
         }
     }
 }
@@ -189,6 +204,9 @@ public enum CommandPalette {
             return commandRows(query: parsed.text, commands: registry.commands, limit: cap)
         case .headings:
             return headingRows(query: parsed.text, headings: headings, limit: max(cap, headings.count))
+        case .line:
+            guard let position = GoToPosition.parse(parsed.text) else { return [] }
+            return [.line(position)]
         }
     }
 
@@ -200,6 +218,10 @@ public enum CommandPalette {
         if rawQuery.first == "@" {
             let text = String(rawQuery.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
             return (.headings, text)
+        }
+        if rawQuery.first == ":" || rawQuery.first == "：" {
+            let text = String(rawQuery.dropFirst()).trimmingCharacters(in: .whitespacesAndNewlines)
+            return (.line, text)
         }
         return (.files, rawQuery.trimmingCharacters(in: .whitespacesAndNewlines))
     }
@@ -286,4 +308,5 @@ public enum PaletteMode: Equatable, Sendable {
     case files
     case commands
     case headings
+    case line
 }

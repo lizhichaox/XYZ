@@ -213,6 +213,26 @@ final class WorkspaceSearchTests: XCTestCase {
         XCTAssertEqual(hits.map(\.lineNumber), [2, 3])
         XCTAssertEqual(hits.first?.excerpt, "alpha beta")
         XCTAssertEqual(hits.first?.relativePath, "Notes/Daily.md")
+        let exact = WorkspaceContentSearch.hits(
+            in: "Cat catalog\ncat\n",
+            relativePath: "A.txt",
+            query: FindQuery(pattern: "cat", matchCase: true, wholeWord: true),
+            limit: 5
+        )
+        XCTAssertEqual(exact.map(\.lineNumber), [2])
+        XCTAssertTrue(WorkspaceContentSearch.hits(
+            in: "abc",
+            relativePath: "A.txt",
+            query: FindQuery(pattern: "(", regex: true),
+            limit: 5
+        ).isEmpty)
+    }
+
+    func testHomePathAbbreviation() {
+        XCTAssertEqual(WorkspacePaths.abbreviatedHomePath("/Users/me/Projects", home: "/Users/me"), "~/Projects")
+        XCTAssertEqual(WorkspacePaths.abbreviatedHomePath("/Users/me", home: "/Users/me"), "~")
+        XCTAssertEqual(WorkspacePaths.abbreviatedHomePath("/tmp/xyz", home: "/Users/me"), "/tmp/xyz")
+        XCTAssertEqual(WorkspacePaths.abbreviatedHomePath("/tmp/xyz", home: ""), "/tmp/xyz")
     }
 }
 
@@ -230,6 +250,25 @@ final class EditorViewModeTests: XCTestCase {
         XCTAssertEqual(EditorViewMode.source.toggled(), .reading)
         XCTAssertEqual(EditorViewMode.reading.toggled(), .source)
         XCTAssertEqual(EditorViewMode.reading.toggled().toggled(), .reading)
+    }
+
+    func testFilesOpenInReadingAndOnlyTextCanEdit() {
+        XCTAssertEqual(EditorModeChoice.initial, .reading)
+        XCTAssertEqual(EditorModeChoice.access(kind: .markdown, markdown: true), .preview)
+        XCTAssertEqual(EditorModeChoice.access(kind: .plainText, markdown: false), .source)
+        XCTAssertEqual(EditorModeChoice.access(kind: .readOnly, markdown: false), .locked)
+        XCTAssertNil(EditorModeChoice.toggled(.reading, access: .locked))
+        XCTAssertEqual(EditorModeChoice.toggled(.reading, access: .source), .source)
+        XCTAssertEqual(EditorModeChoice.toggled(.source, access: .preview), .reading)
+        XCTAssertTrue(EditorModeChoice.showsRenderedPreview(mode: .reading, access: .preview))
+        XCTAssertFalse(EditorModeChoice.showsRenderedPreview(mode: .reading, access: .source))
+        XCTAssertFalse(EditorModeChoice.isEditing(.reading, access: .source))
+        XCTAssertTrue(EditorModeChoice.isEditing(.source, access: .source))
+        XCTAssertFalse(EditorModeChoice.isEditing(.source, access: .locked))
+        XCTAssertTrue(EditorModeChoice.showsLineNumbers(mode: .source, access: .source))
+        XCTAssertFalse(EditorModeChoice.showsLineNumbers(mode: .reading, access: .source))
+        XCTAssertFalse(EditorModeChoice.showsLineNumbers(mode: .reading, access: .locked))
+        XCTAssertFalse(EditorModeChoice.showsLineNumbers(mode: .source, access: .locked))
     }
 
     func testDecodedPreviewBecomesSource() throws {
@@ -409,7 +448,7 @@ final class WorkspaceFilePolicyTests: XCTestCase {
         )
     }
 
-    func testLatin1IsBinaryWhenTheFileIsComplete() {
+    func testLegacyTextOpensAndUnknownBytesStayBinary() {
         let latin1 = Data([0x48, 0x69, 0x20, 0xE9])
         XCTAssertNil(String(data: latin1, encoding: .utf8))
         XCTAssertEqual(
@@ -418,7 +457,7 @@ final class WorkspaceFilePolicyTests: XCTestCase {
         )
         XCTAssertEqual(
             WorkspaceFileClassifier.kind(name: "letter.txt", byteCount: latin1.count, sample: latin1),
-            .binary
+            .plainText
         )
         XCTAssertFalse(
             WorkspaceFileClassifier.needsFullRead(byteCount: latin1.count, sample: latin1)
@@ -483,6 +522,22 @@ final class WorkspaceFilePolicyTests: XCTestCase {
             WorkspaceFilePolicy.interpretChange(editor: "same", lastSaved: "same", disk: "same"),
             .ignore
         )
+    }
+
+    func testStaleOpenDoesNotReplaceTheBuffer() {
+        XCTAssertTrue(WorkspaceFilePolicy.shouldInstallRead(request: 2, latest: 2, alreadyInstalled: false))
+        XCTAssertFalse(WorkspaceFilePolicy.shouldInstallRead(request: 1, latest: 2, alreadyInstalled: false))
+        XCTAssertFalse(WorkspaceFilePolicy.shouldInstallRead(request: 1, latest: 1, alreadyInstalled: true))
+    }
+
+    func testStaleDiskSampleIsDropped() {
+        XCTAssertTrue(WorkspaceFilePolicy.isCurrentObservation(started: 4, current: 4))
+        XCTAssertFalse(WorkspaceFilePolicy.isCurrentObservation(started: 3, current: 4))
+    }
+
+    func testSaveFollowsTextThatMovedDuringTheWrite() {
+        XCTAssertFalse(WorkspaceFilePolicy.needsFollowUpSave(written: "ab", current: "ab"))
+        XCTAssertTrue(WorkspaceFilePolicy.needsFollowUpSave(written: "a", current: "ab"))
     }
 
     func testWriteDecision() {

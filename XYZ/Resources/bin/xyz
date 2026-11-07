@@ -1,0 +1,137 @@
+#!/bin/sh
+# Opens a folder or file in XYZ, the way `code` does. Paths are absolute when
+# Launch Services delivers them, so the sandboxed app receives a sandbox extension.
+set -eu
+
+bundle_id="com.lizhichao.XYZ"
+
+resolve_self() {
+  target=$1
+  while [ -L "$target" ]; do
+    linkdir=$(dirname "$target")
+    link=$(readlink "$target") || return 1
+    case $link in
+      /*) target=$link ;;
+      *) target="$linkdir/$link" ;;
+    esac
+  done
+  (CDPATH= cd "$(dirname "$target")" && pwd)
+}
+
+self_dir=$(resolve_self "$0")
+app=$(CDPATH= cd "$self_dir/../../.." 2>/dev/null && pwd || true)
+
+usage() {
+  cat <<'EOF'
+Usage: xyz [options] [path ...]
+
+  xyz                  Activate XYZ, or launch it.
+  xyz .                Open the current folder.
+  xyz ~/Notes          Open a folder. An open window for it comes forward.
+  xyz file.md          Open a file in a window for its parent folder.
+  xyz a.md b.md        Open each path.
+
+Options:
+  -n, --new-window     Open in a new instance.
+  -h, --help           Show this help.
+  -V, --version        Show the app version.
+EOF
+}
+
+version() {
+  plist="$app/Contents/Info.plist"
+  if [ -n "$app" ] && [ -f "$plist" ]; then
+    /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$plist" 2>/dev/null || echo unknown
+  else
+    echo unknown
+  fi
+}
+
+resolve_path() {
+  input=$1
+  case $input in
+    /*) candidate=$input ;;
+    ~) candidate=$HOME ;;
+    ~/*) candidate=$HOME/${input#~/} ;;
+    *) candidate=$PWD/$input ;;
+  esac
+  if [ ! -e "$candidate" ]; then
+    echo "xyz: $input: No such file or directory" >&2
+    return 1
+  fi
+  if [ -d "$candidate" ]; then
+    (CDPATH= cd "$candidate" && pwd)
+    return
+  fi
+  parent=$(dirname "$candidate")
+  base=$(basename "$candidate")
+  parent_abs=$(CDPATH= cd "$parent" && pwd)
+  printf '%s/%s\n' "$parent_abs" "$base"
+}
+
+new_window=0
+inputs=""
+while [ $# -gt 0 ]; do
+  case $1 in
+    -h|--help) usage; exit 0 ;;
+    -V|--version) version; exit 0 ;;
+    -n|--new-window) new_window=1 ;;
+    --) shift; break ;;
+    -*) echo "xyz: unknown option: $1" >&2; exit 2 ;;
+    *) inputs="${inputs}
+$1" ;;
+  esac
+  shift
+done
+while [ $# -gt 0 ]; do
+  inputs="${inputs}
+$1"
+  shift
+done
+
+resolved=""
+status=0
+# Leading newline from the first append. Skip empty lines.
+printf '%s\n' "$inputs" | while IFS= read -r item; do
+  [ -n "$item" ] || continue
+  if ! path=$(resolve_path "$item"); then
+    echo 1 > /tmp/xyz-cli-fail.$$
+    exit 1
+  fi
+  printf '%s\n' "$path"
+done > /tmp/xyz-cli-paths.$$ || status=1
+if [ -f /tmp/xyz-cli-fail.$$ ]; then
+  status=1
+  rm -f /tmp/xyz-cli-fail.$$
+fi
+if [ "$status" -ne 0 ]; then
+  rm -f /tmp/xyz-cli-paths.$$
+  exit 1
+fi
+
+set --
+while IFS= read -r path; do
+  [ -n "$path" ] || continue
+  set -- "$@" "$path"
+done < /tmp/xyz-cli-paths.$$
+rm -f /tmp/xyz-cli-paths.$$
+
+flags="-b $bundle_id"
+if [ "$new_window" -eq 1 ]; then
+  flags="-n $flags"
+fi
+
+if [ "${XYZ_CLI_DRY_RUN:-}" = "1" ]; then
+  printf 'open %s' "$flags"
+  for path in "$@"; do
+    printf ' %s' "$path"
+  done
+  printf '\n'
+  exit 0
+fi
+
+if [ "$#" -eq 0 ]; then
+  # shellcheck disable=SC2086
+  exec open $flags
+fi
+exec open $flags "$@"

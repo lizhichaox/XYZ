@@ -73,12 +73,8 @@ final class XYZIOSTextView: UITextView {
     override var keyCommands: [UIKeyCommand]? {
         let existing = super.keyCommands ?? []
         guard allowsMarkup else { return existing }
-        let bold = UIKeyCommand(input: "b", modifierFlags: .command, action: #selector(xyzToggleBold(_:)))
-        let italic = UIKeyCommand(input: "i", modifierFlags: .command, action: #selector(xyzToggleItalic(_:)))
         let outdent = UIKeyCommand(input: "\t", modifierFlags: .shift, action: #selector(xyzOutdent(_:)))
-        bold.wantsPriorityOverSystemBehavior = true
-        italic.wantsPriorityOverSystemBehavior = true
-        return existing + [bold, italic, outdent]
+        return existing + [outdent]
     }
 
     override func insertText(_ text: String) {
@@ -86,14 +82,6 @@ final class XYZIOSTextView: UITextView {
             return
         }
         super.insertText(text)
-    }
-
-    @objc func xyzToggleBold(_ sender: Any?) {
-        _ = applyMarkupEdit(SourceEditing.toggleBold(in: text ?? "", selection: sourceSelection()))
-    }
-
-    @objc func xyzToggleItalic(_ sender: Any?) {
-        _ = applyMarkupEdit(SourceEditing.toggleItalic(in: text ?? "", selection: sourceSelection()))
     }
 
     @objc func xyzOutdent(_ sender: Any?) {

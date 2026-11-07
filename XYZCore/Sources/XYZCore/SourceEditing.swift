@@ -1,6 +1,6 @@
 import Foundation
 
-/// Whether Return, Tab, and the Format commands should edit Markdown markers.
+/// Whether Return and Tab should edit Markdown list markers.
 public enum TextMarkup {
     /// Untitled documents (no extension yet) are Markdown. `.txt` and other names are not.
     public static func allows(fileExtension: String?) -> Bool {

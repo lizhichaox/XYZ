@@ -1,4 +1,5 @@
 import SwiftUI
+import WebKit
 import XYZCore
 
 #if os(macOS)
@@ -33,7 +34,7 @@ struct DocumentEditorView: View {
     @Environment(\.undoManager) private var undoManager
     #if os(iOS)
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var viewMode: EditorViewMode = .source
+    @State private var viewMode: EditorViewMode = .reading
     #endif
     @State private var bridge: PreviewBridge
     @State private var webHost: PreviewWebHost
@@ -91,6 +92,7 @@ struct DocumentEditorView: View {
                 commands.currentText = { [bridge] in bridge.latestText }
             }
         )
+        .background(WindowFillAnchor())
         #else
         .focusedSceneValue(
             \.editorViewActions,
@@ -103,23 +105,65 @@ struct DocumentEditorView: View {
         #endif
     }
 
+    private var documentFormat: FileFormat {
+        if let name = fileURL?.lastPathComponent {
+            return FileFormats.format(for: name)
+        }
+        return FileFormats.format(for: "Untitled.md")
+    }
+
     private var editor: some View {
+        #if os(macOS)
+        macEditor
+        #else
+        iosEditor
+        #endif
+    }
+
+    #if os(macOS)
+    private var macEditor: some View {
         XYZEditor(
             text: document.text,
-            isEditable: isEditable,
+            isEditable: isEditable && viewMode == .source,
             undoManager: undoManager,
+            reloadToken: 0,
             scrollLink: scrollLink,
             markup: TextMarkup.allows(fileExtension: fileURL?.pathExtension),
             spellCheck: TextMarkup.isProse(fileExtension: fileURL?.pathExtension),
-            onTextChange: { newText in
-                document.storeEditorText(newText)
-                bridge.send(newText)
-                if showsWordCount {
-                    wordCount.update(newText)
-                }
-            }
+            syntax: documentFormat.language,
+            forcesMonospace: documentFormat.usesCodeFont,
+            onSelection: nil,
+            onTextChange: storeEditorText,
+            lineNumbersVisible: viewMode == .source,
+            find: commands.findModel
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+    #else
+    private var iosEditor: some View {
+        XYZEditor(
+            text: document.text,
+            isEditable: isEditable && viewMode == .source,
+            undoManager: undoManager,
+            reloadToken: 0,
+            scrollLink: scrollLink,
+            markup: TextMarkup.allows(fileExtension: fileURL?.pathExtension),
+            spellCheck: TextMarkup.isProse(fileExtension: fileURL?.pathExtension),
+            syntax: documentFormat.language,
+            forcesMonospace: documentFormat.usesCodeFont,
+            onSelection: nil,
+            onTextChange: storeEditorText
+        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+    #endif
+
+    private func storeEditorText(_ newText: String) {
+        document.storeEditorText(newText)
+        bridge.send(newText)
+        if showsWordCount {
+            wordCount.update(newText)
+        }
     }
 
     private var preview: some View {
@@ -139,9 +183,13 @@ struct DocumentEditorView: View {
         #endif
     }
 
+    private var showsMarkdownPreview: Bool {
+        viewMode == .reading && TextMarkup.allows(fileExtension: fileURL?.pathExtension)
+    }
+
     @ViewBuilder
     private var singleSurface: some View {
-        if viewMode == .reading {
+        if showsMarkdownPreview {
             preview
         } else {
             editor
@@ -151,6 +199,20 @@ struct DocumentEditorView: View {
     #if os(macOS)
     private var macBody: some View {
         singleSurface
+            .overlay(alignment: .topTrailing) {
+                if let model = commands.findModel {
+                    FindBarHost(model: model)
+                        .padding(.top, 8)
+                        .padding(.trailing, 12)
+                }
+            }
+            .onAppear {
+                commands.readingWeb = webHost.webView
+                commands.noteFindSurface()
+            }
+            .onChange(of: viewMode) { _, _ in
+                commands.noteFindSurface()
+            }
     }
 
     private var scrollLink: EditorScrollLink { commands.scrollLink }
@@ -192,13 +254,17 @@ struct DocumentEditorView: View {
 #if os(macOS)
 @MainActor
 final class DocumentCommandBridge: ObservableObject, EditorCommandTarget {
-    @Published private(set) var mode: EditorViewMode = .source
+    @Published private(set) var mode: EditorViewMode = .reading
     let scrollLink = EditorScrollLink()
     var fileURL: URL?
     /// The editor's text, for Go to Heading.
     var currentText: () -> String = { "" }
 
     var editorViewMode: EditorViewMode { mode }
+    var editorHasOpenFile: Bool { true }
+    var editorShowsRenderedReading: Bool {
+        mode == .reading && TextMarkup.allows(fileExtension: fileURL?.pathExtension)
+    }
     var showsHiddenFiles: Bool { true }
     var supportsWorkspaceFiles: Bool { false }
 
@@ -208,6 +274,10 @@ final class DocumentCommandBridge: ObservableObject, EditorCommandTarget {
             scrollLink.noteToggle(to: mode)
         }
         self.mode = mode
+        if mode == .reading {
+            findStore.showsReplace = false
+        }
+        noteFindSurface()
         if previous != mode {
             ViewModeLog.changed(from: previous.rawValue, to: mode.rawValue, source: source)
         }
@@ -254,6 +324,29 @@ final class DocumentCommandBridge: ObservableObject, EditorCommandTarget {
 
     func revealHeading(line: Int) {
         scrollLink.revealLine(line)
+    }
+
+    var findModel: EditorFindModel? { findStore }
+    private let findStore = EditorFindModel()
+    weak var readingWeb: WKWebView?
+
+    func noteFindSurface() {
+        if editorShowsRenderedReading {
+            findStore.useReading(readingWeb) { [weak self] in
+                self?.currentText() ?? ""
+            }
+        } else {
+            findStore.useEditor()
+        }
+    }
+
+    func revealPosition(line: Int, column: Int) {
+        if mode != .source {
+            editorSelect(.source, source: "goto")
+            scrollLink.storeQueuedReveal(line, column: column, editorOnly: true)
+        } else {
+            scrollLink.revealPosition(line, column)
+        }
     }
 }
 #endif

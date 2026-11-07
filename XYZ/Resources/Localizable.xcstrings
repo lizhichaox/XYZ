@@ -139,12 +139,12 @@
         }
       }
     },
-    "Choose a file in the sidebar.\n⌘P opens one. ⌘⇧F filters the list.": {
+    "Choose a file in the sidebar.\n⌘P opens one. ⌘K searches the folder.": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在边栏中选择一个文件。\n⌘P 快速打开，⌘⇧F 过滤列表。"
+            "value": "在边栏中选择一个文件。\n⌘P 快速打开，⌘K 搜索文件夹。"
           }
         }
       }
@@ -352,6 +352,16 @@
         }
       }
     },
+    "Find in Files": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在文件中查找"
+          }
+        }
+      }
+    },
     "Find": {
       "localizations": {
         "zh-Hans": {
@@ -422,12 +432,32 @@
         }
       }
     },
-    "Go to file, > for commands, @ for headings": {
+    "Go to file, > for commands, @ for headings, : for a line": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "前往文件，输入 > 执行命令，输入 @ 跳转到标题"
+            "value": "前往文件，输入 > 执行命令，输入 @ 跳转到标题，输入 : 跳转到行"
+          }
+        }
+      }
+    },
+    "Go to Line": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跳转到行"
+          }
+        }
+      }
+    },
+    "Go to Line…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跳转到行…"
           }
         }
       }
@@ -1118,6 +1148,1196 @@
           "stringUnit": {
             "state": "translated",
             "value": "缩小"
+          }
+        }
+      }
+    },
+    "%lld lines selected": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已选 %lld 行"
+          }
+        }
+      }
+    },
+    "%lld selected": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已选 %lld 个字符"
+          }
+        }
+      }
+    },
+    "Audio": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "音频"
+          }
+        }
+      }
+    },
+    "C": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "C"
+          }
+        }
+      }
+    },
+    "C Header": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "C 头文件"
+          }
+        }
+      }
+    },
+    "Close Tab": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭标签"
+          }
+        }
+      }
+    },
+    "Copy Relative Path": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "拷贝相对路径"
+          }
+        }
+      }
+    },
+    "Couldn't save this file in its original encoding.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法用原来的编码保存此文件。"
+          }
+        }
+      }
+    },
+    "CR": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CR"
+          }
+        }
+      }
+    },
+    "CRLF": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CRLF"
+          }
+        }
+      }
+    },
+    "CSS": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CSS"
+          }
+        }
+      }
+    },
+    "CSV": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "CSV"
+          }
+        }
+      }
+    },
+    "ENV": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ENV"
+          }
+        }
+      }
+    },
+    "Go": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Go"
+          }
+        }
+      }
+    },
+    "HTML": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "HTML"
+          }
+        }
+      }
+    },
+    "INI": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "INI"
+          }
+        }
+      }
+    },
+    "Java": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Java"
+          }
+        }
+      }
+    },
+    "JavaScript": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JavaScript"
+          }
+        }
+      }
+    },
+    "JSON": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "JSON"
+          }
+        }
+      }
+    },
+    "Kotlin": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kotlin"
+          }
+        }
+      }
+    },
+    "LF": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "LF"
+          }
+        }
+      }
+    },
+    "Ln %lld, Col %lld": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第 %lld 行，第 %lld 列"
+          }
+        }
+      }
+    },
+    "Log": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "日志"
+          }
+        }
+      }
+    },
+    "Markdown": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Markdown"
+          }
+        }
+      }
+    },
+    "Mixed": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "混合"
+          }
+        }
+      }
+    },
+    "PDF": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PDF"
+          }
+        }
+      }
+    },
+    "PHP": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "PHP"
+          }
+        }
+      }
+    },
+    "Plain Text": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "纯文本"
+          }
+        }
+      }
+    },
+    "Python": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Python"
+          }
+        }
+      }
+    },
+    "Ruby": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ruby"
+          }
+        }
+      }
+    },
+    "Rust": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rust"
+          }
+        }
+      }
+    },
+    "SCSS": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SCSS"
+          }
+        }
+      }
+    },
+    "Shell": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Shell"
+          }
+        }
+      }
+    },
+    "Showing the first %lld rows.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "仅显示前 %lld 行。"
+          }
+        }
+      }
+    },
+    "SQL": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SQL"
+          }
+        }
+      }
+    },
+    "SVG": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "SVG"
+          }
+        }
+      }
+    },
+    "Swift": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Swift"
+          }
+        }
+      }
+    },
+    "This JSON couldn't be formatted.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这段 JSON 无法排版。"
+          }
+        }
+      }
+    },
+    "TOML": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TOML"
+          }
+        }
+      }
+    },
+    "TSV": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TSV"
+          }
+        }
+      }
+    },
+    "TypeScript": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TypeScript"
+          }
+        }
+      }
+    },
+    "Unsaved": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未保存"
+          }
+        }
+      }
+    },
+    "UTF-16 BE": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UTF-16 BE"
+          }
+        }
+      }
+    },
+    "UTF-16 BE with BOM": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UTF-16 BE（带 BOM）"
+          }
+        }
+      }
+    },
+    "UTF-16 LE": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UTF-16 LE"
+          }
+        }
+      }
+    },
+    "UTF-16 LE with BOM": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UTF-16 LE（带 BOM）"
+          }
+        }
+      }
+    },
+    "UTF-8": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UTF-8"
+          }
+        }
+      }
+    },
+    "UTF-8 with BOM": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "UTF-8（带 BOM）"
+          }
+        }
+      }
+    },
+    "Video": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "视频"
+          }
+        }
+      }
+    },
+    "Windows-1252": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Windows-1252"
+          }
+        }
+      }
+    },
+    "XML": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "XML"
+          }
+        }
+      }
+    },
+    "YAML": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "YAML"
+          }
+        }
+      }
+    },
+    "No Outline": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有大纲"
+          }
+        }
+      }
+    },
+    "Outline": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "大纲"
+          }
+        }
+      }
+    },
+    "Show Outline": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示大纲"
+          }
+        }
+      }
+    },
+    "Show/Hide Outline": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示或隐藏大纲"
+          }
+        }
+      }
+    },
+    "Toggle Outline": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换大纲"
+          }
+        }
+      }
+    },
+    "Toggle Left Sidebar (⌘B)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换左侧边栏 (⌘B)"
+          }
+        }
+      }
+    },
+    "Toggle Outline (⌥⌘B)": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换大纲 (⌥⌘B)"
+          }
+        }
+      }
+    },
+    "No Files": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "没有文件"
+          }
+        }
+      }
+    },
+    "This text can't be stored in that encoding.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "这段文字无法用该编码保存。"
+          }
+        }
+      }
+    },
+    "Reopen Closed Tab": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新打开已关闭的标签页"
+          }
+        }
+      }
+    },
+    "Reveal Active File": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在边栏中显示当前文件"
+          }
+        }
+      }
+    },
+    "Wrap Lines": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动换行"
+          }
+        }
+      }
+    },
+    "Wrap lines": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "自动换行"
+          }
+        }
+      }
+    },
+    "Breaks long lines to the width of the editor. Turn this off to scroll sideways.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "按编辑器宽度折行。关闭后可横向滚动查看长行。"
+          }
+        }
+      }
+    },
+    "Show hidden files": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示隐藏文件"
+          }
+        }
+      }
+    },
+    "Lists names that start with a dot in the folder sidebar.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在文件夹边栏中列出以点开头的名称。"
+          }
+        }
+      }
+    },
+    "Fit": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "适合窗口"
+          }
+        }
+      }
+    },
+    "Page %lld of %lld": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第 %lld 页，共 %lld 页"
+          }
+        }
+      }
+    },
+    "Keep Mine": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "保留我的"
+          }
+        }
+      }
+    },
+    "XYZ can't preview this file.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "XYZ 无法预览此文件。"
+          }
+        }
+      }
+    },
+    "The copy on disk differs from your edits. Reload replaces your edits. Keep Mine writes your edits over the file.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "磁盘上的副本与你的编辑不同。重新载入会替换你的编辑。保留我的会把你的编辑写入文件。"
+          }
+        }
+      }
+    },
+    "Line %lld": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第 %lld 行"
+          }
+        }
+      }
+    },
+    "Line %lld, Column %lld": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第 %lld 行，第 %lld 列"
+          }
+        }
+      }
+    },
+    "New Window": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新建窗口"
+          }
+        }
+      }
+    },
+    "Move to New Window": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将标签页移到新窗口"
+          }
+        }
+      }
+    },
+    "Read-only": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "只读"
+          }
+        }
+      }
+    },
+    "Preview truncated": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "预览已截断"
+          }
+        }
+      }
+    },
+    "%lld of %lld": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "第 %lld 个，共 %lld 个"
+          }
+        }
+      }
+    },
+    "Close": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭"
+          }
+        }
+      }
+    },
+    "Collapse": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "折叠"
+          }
+        }
+      }
+    },
+    "Delete Line": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除行"
+          }
+        }
+      }
+    },
+    "Duplicate Line": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向下复制行"
+          }
+        }
+      }
+    },
+    "Duplicate Line Above": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "向上复制行"
+          }
+        }
+      }
+    },
+    "Exclude": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "排除"
+          }
+        }
+      }
+    },
+    "Exclude files": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "排除的文件"
+          }
+        }
+      }
+    },
+    "Expand": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "展开"
+          }
+        }
+      }
+    },
+    "Find Next": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查找下一个"
+          }
+        }
+      }
+    },
+    "Find Previous": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "查找上一个"
+          }
+        }
+      }
+    },
+    "Include": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "包含"
+          }
+        }
+      }
+    },
+    "Include files": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "包含的文件"
+          }
+        }
+      }
+    },
+    "Indent": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "增加缩进"
+          }
+        }
+      }
+    },
+    "Invalid": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无效"
+          }
+        }
+      }
+    },
+    "Join Lines": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "合并行"
+          }
+        }
+      }
+    },
+    "Make Lowercase": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "转为小写"
+          }
+        }
+      }
+    },
+    "Make Title Case": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "转为首字母大写"
+          }
+        }
+      }
+    },
+    "Make Uppercase": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "转为大写"
+          }
+        }
+      }
+    },
+    "Match Case": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "区分大小写"
+          }
+        }
+      }
+    },
+    "Move Line Down": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下移行"
+          }
+        }
+      }
+    },
+    "Move Line Up": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "上移行"
+          }
+        }
+      }
+    },
+    "No results": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无结果"
+          }
+        }
+      }
+    },
+    "Outdent": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "减少缩进"
+          }
+        }
+      }
+    },
+    "Regex": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正则"
+          }
+        }
+      }
+    },
+    "Replace": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "替换"
+          }
+        }
+      }
+    },
+    "Replace %lld matches in %lld files? Each file can be undone.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "替换 %lld 处，共 %lld 个文件？每个文件可以单独撤销。"
+          }
+        }
+      }
+    },
+    "Replace All": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全部替换"
+          }
+        }
+      }
+    },
+    "Replace in Files": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在文件中替换"
+          }
+        }
+      }
+    },
+    "Skipped %lld files.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已跳过 %lld 个文件。"
+          }
+        }
+      }
+    },
+    "Sort Lines": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "排序行"
+          }
+        }
+      }
+    },
+    "Toggle Comment": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换注释"
+          }
+        }
+      }
+    },
+    "Trim Trailing Whitespace": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "删除行尾空格"
+          }
+        }
+      }
+    },
+    "Whole Word": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "全字匹配"
+          }
+        }
+      }
+    },
+    "Editing": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "编辑"
+          }
+        }
+      }
+    },
+    "Show line numbers in Reading mode": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在阅读模式显示行号"
+          }
+        }
+      }
+    },
+    "Editing always shows line numbers. Reading hides them unless this is on.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "编辑时始终显示行号。阅读时默认隐藏。"
+          }
+        }
+      }
+    },
+    "Show Line Numbers in Reading": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "阅读时显示行号"
+          }
+        }
+      }
+    },
+    "Toggle Reading and Editing": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换阅读和编辑"
+          }
+        }
+      }
+    },
+    "Keeps lines at a comfortable length in wide windows, in Editing and Reading.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在宽窗口里把编辑和阅读的行宽限制在舒适的长度。"
           }
         }
       }

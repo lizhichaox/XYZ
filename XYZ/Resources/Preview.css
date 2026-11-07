@@ -1,12 +1,13 @@
 :root {
   color-scheme: light dark;
-  --text: #1c1c1e;
-  --muted: #636366;
-  --link: #0b57d0;
-  --border: rgba(60, 60, 67, 0.18);
-  --code: rgba(120, 120, 128, 0.12);
-  --quote: #aeaeb2;
-  --mark: rgba(11, 87, 208, 0.22);
+  --text: #1f1f1f;
+  --muted: #5f6368;
+  --link: #0078d4;
+  --border: #e5e5e5;
+  --code: #ffffff;
+  --code-line: #e5e5e5;
+  --quote: #6e7781;
+  --mark: rgba(0, 120, 212, 0.18);
   --canvas: #ffffff;
   --code-keyword: #cf222e;
   --code-string: #0a3069;
@@ -18,13 +19,14 @@
 }
 
 :root[data-theme="dark"] {
-  --text: #f2f2f7;
-  --muted: #aeaeb2;
-  --link: #8cb4ff;
-  --border: rgba(255, 255, 255, 0.16);
-  --code: rgba(255, 255, 255, 0.08);
-  --quote: #8e8e93;
-  --mark: rgba(140, 180, 255, 0.28);
+  --text: #d4d4d4;
+  --muted: #9d9d9d;
+  --link: #4da3e0;
+  --border: #2b2b2b;
+  --code: #2a2a2a;
+  --code-line: transparent;
+  --quote: #9d9d9d;
+  --mark: #264f78;
   --canvas: #1e1e1e;
   --code-keyword: #ff7b72;
   --code-string: #a5d6ff;
@@ -37,13 +39,14 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --text: #f2f2f7;
-    --muted: #aeaeb2;
-    --link: #8cb4ff;
-    --border: rgba(255, 255, 255, 0.16);
-    --code: rgba(255, 255, 255, 0.08);
-    --quote: #8e8e93;
-    --mark: rgba(140, 180, 255, 0.28);
+    --text: #d4d4d4;
+    --muted: #9d9d9d;
+    --link: #4da3e0;
+    --border: #2b2b2b;
+    --code: #2a2a2a;
+    --code-line: transparent;
+    --quote: #9d9d9d;
+    --mark: #264f78;
     --canvas: #1e1e1e;
     --code-keyword: #ff7b72;
     --code-string: #a5d6ff;
@@ -66,9 +69,9 @@ html, body {
 }
 
 body {
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "PingFang SC", "Hiragino Sans GB", "Helvetica Neue", sans-serif;
   font-size: var(--text-size, 16px);
-  line-height: 1.75;
+  line-height: var(--line-height, 1.7);
+  font-family: var(--font-latin, -apple-system, BlinkMacSystemFont, "SF Pro Text"), var(--font-cjk, "PingFang SC"), "Helvetica Neue", sans-serif;
   line-break: strict;
   hanging-punctuation: first last;
   text-spacing-trim: space-first;
@@ -79,13 +82,13 @@ body {
 
 article {
   margin: 0;
-  padding: clamp(36px, 5vw, 64px) clamp(24px, 5vw, 64px) 96px;
+  padding: 10px clamp(16px, 4vw, 56px) 40px;
   hanging-punctuation: first last;
 }
 
 /* Settings → Limit line width: about 42 em of text, the editor's measure. */
 :root[data-readable="true"] article {
-  max-width: calc(42em + 2 * clamp(24px, 5vw, 64px));
+  max-width: calc(42em + 26px);
   margin-inline: auto;
 }
 
@@ -94,16 +97,17 @@ article > :last-child { margin-bottom: 0; }
 
 h1, h2, h3, h4, h5, h6 {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Hiragino Sans GB", sans-serif;
-  line-height: 1.35;
+  line-height: 1.25;
   font-weight: 600;
   letter-spacing: 0;
-  margin: 1.55em 0 0.4em;
+  margin: 1.55em 0 0.35em;
 }
 
-h1 { font-size: 1.7em; }
-h2 { font-size: 1.38em; }
-h3 { font-size: 1.16em; }
-h4, h5, h6 { font-size: 1em; }
+h1 { font-size: 1.85em; margin-top: 0.1em; margin-bottom: 0.4em; }
+h2 { font-size: 1.42em; }
+h3 { font-size: 1.18em; }
+h4, h5, h6 { font-size: 1em; margin-top: 1.25em; }
+h1 + h2, h2 + h3, h3 + h4, h4 + h5, h5 + h6 { margin-top: 0.5em; }
 
 p {
   margin: 0.85em 0;
@@ -127,7 +131,7 @@ del {
 }
 
 code, kbd, pre {
-  font-family: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas, "PingFang SC", monospace;
+  font-family: var(--font-mono, ui-monospace, "SF Mono", Menlo), var(--font-cjk, "PingFang SC"), monospace;
   color: var(--text);
 }
 
@@ -137,25 +141,27 @@ code, kbd {
 
 code {
   background: var(--code);
-  padding: 0.08em 0.36em;
-  border-radius: 5px;
+  border: 1px solid var(--code-line);
+  padding: 0.02em 0.34em;
+  border-radius: 4px;
 }
 
 pre {
   background: var(--code);
   color: var(--text);
-  padding: 14px 16px;
+  padding: 10px 12px;
   overflow: auto;
   max-width: 100%;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  margin: 1.15em 0;
-  line-height: 1.55;
+  border: 1px solid var(--code-line);
+  border-radius: 6px;
+  margin: 1em 0;
+  line-height: 1.5;
   tab-size: 2;
 }
 
 pre code {
   background: none;
+  border: 0;
   padding: 0;
   font-size: 0.86em;
   white-space: pre;
@@ -165,29 +171,81 @@ pre code {
 blockquote {
   margin: 1.2em 0;
   padding: 0.05em 0 0.05em 0.95em;
-  border-left: 2px solid var(--quote);
+  border-left: 2px solid var(--link);
   color: var(--muted);
 }
 
 blockquote p { margin: 0.4em 0; }
 
-ul, ol {
-  margin: 0.75em 0;
-  padding-left: 1.4em;
+aside.callout {
+  margin: 1.15em 0;
+  padding: 0.55em 0.85em 0.7em;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--code);
 }
 
-li { margin: 0.32em 0; }
-li > p { margin: 0.3em 0; }
+aside.callout .callout-title {
+  margin: 0 0 0.35em;
+  font-size: 0.78em;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+aside.callout p { margin: 0.35em 0; }
+
+dl.properties {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 0.2em 0.9em;
+  margin: 0 0 1.35em;
+  padding: 0.55em 0.8em;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-size: 0.88em;
+}
+
+dl.properties dt {
+  color: var(--muted);
+}
+
+dl.properties dd { margin: 0; }
+
+ul, ol {
+  margin: 0.35em 0 0.85em;
+  padding-left: 1.35em;
+}
+
+li { margin: 0.18em 0; }
+li > p { margin: 0.2em 0; }
+li > ul, li > ol { margin: 0.15em 0 0.35em; }
 
 li.task {
   list-style: none;
-  margin-left: -1.15em;
+  margin-left: -1.2em;
 }
 
 li.task > input {
-  margin: 0 0.45em 0.12em 0;
-  vertical-align: middle;
-  accent-color: var(--text);
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  margin: 0 0.45em 0.1em 0;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--canvas);
+  vertical-align: -2px;
+}
+
+li.task > input:checked {
+  background-color: var(--link);
+  border-color: var(--link);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14'%3E%3Cpath d='M3 7.2 L5.8 10 L11 4' fill='none' stroke='white' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: 14px 14px;
 }
 
 li.task > p { display: inline; }
@@ -196,7 +254,7 @@ hr {
   border: 0;
   height: 1px;
   background: var(--border);
-  margin: 2.1em 0;
+  margin: 1.6em 0;
 }
 
 .table-wrap {
@@ -232,7 +290,7 @@ img, video {
   max-width: 100%;
   height: auto;
   margin: 0.9em 0;
-  border-radius: 8px;
+  border-radius: 6px;
 }
 
 /* A picture that cannot load shows its alt text. */
@@ -266,4 +324,36 @@ pre.raw-html {
 ::selection {
   background: var(--mark);
   color: inherit;
+}
+
+mark.xyz-find {
+  background: rgba(0, 120, 212, 0.18);
+  color: inherit;
+  border-radius: 2px;
+}
+
+mark.xyz-find-current {
+  background: rgba(0, 120, 212, 0.42);
+  color: inherit;
+}
+
+:root[data-theme="dark"] mark.xyz-find {
+  background: rgba(234, 92, 0, 0.50);
+  color: inherit;
+}
+
+:root[data-theme="dark"] mark.xyz-find-current {
+  background: rgba(234, 92, 0, 0.92);
+  color: #1e1e1e;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) mark.xyz-find {
+    background: rgba(234, 92, 0, 0.50);
+    color: inherit;
+  }
+  :root:not([data-theme="light"]) mark.xyz-find-current {
+    background: rgba(234, 92, 0, 0.92);
+    color: #1e1e1e;
+  }
 }

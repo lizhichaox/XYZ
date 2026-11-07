@@ -72,6 +72,42 @@ final class MarkdownHTMLTests: XCTestCase {
         XCTAssertTrue(html.contains("<code class=\"language-swift\">let x = 1</code></pre>"))
     }
 
+    func testCalloutKeepsTheBodyAndDropsTheMarker() {
+        let html = MarkdownHTML.render("> [!warning] Careful\n> Do not push\n")
+        XCTAssertTrue(html.contains("<aside class=\"callout\" data-callout=\"warning\""))
+        XCTAssertTrue(html.contains("class=\"callout-title\">Careful</p>"))
+        XCTAssertTrue(html.contains("Do not push"))
+        XCTAssertFalse(html.contains("[!warning]"))
+        XCTAssertFalse(html.contains("<blockquote"))
+    }
+
+    func testPlainBlockquoteIsNotACallout() {
+        let html = MarkdownHTML.render("> quoted *text*\n")
+        XCTAssertTrue(html.contains("<blockquote"))
+        XCTAssertFalse(html.contains("callout"))
+    }
+
+    func testFrontMatterIsAPropertiesBlockAndKeepsLaterLineNumbers() {
+        let html = MarkdownHTML.render("---\ntitle: Hello\ntags: a, b\n---\n\n# Title\n")
+        XCTAssertTrue(html.contains("<dl class=\"properties\">"))
+        XCTAssertTrue(html.contains("<dt>title</dt><dd>Hello</dd>"))
+        XCTAssertTrue(html.contains("<dt>tags</dt><dd>a, b</dd>"))
+        XCTAssertTrue(html.contains("data-line=\"6\""))
+        XCTAssertTrue(html.contains(">Title</h1>"))
+    }
+
+    func testWikiLinkBecomesARelativeNoteLink() {
+        let html = MarkdownHTML.render("See [[Daily Note|Today]] and [[Other#Hello]].\n")
+        XCTAssertTrue(html.contains("href=\"Daily%20Note.md\">Today</a>"))
+        XCTAssertTrue(html.contains("href=\"Other.md#hello\">Other</a>"))
+    }
+
+    func testWikiLinkInsideCodeStaysLiteral() {
+        let html = MarkdownHTML.render("```\n[[Not a link]]\n```\n")
+        XCTAssertTrue(html.contains("[[Not a link]]"))
+        XCTAssertFalse(html.contains("Not a link.md"))
+    }
+
     func testBlockquote() {
         let html = MarkdownHTML.render("> quoted *text*\n")
         XCTAssertTrue(html.contains("<blockquote data-line=\"1\""))

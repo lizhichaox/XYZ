@@ -2,6 +2,7 @@
 @preconcurrency import AppKit
 import os
 import SwiftUI
+import WebKit
 import XYZCore
 
 enum ViewModeLog {
@@ -35,6 +36,12 @@ enum PaletteLog {
 @MainActor
 protocol EditorCommandTarget: AnyObject {
     var editorViewMode: EditorViewMode { get }
+    var editorIsEditing: Bool { get }
+    var editorCanToggle: Bool { get }
+    var editorShowsRenderedReading: Bool { get }
+    /// A file is on screen. An empty folder window is not a document.
+    var editorHasOpenFile: Bool { get }
+    func beginEditing(source: String) -> Bool
     var showsHiddenFiles: Bool { get }
     var supportsWorkspaceFiles: Bool { get }
     func editorSelect(_ mode: EditorViewMode, source: String)
@@ -42,32 +49,73 @@ protocol EditorCommandTarget: AnyObject {
     func paletteFiles() -> [PaletteFile]
     func paletteOpen(fileID: String, newWindow: Bool)
     func toggleSidebar()
+    var showsOutlinePane: Bool { get }
+    func toggleOutlinePane()
     func focusFilter()
+    func replaceInFolder(pattern: String, replacement: String)
     func toggleHiddenFiles()
     func newFile()
     func newFolder()
     func reveal()
     func copyPath()
+    func copyRelativePath()
+    func closeActiveTab() -> Bool
+    func selectTab(number: Int) -> Bool
     func reloadFile()
     func paletteHeadings() -> [OutlineHeading]
     func revealHeading(line: Int)
+    func revealPosition(line: Int, column: Int)
+    func editorLineCount() -> Int
+    func reopenClosedTab() -> Bool
+    func revealActiveFile()
+    func beginTabSwitch() -> Bool
+    func moveTabSwitch(_ delta: Int)
+    func commitTabSwitch()
+    func cancelTabSwitch()
+    var isSwitchingTabs: Bool { get }
+    var findModel: EditorFindModel? { get }
     func performCustomCommand(_ id: String) -> Bool
 }
 
 @MainActor
 extension EditorCommandTarget {
+    var editorIsEditing: Bool { editorViewMode == .source }
+    var editorCanToggle: Bool { true }
+    var editorShowsRenderedReading: Bool { false }
+    var editorHasOpenFile: Bool { false }
+    func beginEditing(source: String) -> Bool {
+        guard editorViewMode != .source else { return true }
+        editorSelect(.source, source: source)
+        return true
+    }
     var showsHiddenFiles: Bool { true }
     var supportsWorkspaceFiles: Bool { false }
     func toggleSidebar() {}
+    var showsOutlinePane: Bool { false }
+    func toggleOutlinePane() {}
     func focusFilter() {}
+    func replaceInFolder(pattern: String, replacement: String) {}
     func toggleHiddenFiles() {}
     func newFile() {}
     func newFolder() {}
     func reveal() {}
     func copyPath() {}
+    func copyRelativePath() {}
+    func closeActiveTab() -> Bool { false }
+    func selectTab(number: Int) -> Bool { false }
     func reloadFile() {}
     func paletteHeadings() -> [OutlineHeading] { [] }
     func revealHeading(line: Int) {}
+    func revealPosition(line: Int, column: Int) {}
+    func editorLineCount() -> Int { 1 }
+    func reopenClosedTab() -> Bool { false }
+    func revealActiveFile() {}
+    func beginTabSwitch() -> Bool { false }
+    func moveTabSwitch(_ delta: Int) {}
+    func commitTabSwitch() {}
+    func cancelTabSwitch() {}
+    var isSwitchingTabs: Bool { false }
+    var findModel: EditorFindModel? { nil }
     func performCustomCommand(_ id: String) -> Bool { false }
 }
 
@@ -77,14 +125,56 @@ final class EditorCommands: NSObject {
     static let shared = EditorCommands()
 
     weak var target: EditorCommandTarget?
+    weak var hostWindow: NSWindow?
     private let palette = CommandPaletteController()
+    private let globalSearch = GlobalSearchController()
+    private var keyMonitor: Any?
 
-    func handleKeyEquivalent(_ event: NSEvent) -> Bool {
+    func installKeyMonitor() {
+        guard keyMonitor == nil else { return }
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
+            let handled = MainActor.assumeIsolated {
+                EditorCommands.shared.handleKeyEquivalent(event, requireHost: true)
+            }
+            return handled ? nil : event
+        }
+        flagsMonitor = NSEvent.addLocalMonitorForEvents(matching: .flagsChanged) { event in
+            MainActor.assumeIsolated {
+                EditorCommands.shared.handleFlagsChanged(event)
+            }
+            return event
+        }
+    }
+
+    private var flagsMonitor: Any?
+
+    /// Option changes the character, so ⌥⌘B is also matched by the physical B key.
+    private func isOptionCommandB(_ event: NSEvent, flags: NSEvent.ModifierFlags) -> Bool {
+        guard flags == [.command, .option] else { return false }
+        if event.keyCode == 11 { return true }
+        if event.charactersIgnoringModifiers?.lowercased() == "b" { return true }
+        return event.characters(byApplyingModifiers: [])?.lowercased() == "b"
+    }
+
+    func handleKeyEquivalent(_ event: NSEvent, requireHost: Bool = false) -> Bool {
+        if requireHost, hostWindow !== NSApp.keyWindow { return false }
         let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
         let key = event.charactersIgnoringModifiers ?? ""
+        if flags == .command, let digit = key.unicodeScalars.first, digit.value >= 49, digit.value <= 57 {
+            let number = Int(digit.value - 48)
+            return target?.selectTab(number: number) == true
+        }
+        if flags == .command && key.lowercased() == "w" {
+            return target?.closeActiveTab() == true
+        }
         if flags == .command && key == "/" {
             guard target != nil else { return false }
             toggleSource(nil)
+            return true
+        }
+        if isOptionCommandB(event, flags: flags) {
+            guard target?.supportsWorkspaceFiles == true else { return false }
+            toggleOutline(nil)
             return true
         }
         if flags == .command && key.lowercased() == "p" {
@@ -92,7 +182,7 @@ final class EditorCommands: NSObject {
             return true
         }
         if flags == .command && key.lowercased() == "r" {
-            guard target != nil else { return false }
+            guard editorHasOpenFile else { return refuseClosedDocument() }
             goToHeading(nil)
             return true
         }
@@ -105,13 +195,12 @@ final class EditorCommands: NSObject {
             zoomOut(nil)
             return true
         }
-        if flags == .command && key == "0" {
-            actualSize(nil)
+        if flags == .option && key.lowercased() == "z" {
+            toggleWordWrap(nil)
             return true
         }
-        if flags == [.command, .shift] && key.lowercased() == "f" {
-            guard target?.supportsWorkspaceFiles == true else { return false }
-            focusFilter(nil)
+        if flags == .command && key == "0" {
+            actualSize(nil)
             return true
         }
         if flags == [.command, .shift] && key == "." {
@@ -119,7 +208,232 @@ final class EditorCommands: NSObject {
             toggleHidden(nil)
             return true
         }
+        if flags == [.command, .shift] && key.lowercased() == "t" {
+            return target?.reopenClosedTab() == true
+        }
+        if flags == .control && key.lowercased() == "g" {
+            guard editorHasOpenFile else { return refuseClosedDocument() }
+            goToLine(nil)
+            return true
+        }
+        if flags == .command && key.lowercased() == "s" {
+            guard target?.editorIsEditing == true else {
+                NSSound.beep()
+                return target != nil
+            }
+            return false
+        }
+        if flags == .command && key.lowercased() == "f" {
+            guard editorHasOpenFile else { return refuseClosedDocument() }
+            target?.findModel?.show(replace: false)
+            return target?.findModel != nil
+        }
+        if flags == [.command, .option] && key.lowercased() == "f" {
+            guard editorHasOpenFile else { return refuseClosedDocument() }
+            guard target?.beginEditing(source: "replace") == true else {
+                NSSound.beep()
+                return target != nil
+            }
+            target?.findModel?.show(replace: true)
+            return target?.findModel != nil
+        }
+        if flags == .command && key.lowercased() == "g" {
+            guard editorHasOpenFile else { return refuseClosedDocument() }
+            target?.findModel?.perform?(.next)
+            return target?.findModel != nil
+        }
+        if flags == [.command, .shift] && key.lowercased() == "g" {
+            guard editorHasOpenFile else { return refuseClosedDocument() }
+            target?.findModel?.perform?(.previous)
+            return target?.findModel != nil
+        }
+        if flags == .command && key.lowercased() == "d", editorIsFirstResponder, target?.editorIsEditing == true {
+            target?.findModel?.perform?(.selectNextOccurrence)
+            return true
+        }
+        if editorIsFirstResponder, target?.editorIsEditing == true, handleLineEdit(flags: flags, key: key, event: event) {
+            return true
+        }
+        if flags == [.command, .shift] && key.lowercased() == "n" {
+            newWorkspaceWindow(nil)
+            return true
+        }
+        if handleTabSwitch(event, flags: flags) {
+            return true
+        }
         return false
+    }
+
+    /// The topmost editor popup: folder search, the palette (including Go to Line), the tab
+    /// switcher, the source find bar, then the Reading find bar. Esc cancels the switcher.
+    func dismissTransient() -> Bool {
+        let key = NSApp.keyWindow
+        if palette.owns(key) {
+            return palette.closeIfOpen()
+        }
+        if globalSearch.owns(key) {
+            return globalSearch.closeIfOpen()
+        }
+        if globalSearch.closeIfOpen() { return true }
+        if palette.closeIfOpen() { return true }
+        if cancelTabSwitchIfShowing() { return true }
+        if let find = target?.findModel, find.visible {
+            find.dismiss()
+            return true
+        }
+        if ReadingSurface.dismissFind(in: hostWindow ?? key) {
+            return true
+        }
+        return false
+    }
+
+    /// Esc while Control is held. Cancels the list and does not open the highlighted file.
+    func cancelTabSwitchIfShowing() -> Bool {
+        guard target?.isSwitchingTabs == true else { return false }
+        target?.cancelTabSwitch()
+        focusEditor()
+        return true
+    }
+
+    /// After a popup closes, the caret belongs in the editor that was underneath it.
+    func focusEditor() {
+        let preferred = hostWindow
+        let reading = target?.editorShowsRenderedReading == true
+        DispatchQueue.main.async { [weak self] in
+            let window = Self.editorWindow(preferred: preferred)
+            guard let window else { return }
+            if !window.isKeyWindow {
+                window.makeKeyAndOrderFront(nil)
+            }
+            self?.assignFirstResponder(in: window, preferWeb: reading && window === preferred)
+        }
+    }
+
+    private static func editorWindow(preferred: NSWindow?) -> NSWindow? {
+        if let preferred, preferred.isVisible, !EscapeKey.isRegistered(preferred) {
+            return preferred
+        }
+        if let main = NSApp.mainWindow, main.isVisible, !EscapeKey.isRegistered(main) {
+            return main
+        }
+        return WorkspaceWindowController.controllers.first { controller in
+            guard let window = controller.window else { return false }
+            return window.isVisible
+        }?.window
+    }
+
+    private func assignFirstResponder(in window: NSWindow, preferWeb: Bool) {
+        if preferWeb, let web = Self.firstVisible(WKWebView.self, in: window.contentView) {
+            window.makeFirstResponder(web)
+            return
+        }
+        if let text = Self.firstVisible(XYZMacTextView.self, in: window.contentView) {
+            window.makeFirstResponder(text)
+            return
+        }
+        if let web = Self.firstVisible(WKWebView.self, in: window.contentView) {
+            window.makeFirstResponder(web)
+        }
+    }
+
+    private static func firstVisible<T: NSView>(_ type: T.Type, in view: NSView?) -> T? {
+        guard let view, !view.isHidden else { return nil }
+        if view.isKind(of: type) { return view as? T }
+        for child in view.subviews {
+            if let found = firstVisible(type, in: child) { return found }
+        }
+        return nil
+    }
+
+    private var editorHasOpenFile: Bool { target?.editorHasOpenFile == true }
+
+    /// ⌘F and its neighbors do nothing useful until a file is open. Consume the key so the
+    /// find bar does not appear over the empty window.
+    private func refuseClosedDocument() -> Bool {
+        guard target != nil else { return false }
+        NSSound.beep()
+        return true
+    }
+
+    private var editorIsFirstResponder: Bool {
+        NSApp.keyWindow?.firstResponder is XYZMacTextView
+    }
+
+    private func handleLineEdit(flags: NSEvent.ModifierFlags, key: String, event: NSEvent) -> Bool {
+        let find = target?.findModel
+        guard let edit = find?.edit else { return false }
+        let language = find?.language ?? .plain
+        if flags == [.shift, .option], event.keyCode == 125 {
+            edit { TextTransforms.duplicateLine(in: $0, selection: $1, above: false) }
+            return true
+        }
+        if flags == [.shift, .option], event.keyCode == 126 {
+            edit { TextTransforms.duplicateLine(in: $0, selection: $1, above: true) }
+            return true
+        }
+        if flags == [.option], event.keyCode == 125 {
+            edit { TextTransforms.moveLine(in: $0, selection: $1, up: false) }
+            return true
+        }
+        if flags == [.option], event.keyCode == 126 {
+            edit { TextTransforms.moveLine(in: $0, selection: $1, up: true) }
+            return true
+        }
+        if flags == [.command, .shift], key.lowercased() == "k" {
+            edit { TextTransforms.deleteLine(in: $0, selection: $1) }
+            return true
+        }
+        if flags == .command, key == "]" {
+            edit { TextTransforms.indentLines(in: $0, selection: $1, outdent: false) }
+            return true
+        }
+        if flags == .command, key == "[" {
+            edit { TextTransforms.indentLines(in: $0, selection: $1, outdent: true) }
+            return true
+        }
+        if flags == .command, key == ";", let prefix = TextTransforms.lineComment(for: language) {
+            let suffix = TextTransforms.lineCommentSuffix(for: language)
+            edit { TextTransforms.toggleComment(in: $0, selection: $1, prefix: prefix, suffix: suffix) }
+            return true
+        }
+        return false
+    }
+
+    /// ⌃Tab moves through the window's recent files. NSTextView would otherwise insert a tab.
+    private func handleTabSwitch(_ event: NSEvent, flags: NSEvent.ModifierFlags) -> Bool {
+        let controlOnly = flags.contains(.control) && !flags.contains(.command) && !flags.contains(.option)
+        if event.keyCode == 48, controlOnly {
+            if target?.isSwitchingTabs == true {
+                target?.moveTabSwitch(flags.contains(.shift) ? -1 : 1)
+            } else if target?.beginTabSwitch() != true {
+                return false
+            }
+            return true
+        }
+        guard target?.isSwitchingTabs == true else { return false }
+        if event.keyCode == 53 {
+            target?.cancelTabSwitch()
+            return true
+        }
+        if event.keyCode == 126 {
+            target?.moveTabSwitch(-1)
+            return true
+        }
+        if event.keyCode == 125 {
+            target?.moveTabSwitch(1)
+            return true
+        }
+        if event.keyCode == 36 {
+            target?.commitTabSwitch()
+            return true
+        }
+        return false
+    }
+
+    private func handleFlagsChanged(_ event: NSEvent) {
+        let flags = event.modifierFlags.intersection([.command, .shift, .option, .control])
+        guard !flags.contains(.control), target?.isSwitchingTabs == true else { return }
+        target?.commitTabSwitch()
     }
 
     func run(_ id: String) {
@@ -143,10 +457,20 @@ final class EditorCommands: NSObject {
             target?.newFolder()
         case "folder.open":
             WorkspaceWindowController.prompt()
+        case "window.new":
+            WorkspaceWindowController.newWindow()
         case "file.reveal":
             target?.reveal()
+        case "file.revealInSidebar":
+            target?.revealActiveFile()
         case "file.copyPath":
             target?.copyPath()
+        case "file.copyRelativePath":
+            target?.copyRelativePath()
+        case "tab.close":
+            _ = target?.closeActiveTab()
+        case "tab.reopen":
+            _ = target?.reopenClosedTab()
         case "file.reload":
             target?.reloadFile()
         case "view.goToHeading":
@@ -154,11 +478,27 @@ final class EditorCommands: NSObject {
             DispatchQueue.main.async { [weak self] in
                 self?.goToHeading(nil)
             }
+        case "view.goToLine":
+            DispatchQueue.main.async { [weak self] in
+                self?.goToLine(nil)
+            }
+        case "view.wordWrap":
+            toggleWordWrap(nil)
+        case "view.outline":
+            toggleOutline(nil)
         case "app.about":
             AboutWindow.show()
+        case "app.installCLI":
+            XYZCommandInstall.showInstall()
+        case "app.uninstallCLI":
+            XYZCommandInstall.showUninstall()
         default:
             break
         }
+    }
+
+    @objc func newWorkspaceWindow(_ sender: Any?) {
+        WorkspaceWindowController.newWindow()
     }
 
     @objc func showPalette(_ sender: Any?) {
@@ -166,7 +506,37 @@ final class EditorCommands: NSObject {
     }
 
     @objc func goToHeading(_ sender: Any?) {
+        guard editorHasOpenFile else {
+            NSSound.beep()
+            return
+        }
         palette.show(target: target, query: "@")
+    }
+
+    @objc func goToLine(_ sender: Any?) {
+        guard editorHasOpenFile else {
+            NSSound.beep()
+            return
+        }
+        let count = target?.editorLineCount() ?? 1
+        XYZDiagnostics.note("goto open lines=\(count)")
+        GoToLinePanel.show(lineCount: count) { [weak self] line in
+            XYZDiagnostics.note("goto jump line=\(line)")
+            self?.target?.revealPosition(line: line, column: 1)
+        }
+    }
+
+    @objc func reopenClosedTab(_ sender: Any?) {
+        _ = target?.reopenClosedTab()
+    }
+
+    @objc func revealActiveFile(_ sender: Any?) {
+        target?.revealActiveFile()
+    }
+
+    @objc func toggleSidebarVisibility(_ sender: Any?) {
+        guard target?.supportsWorkspaceFiles == true else { return }
+        target?.toggleSidebar()
     }
 
     @objc func zoomIn(_ sender: Any?) {
@@ -181,19 +551,57 @@ final class EditorCommands: NSObject {
         TextZoom.reset()
     }
 
-    @objc func toggleLineNumbers(_ sender: Any?) {
-        let defaults = UserDefaults.standard
-        defaults.set(!Self.showsLineNumbers, forKey: XYZEditorStyle.lineNumbersKey)
+    @objc func showFind(_ sender: Any?) {
+        guard editorHasOpenFile else {
+            NSSound.beep()
+            return
+        }
+        target?.findModel?.show(replace: false)
     }
 
-    /// On unless turned off, so an unset key reads as on.
-    private static var showsLineNumbers: Bool {
-        UserDefaults.standard.object(forKey: XYZEditorStyle.lineNumbersKey) as? Bool ?? true
+    @objc func showReplace(_ sender: Any?) {
+        guard editorHasOpenFile else {
+            NSSound.beep()
+            return
+        }
+        guard target?.beginEditing(source: "menu") == true else {
+            NSSound.beep()
+            return
+        }
+        target?.findModel?.show(replace: true)
+    }
+
+    @objc func findNext(_ sender: Any?) {
+        guard editorHasOpenFile else {
+            NSSound.beep()
+            return
+        }
+        target?.findModel?.perform?(.next)
+    }
+
+    @objc func findPrevious(_ sender: Any?) {
+        guard editorHasOpenFile else {
+            NSSound.beep()
+            return
+        }
+        target?.findModel?.perform?(.previous)
     }
 
     @objc func toggleWordCount(_ sender: Any?) {
         let defaults = UserDefaults.standard
         defaults.set(!defaults.bool(forKey: WordCountSetting.key), forKey: WordCountSetting.key)
+    }
+
+    @objc func toggleOutline(_ sender: Any?) {
+        target?.toggleOutlinePane()
+    }
+
+    @objc func toggleWordWrap(_ sender: Any?) {
+        let defaults = UserDefaults.standard
+        let current = defaults.object(forKey: XYZEditorStyle.wordWrapKey) as? Bool ?? true
+        let next = !current
+        defaults.set(next, forKey: XYZEditorStyle.wordWrapKey)
+        XYZDiagnostics.note("wrap on=\(next) was=\(current)")
     }
 
     @objc func toggleSource(_ sender: Any?) {
@@ -208,8 +616,52 @@ final class EditorCommands: NSObject {
         target?.editorSelect(.reading, source: invocationSource())
     }
 
+    @objc func useSelectionForFind(_ sender: Any?) {
+        guard editorHasOpenFile else {
+            NSSound.beep()
+            return
+        }
+        target?.findModel?.visible = true
+        target?.findModel?.perform?(.useSelection)
+    }
+
     @objc func focusFilter(_ sender: Any?) {
+        guard target?.supportsWorkspaceFiles == true else {
+            globalSearch.showNotice()
+            return
+        }
         target?.focusFilter()
+    }
+
+    func toggleGlobalSearch(_ session: WorkspaceSession) {
+        globalSearch.toggle(session: session)
+    }
+
+    @objc func replaceInFolder(_ sender: Any?) {
+        guard target?.supportsWorkspaceFiles == true, target?.editorIsEditing == true else {
+            NSSound.beep()
+            return
+        }
+        let alert = NSAlert()
+        alert.messageText = String(localized: "Replace in Folder")
+        alert.informativeText = String(localized: "Replace text in every text file in this folder. You can undo each file.")
+        let find = NSTextField(frame: NSRect(x: 0, y: 32, width: 260, height: 24))
+        find.placeholderString = String(localized: "Find")
+        let replacement = NSTextField(frame: NSRect(x: 0, y: 0, width: 260, height: 24))
+        replacement.placeholderString = String(localized: "Replace")
+        let box = NSView(frame: NSRect(x: 0, y: 0, width: 260, height: 56))
+        box.addSubview(find)
+        box.addSubview(replacement)
+        alert.accessoryView = box
+        alert.addButton(withTitle: String(localized: "Replace All"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
+        guard alert.runModalClosingOnEscape() == .alertFirstButtonReturn else { return }
+        let pattern = find.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !pattern.isEmpty else {
+            NSSound.beep()
+            return
+        }
+        target?.replaceInFolder(pattern: pattern, replacement: replacement.stringValue)
     }
 
     @objc func toggleHidden(_ sender: Any?) {
@@ -220,20 +672,30 @@ final class EditorCommands: NSObject {
         switch menuItem.identifier?.rawValue {
         case "xyz.mode.source":
             menuItem.state = target?.editorViewMode == .source ? .on : .off
-            return target != nil
+            return target?.editorCanToggle == true
         case "xyz.mode.reading":
             menuItem.state = target?.editorViewMode == .reading ? .on : .off
             return target != nil
-        case "xyz.mode.toggleSource", "xyz.goToHeading":
-            return target != nil
-        case "xyz.lineNumbers":
-            menuItem.state = Self.showsLineNumbers ? .on : .off
+        case "xyz.mode.toggleSource":
+            return target?.editorCanToggle == true
+        case "xyz.goToHeading":
+            return target?.editorHasOpenFile == true
+        case "xyz.wordWrap":
+            let wrapped = UserDefaults.standard.object(forKey: XYZEditorStyle.wordWrapKey) as? Bool ?? true
+            menuItem.state = wrapped ? .on : .off
             return true
+        case "xyz.goToLine":
+            return target?.editorHasOpenFile == true
+        case "xyz.tab.reopen", "xyz.file.revealInSidebar", "xyz.workspace.sidebar":
+            return target?.supportsWorkspaceFiles == true
         case "xyz.wordCount":
             menuItem.state = UserDefaults.standard.bool(forKey: WordCountSetting.key) ? .on : .off
             return true
-        case "xyz.workspace.filter":
+        case "xyz.outline":
+            menuItem.state = target?.showsOutlinePane == true ? .on : .off
             return target?.supportsWorkspaceFiles == true
+        case "xyz.edit.replaceFolder":
+            return target?.supportsWorkspaceFiles == true && target?.editorIsEditing == true
         case "xyz.workspace.hidden":
             let shown = target?.showsHiddenFiles == true
             menuItem.title = shown ? String(localized: "Hide Hidden Files") : String(localized: "Show Hidden Files")
@@ -263,22 +725,52 @@ enum PaletteTitles {
 
     private static func title(for id: String) -> String? {
         switch id {
-        case "view.source": return String(localized: "Source")
+        case "view.source": return String(localized: "Editing")
         case "view.reading": return String(localized: "Reading")
-        case "view.toggleSource": return String(localized: "Toggle Source and Reading")
+        case "view.toggleSource": return String(localized: "Toggle Reading and Editing")
         case "view.goToHeading": return String(localized: "Go to Heading")
+        case "view.outline": return String(localized: "Toggle Outline")
         case "workspace.toggleSidebar": return String(localized: "Toggle Sidebar")
-        case "workspace.focusFilter": return String(localized: "Filter Files")
+        case "workspace.focusFilter": return String(localized: "Search Notes")
         case "file.new": return String(localized: "New File")
         case "folder.new": return String(localized: "New Folder")
         case "folder.open": return String(localized: "Open Folder")
+        case "window.new": return String(localized: "New Window")
         case "file.reveal": return String(localized: "Reveal in Finder")
+        case "file.revealInSidebar": return String(localized: "Reveal Active File")
+        case "view.goToLine": return String(localized: "Go to Line")
+        case "tab.reopen": return String(localized: "Reopen Closed Tab")
+        case "view.wordWrap": return String(localized: "Wrap Lines")
         case "file.copyPath": return String(localized: "Copy Path")
+        case "file.copyRelativePath": return String(localized: "Copy Relative Path")
+        case "tab.close": return String(localized: "Close Tab")
         case "file.reload": return String(localized: "Reload")
         case "app.about": return String(localized: "About XYZ")
+        case "app.installCLI": return String(localized: "Install 'xyz' Command in PATH")
+        case "app.uninstallCLI": return String(localized: "Uninstall 'xyz' Command")
         default: return nil
         }
     }
+}
+
+/// Edit menu selectors for line edits. The items have no target, so the text view validates them.
+enum LineEditMenu {
+    static let actions: Set<Selector> = [
+        #selector(XYZMacTextView.xyzDuplicateLineDown(_:)),
+        #selector(XYZMacTextView.xyzDuplicateLineUp(_:)),
+        #selector(XYZMacTextView.xyzMoveLineDown(_:)),
+        #selector(XYZMacTextView.xyzMoveLineUp(_:)),
+        #selector(XYZMacTextView.xyzDeleteLine(_:)),
+        #selector(XYZMacTextView.xyzIndentLines(_:)),
+        #selector(XYZMacTextView.xyzOutdentLines(_:)),
+        #selector(XYZMacTextView.xyzToggleComment(_:)),
+        #selector(XYZMacTextView.xyzJoinLines(_:)),
+        #selector(XYZMacTextView.xyzSortLines(_:)),
+        #selector(XYZMacTextView.xyzTrimTrailingWhitespace(_:)),
+        #selector(XYZMacTextView.xyzMakeUppercase(_:)),
+        #selector(XYZMacTextView.xyzMakeLowercase(_:)),
+        #selector(XYZMacTextView.xyzMakeTitleCase(_:)),
+    ]
 }
 
 @MainActor
@@ -288,6 +780,7 @@ enum EditorMenuSupport {
     private static var observers: [NSObjectProtocol] = []
 
     static func install() {
+        EditorCommands.shared.installKeyMonitor()
         if !observing {
             observing = true
             let center = NotificationCenter.default
@@ -313,13 +806,126 @@ enum EditorMenuSupport {
         if let file = fileMenu(in: main) {
             ensureFileItems(in: file)
         }
-        FormatMenu.ensure(in: main)
+        FormatMenu.removeMarkdownItems(from: main)
+        removeLegacyFilterItem(in: main)
+        if let edit = editMenu(in: main) {
+            ensureEditItems(in: edit)
+        }
+        gateDocumentFindCommands(in: main)
+    }
+
+    /// Find, replace, and Go to Line need an open file. SwiftUI keeps the shortcut items enabled
+    /// until the menu is about to show, so the tracking pass sets them here too.
+    private static func gateDocumentFindCommands(in menu: NSMenu) {
+        let open = EditorCommands.shared.target?.editorHasOpenFile == true
+        for item in menu.items {
+            if isDocumentFind(item) {
+                item.isEnabled = open
+            }
+            if let submenu = item.submenu {
+                gateDocumentFindCommands(in: submenu)
+            }
+        }
+    }
+
+    private static func isDocumentFind(_ item: NSMenuItem) -> Bool {
+        switch item.identifier?.rawValue {
+        case "xyz.goToLine", "xyz.goToHeading":
+            return true
+        default:
+            break
+        }
+        let key = item.keyEquivalent.lowercased()
+        let flags = item.keyEquivalentModifierMask.intersection(.deviceIndependentFlagsMask)
+        if key == "f", flags == .command || flags == [.command, .option] { return true }
+        if key == "g", flags == .command || flags == [.command, .shift] { return true }
+        if key == "e", flags == .command { return true }
+        if key == "g", flags == .control { return true }
+        return false
+    }
+
+    /// ⇧⌘F used to filter the sidebar. Find in Files is ⌘K, in the Edit menu.
+    private static func removeLegacyFilterItem(in menu: NSMenu) {
+        for item in menu.items {
+            if item.identifier?.rawValue == "xyz.workspace.filter" {
+                menu.removeItem(item)
+            } else if let submenu = item.submenu {
+                removeLegacyFilterItem(in: submenu)
+            }
+        }
+    }
+
+    /// The menu that contains Undo.
+    private static func editMenu(in main: NSMenu) -> NSMenu? {
+        let undo = NSSelectorFromString("undo:")
+        return main.items.compactMap(\.submenu).first { menu in
+            menu.items.contains { $0.action == undo }
+        }
+    }
+
+    private static func ensureEditItems(in menu: NSMenu) {
+        let down = String(Character(UnicodeScalar(UInt32(NSDownArrowFunctionKey))!))
+        let up = String(Character(UnicodeScalar(UInt32(NSUpArrowFunctionKey))!))
+        let specs: [(String, String, String, NSEvent.ModifierFlags, Selector)] = [
+            ("xyz.edit.replaceFolder", String(localized: "Replace in Folder…"), "", [], #selector(EditorCommands.replaceInFolder(_:))),
+            ("xyz.edit.duplicateDown", String(localized: "Duplicate Line"), down, [.shift, .option], #selector(XYZMacTextView.xyzDuplicateLineDown(_:))),
+            ("xyz.edit.duplicateUp", String(localized: "Duplicate Line Above"), up, [.shift, .option], #selector(XYZMacTextView.xyzDuplicateLineUp(_:))),
+            ("xyz.edit.moveUp", String(localized: "Move Line Up"), up, [.option], #selector(XYZMacTextView.xyzMoveLineUp(_:))),
+            ("xyz.edit.moveDown", String(localized: "Move Line Down"), down, [.option], #selector(XYZMacTextView.xyzMoveLineDown(_:))),
+            ("xyz.edit.deleteLine", String(localized: "Delete Line"), "k", [.command, .shift], #selector(XYZMacTextView.xyzDeleteLine(_:))),
+            ("xyz.edit.indent", String(localized: "Indent"), "]", .command, #selector(XYZMacTextView.xyzIndentLines(_:))),
+            ("xyz.edit.outdent", String(localized: "Outdent"), "[", .command, #selector(XYZMacTextView.xyzOutdentLines(_:))),
+            ("xyz.edit.comment", String(localized: "Toggle Comment"), ";", .command, #selector(XYZMacTextView.xyzToggleComment(_:))),
+            ("xyz.edit.join", String(localized: "Join Lines"), "", [], #selector(XYZMacTextView.xyzJoinLines(_:))),
+            ("xyz.edit.sort", String(localized: "Sort Lines"), "", [], #selector(XYZMacTextView.xyzSortLines(_:))),
+            ("xyz.edit.trim", String(localized: "Trim Trailing Whitespace"), "", [], #selector(XYZMacTextView.xyzTrimTrailingWhitespace(_:))),
+            ("xyz.edit.upper", String(localized: "Make Uppercase"), "", [], #selector(XYZMacTextView.xyzMakeUppercase(_:))),
+            ("xyz.edit.lower", String(localized: "Make Lowercase"), "", [], #selector(XYZMacTextView.xyzMakeLowercase(_:))),
+            ("xyz.edit.title", String(localized: "Make Title Case"), "", [], #selector(XYZMacTextView.xyzMakeTitleCase(_:))),
+        ]
+        if menu.items.contains(where: { $0.identifier?.rawValue == "xyz.edit.divider" }) == false {
+            let divider = NSMenuItem.separator()
+            divider.identifier = NSUserInterfaceItemIdentifier("xyz.edit.divider")
+            menu.addItem(divider)
+        }
+        var previous = menu.items.first { $0.identifier?.rawValue == "xyz.edit.divider" }
+        for spec in specs {
+            let entry = item(
+                identifier: spec.0,
+                title: spec.1,
+                key: spec.2,
+                flags: spec.3,
+                action: spec.4,
+                in: menu
+            )
+            entry.target = spec.0 == "xyz.edit.replaceFolder" ? EditorCommands.shared : nil
+            place(entry, after: previous, in: menu)
+            previous = entry
+        }
     }
 
     private static func remapConflictingShortcuts(in menu: NSMenu) {
         for item in menu.items {
             let flags = item.keyEquivalentModifierMask.intersection(.deviceIndependentFlagsMask)
             let key = item.keyEquivalent.lowercased()
+            if key == "b", flags == .command, item.title != String(localized: "Toggle Sidebar") {
+                item.keyEquivalent = ""
+                item.keyEquivalentModifierMask = []
+            }
+            if key == "i", flags == .command, item.title == String(localized: "Italic") {
+                item.keyEquivalent = ""
+                item.keyEquivalentModifierMask = []
+            }
+            if key == "k", flags == .command,
+               item.title != String(localized: "Search Notes"),
+               item.title != String(localized: "Find in Files") {
+                item.keyEquivalent = ""
+                item.keyEquivalentModifierMask = []
+            }
+            if key == "f", flags == [.command, .shift] {
+                item.keyEquivalent = ""
+                item.keyEquivalentModifierMask = []
+            }
             if isUseSelectionForFind(item) {
                 item.keyEquivalent = "e"
                 item.keyEquivalentModifierMask = .command
@@ -356,7 +962,7 @@ enum EditorMenuSupport {
     }
 
     private static func ensureViewItems(in menu: NSMenu) {
-        for identifier in ["xyz.mode.coding", "xyz.mode.preview", "xyz.mode.toggleReading"] {
+        for identifier in ["xyz.mode.coding", "xyz.mode.preview", "xyz.mode.toggleReading", "xyz.lineNumbers"] {
             if let item = menu.items.first(where: { $0.identifier?.rawValue == identifier }) {
                 menu.removeItem(item)
             }
@@ -364,27 +970,20 @@ enum EditorMenuSupport {
         let specs: [(String, String, String, NSEvent.ModifierFlags, Selector)] = [
             ("xyz.commandPalette", String(localized: "Command Palette…"), "p", .command, #selector(EditorCommands.showPalette(_:))),
             ("xyz.goToHeading", String(localized: "Go to Heading…"), "r", .command, #selector(EditorCommands.goToHeading(_:))),
-            ("xyz.mode.source", String(localized: "Source"), "", [], #selector(EditorCommands.selectSource(_:))),
-            ("xyz.mode.reading", String(localized: "Reading"), "", [], #selector(EditorCommands.selectReading(_:))),
-            ("xyz.mode.toggleSource", String(localized: "Source Code Mode"), "/", .command, #selector(EditorCommands.toggleSource(_:))),
+            ("xyz.goToLine", String(localized: "Go to Line…"), "g", .control, #selector(EditorCommands.goToLine(_:))),
             ("xyz.zoomIn", String(localized: "Zoom In"), "+", .command, #selector(EditorCommands.zoomIn(_:))),
             ("xyz.zoomOut", String(localized: "Zoom Out"), "-", .command, #selector(EditorCommands.zoomOut(_:))),
             ("xyz.actualSize", String(localized: "Actual Size"), "0", .command, #selector(EditorCommands.actualSize(_:))),
-            ("xyz.lineNumbers", String(localized: "Show Line Numbers"), "", [], #selector(EditorCommands.toggleLineNumbers(_:))),
+            ("xyz.wordWrap", String(localized: "Wrap Lines"), "z", .option, #selector(EditorCommands.toggleWordWrap(_:))),
             ("xyz.wordCount", String(localized: "Show Word Count"), "", [], #selector(EditorCommands.toggleWordCount(_:))),
+            ("xyz.outline", String(localized: "Show/Hide Outline"), "b", [.command, .option], #selector(EditorCommands.toggleOutline(_:))),
         ]
         var previous: NSMenuItem?
         for spec in specs {
-            if spec.0 == "xyz.mode.source" {
-                previous = divider(after: previous, in: menu, identifier: "xyz.mode.divider")
-            }
-            if spec.0 == "xyz.mode.toggleSource" {
-                previous = divider(after: previous, in: menu, identifier: "xyz.mode.toggleDivider")
-            }
             if spec.0 == "xyz.zoomIn" {
                 previous = divider(after: previous, in: menu, identifier: "xyz.zoom.divider")
             }
-            if spec.0 == "xyz.lineNumbers" {
+            if spec.0 == "xyz.wordWrap" {
                 previous = divider(after: previous, in: menu, identifier: "xyz.wordCount.divider")
             }
             let item = item(
@@ -398,15 +997,21 @@ enum EditorMenuSupport {
             place(item, after: previous, in: menu)
             previous = item
         }
+        let systemSidebar = NSSelectorFromString("toggleSidebar:")
+        for item in menu.items where item.action == systemSidebar && item.identifier?.rawValue != "xyz.workspace.sidebar" {
+            if item.keyEquivalent.lowercased() == "s" {
+                item.keyEquivalent = ""
+            }
+        }
     }
 
     private static func ensureFileItems(in menu: NSMenu) {
-        let filter = item(
-            identifier: "xyz.workspace.filter",
-            title: String(localized: "Filter Files"),
-            key: "f",
+        let newWindow = item(
+            identifier: "xyz.window.new",
+            title: String(localized: "New Window"),
+            key: "n",
             flags: [.command, .shift],
-            action: #selector(EditorCommands.focusFilter(_:)),
+            action: #selector(EditorCommands.newWorkspaceWindow(_:)),
             in: menu
         )
         let hidden = item(
@@ -417,10 +1022,28 @@ enum EditorMenuSupport {
             action: #selector(EditorCommands.toggleHidden(_:)),
             in: menu
         )
+        let reopen = item(
+            identifier: "xyz.tab.reopen",
+            title: String(localized: "Reopen Closed Tab"),
+            key: "t",
+            flags: [.command, .shift],
+            action: #selector(EditorCommands.reopenClosedTab(_:)),
+            in: menu
+        )
+        let revealActive = item(
+            identifier: "xyz.file.revealInSidebar",
+            title: String(localized: "Reveal Active File"),
+            key: "",
+            flags: [],
+            action: #selector(EditorCommands.revealActiveFile(_:)),
+            in: menu
+        )
         let anchor = menu.items.first { $0.title == FileMenuSupport.title }
         if let anchor, let index = menu.items.firstIndex(of: anchor) {
-            move(filter, to: min(index + 1, menu.items.count), in: menu)
-            move(hidden, to: min((menu.items.firstIndex(of: filter) ?? index) + 1, menu.items.count), in: menu)
+            move(newWindow, to: index, in: menu)
+            move(hidden, to: min((menu.items.firstIndex(of: newWindow) ?? index) + 1, menu.items.count), in: menu)
+            move(reopen, to: min((menu.items.firstIndex(of: hidden) ?? index) + 1, menu.items.count), in: menu)
+            move(revealActive, to: min((menu.items.firstIndex(of: reopen) ?? index) + 1, menu.items.count), in: menu)
         }
     }
 
@@ -575,6 +1198,21 @@ final class EditorAnchorView: NSView {
     func sync() {
         guard let target, window?.isKeyWindow == true else { return }
         EditorCommands.shared.target = target
+        EditorCommands.shared.hostWindow = window
+        EditorCommandState.shared.setOpenFile(target.editorHasOpenFile)
+    }
+}
+
+/// Whether Edit → Find should be available. The menu reads this; the key monitor reads the target.
+@MainActor
+final class EditorCommandState: ObservableObject {
+    static let shared = EditorCommandState()
+    @Published private(set) var hasOpenFile = false
+
+    func setOpenFile(_ open: Bool) {
+        if hasOpenFile != open {
+            hasOpenFile = open
+        }
     }
 }
 
@@ -707,6 +1345,8 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
     private var rows: [PaletteRow] = []
     /// The note's headings, read once per show the first time the query starts with `@`.
     private var headings: [OutlineHeading]?
+    /// Field-editor text. Reloading the list must not read or write `stringValue`.
+    private var typedQuery = ""
     private var suppressResign = false
     private var closing = false
 
@@ -715,6 +1355,7 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
         headings = nil
         let panel = self.panel ?? makePanel()
         self.panel = panel
+        typedQuery = query
         search?.stringValue = query
         reloadRows()
         place(panel)
@@ -736,6 +1377,11 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
     }
 
     func controlTextDidChange(_ notification: Notification) {
+        if let editor = notification.userInfo?["NSFieldEditor"] as? NSTextView {
+            typedQuery = editor.string
+        } else if let editor = search?.currentEditor() as? NSTextView {
+            typedQuery = editor.string
+        }
         reloadRows()
     }
 
@@ -782,6 +1428,8 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
                 title: highlighted(indent + heading.title, indices: match.characterIndices.map { $0 + offset }, dimDirectory: false),
                 shortcut: "H\(heading.level)"
             )
+        case .line(let position):
+            cell.apply(title: highlighted(Self.lineTitle(position), indices: [], dimDirectory: false), shortcut: "")
         }
         return cell
     }
@@ -811,9 +1459,11 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
         panel.isMovable = false
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.isReleasedWhenClosed = false
+        panel.isExcludedFromWindowsMenu = true
+        panel.isRestorable = false
 
         let search = NSSearchField()
-        search.placeholderString = String(localized: "Go to file, > for commands, @ for headings")
+        search.placeholderString = String(localized: "Go to file, > for commands, @ for headings, : for a line")
         search.delegate = self
         search.controlSize = .regular
         search.focusRingType = .none
@@ -879,42 +1529,20 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
     }
 
     private func paletteBackground(content: NSView) -> NSView {
-        let reduceTransparency = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
-        let increaseContrast = NSWorkspace.shared.accessibilityDisplayShouldIncreaseContrast
-        if #available(macOS 26, *), !reduceTransparency, !increaseContrast {
-            let glass = NSGlassEffectView()
-            glass.cornerRadius = 16
-            glass.style = .regular
-            content.translatesAutoresizingMaskIntoConstraints = false
-            glass.contentView = content
-            NSLayoutConstraint.activate([
-                content.leadingAnchor.constraint(equalTo: glass.leadingAnchor),
-                content.trailingAnchor.constraint(equalTo: glass.trailingAnchor),
-                content.topAnchor.constraint(equalTo: glass.topAnchor),
-                content.bottomAnchor.constraint(equalTo: glass.bottomAnchor),
-            ])
-            return glass
-        }
-        let effect = NSVisualEffectView()
-        effect.material = .hudWindow
-        effect.blendingMode = .behindWindow
-        effect.state = .active
-        effect.wantsLayer = true
-        effect.layer?.cornerRadius = 16
-        effect.layer?.masksToBounds = true
+        let plate = PopupSurface()
         content.translatesAutoresizingMaskIntoConstraints = false
-        effect.addSubview(content)
+        plate.addSubview(content)
         NSLayoutConstraint.activate([
-            content.leadingAnchor.constraint(equalTo: effect.leadingAnchor),
-            content.trailingAnchor.constraint(equalTo: effect.trailingAnchor),
-            content.topAnchor.constraint(equalTo: effect.topAnchor),
-            content.bottomAnchor.constraint(equalTo: effect.bottomAnchor),
+            content.leadingAnchor.constraint(equalTo: plate.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: plate.trailingAnchor),
+            content.topAnchor.constraint(equalTo: plate.topAnchor),
+            content.bottomAnchor.constraint(equalTo: plate.bottomAnchor),
         ])
-        return effect
+        return plate
     }
 
     private func reloadRows() {
-        let query = search?.stringValue ?? ""
+        let query = typedQuery
         if query.hasPrefix("@"), headings == nil {
             headings = target?.paletteHeadings() ?? []
         }
@@ -996,7 +1624,27 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
         case .heading(let heading, _):
             PaletteLog.ranCommand("heading")
             target?.revealHeading(line: heading.line)
+        case .line(let position):
+            PaletteLog.ranCommand("line")
+            target?.revealPosition(line: position.line, column: position.column)
         }
+    }
+
+    private static func lineTitle(_ position: GoToPosition) -> String {
+        if position.column <= 1 {
+            return String(format: String(localized: "Line %lld"), Int64(position.line))
+        }
+        return String(format: String(localized: "Line %lld, Column %lld"), Int64(position.line), Int64(position.column))
+    }
+
+    func owns(_ window: NSWindow?) -> Bool {
+        window != nil && window === panel
+    }
+
+    func closeIfOpen() -> Bool {
+        guard panel?.isVisible == true else { return false }
+        close()
+        return true
     }
 
     private func close() {
@@ -1011,7 +1659,7 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
     private func highlighted(_ string: String, indices: [Int], dimDirectory: Bool) -> NSAttributedString {
         let text = NSMutableAttributedString(string: string, attributes: [
             .font: NSFont.systemFont(ofSize: 13),
-            .foregroundColor: NSColor.labelColor,
+            .foregroundColor: NSColor.xyzInk,
         ])
         if dimDirectory {
             let ns = string as NSString
@@ -1019,7 +1667,7 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
             if slash.location != NSNotFound {
                 text.addAttribute(
                     .foregroundColor,
-                    value: NSColor.tertiaryLabelColor,
+                    value: NSColor.xyzSecondaryText,
                     range: NSRange(location: 0, length: NSMaxRange(slash))
                 )
             }
@@ -1031,7 +1679,7 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
             let piece = String(character) as NSString
             if wanted.contains(offset) {
                 text.addAttributes([
-                    .foregroundColor: NSColor.labelColor,
+                    .foregroundColor: NSColor.xyzInk,
                     .font: emphasis,
                 ], range: NSRange(location: location, length: piece.length))
             }
@@ -1041,7 +1689,7 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
     }
 }
 
-/// Grey selection, so the palette stays in the black, white, and grey range.
+/// Accent tint on the selected row. The plate behind it is white in light mode.
 private final class PaletteRowView: NSTableRowView {
     static let identifier = NSUserInterfaceItemIdentifier("xyz.palette.row")
 
@@ -1058,7 +1706,7 @@ private final class PaletteRowView: NSTableRowView {
     override func drawSelection(in dirtyRect: NSRect) {
         guard selectionHighlightStyle != .none else { return }
         let rect = bounds.insetBy(dx: 6, dy: 1)
-        NSColor.unemphasizedSelectedContentBackgroundColor.setFill()
+        NSColor.xyzSelection.setFill()
         NSBezierPath(roundedRect: rect, xRadius: 6, yRadius: 6).fill()
     }
 }
@@ -1092,7 +1740,7 @@ private final class PaletteCell: NSTableCellView {
         titleField.translatesAutoresizingMaskIntoConstraints = false
         shortcutField.alignment = .right
         shortcutField.font = .systemFont(ofSize: 12)
-        shortcutField.textColor = .secondaryLabelColor
+        shortcutField.textColor = .xyzSecondaryText
         shortcutField.translatesAutoresizingMaskIntoConstraints = false
         shortcutField.setContentHuggingPriority(.required, for: .horizontal)
         shortcutField.setContentCompressionResistancePriority(.required, for: .horizontal)
@@ -1116,6 +1764,155 @@ private final class PaletteCell: NSTableCellView {
         titleField.attributedStringValue = title
         shortcutField.stringValue = shortcut
         shortcutField.isHidden = shortcut.isEmpty
+    }
+}
+
+/// The sandbox cannot write `/usr/local/bin`. The dialog is the install step, with Copy.
+@MainActor
+enum XYZCommandInstall {
+    static func showInstall() {
+        let script = Bundle.main.bundleURL
+            .appendingPathComponent("Contents/Resources/bin/xyz", isDirectory: false)
+            .path
+        let command = "ln -sf \(shellQuoted(script)) /usr/local/bin/xyz"
+        present(
+            title: String(localized: "Install 'xyz' Command in PATH"),
+            body: String(localized: "XYZ is sandboxed, so it cannot change your PATH. Run this in Terminal. Homebrew users can use /opt/homebrew/bin instead of /usr/local/bin."),
+            command: command
+        )
+    }
+
+    static func showUninstall() {
+        present(
+            title: String(localized: "Uninstall 'xyz' Command"),
+            body: String(localized: "Run this in Terminal if the command was linked in /usr/local/bin."),
+            command: "rm -f /usr/local/bin/xyz"
+        )
+    }
+
+    private static func present(title: String, body: String, command: String) {
+        let alert = NSAlert()
+        alert.messageText = title
+        alert.informativeText = body + "\n\n" + command
+        alert.addButton(withTitle: String(localized: "Copy"))
+        alert.addButton(withTitle: String(localized: "OK"))
+        if alert.runModalClosingOnEscape() == .alertFirstButtonReturn {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(command, forType: .string)
+        }
+    }
+
+    private static func shellQuoted(_ path: String) -> String {
+        "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+}
+
+/// A small field, not the command palette. Esc closes it. Return jumps.
+@MainActor
+final class GoToLinePanel: NSObject, NSTextFieldDelegate {
+    static var current: GoToLinePanel?
+
+    private let panel: NSPanel
+    private let field = NSTextField()
+    private let lineCount: Int
+    private let jump: (Int) -> Void
+
+    static func show(lineCount: Int, jump: @escaping (Int) -> Void) {
+        let panel = GoToLinePanel(lineCount: max(1, lineCount), jump: jump)
+        current = panel
+        panel.present()
+    }
+
+    private init(lineCount: Int, jump: @escaping (Int) -> Void) {
+        self.lineCount = lineCount
+        self.jump = jump
+        panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 280, height: 64),
+            styleMask: [.titled, .fullSizeContentView],
+            backing: .buffered,
+            defer: false
+        )
+        super.init()
+        panel.title = String(localized: "Go to Line")
+        panel.isFloatingPanel = true
+        panel.level = .floating
+        panel.isReleasedWhenClosed = false
+        panel.hidesOnDeactivate = true
+        panel.titlebarAppearsTransparent = true
+        panel.titlebarSeparatorStyle = .none
+        panel.backgroundColor = .clear
+        panel.isOpaque = false
+        panel.hasShadow = true
+        panel.isRestorable = false
+        panel.isExcludedFromWindowsMenu = true
+        panel.delegate = self
+        EscapeKey.register(panel)
+        field.placeholderString = String(format: String(localized: "Go to line 1–%lld"), Int64(lineCount))
+        field.font = .systemFont(ofSize: 13)
+        field.focusRingType = .none
+        field.target = self
+        field.action = #selector(commit(_:))
+        field.delegate = self
+        field.translatesAutoresizingMaskIntoConstraints = false
+        let plate = PopupSurface()
+        panel.contentView = plate
+        plate.addSubview(field)
+        field.textColor = .xyzInk
+        NSLayoutConstraint.activate([
+            field.leadingAnchor.constraint(equalTo: plate.leadingAnchor, constant: 16),
+            field.trailingAnchor.constraint(equalTo: plate.trailingAnchor, constant: -16),
+            field.centerYAnchor.constraint(equalTo: plate.centerYAnchor),
+        ])
+    }
+
+    private func present() {
+        if let parent = NSApp.keyWindow {
+            let frame = parent.frame
+            let size = panel.frame.size
+            panel.setFrameOrigin(NSPoint(
+                x: frame.midX - size.width / 2,
+                y: frame.midY - size.height / 2
+            ))
+        } else {
+            panel.center()
+        }
+        panel.makeKeyAndOrderFront(nil)
+        panel.makeFirstResponder(field)
+    }
+
+    @objc private func commit(_ sender: Any?) {
+        let digits = field.stringValue.trimmingCharacters(in: .whitespaces)
+        guard let line = Int(digits), line >= 1 else {
+            NSSound.beep()
+            return
+        }
+        let clamped = min(line, lineCount)
+        jump(clamped)
+        close()
+    }
+
+    func control(_ control: NSControl, textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
+        if commandSelector == #selector(NSResponder.cancelOperation(_:)) {
+            XYZDiagnostics.note("goto close")
+            close()
+            return true
+        }
+        return false
+    }
+
+    private func close() {
+        panel.orderOut(nil)
+        if GoToLinePanel.current === self {
+            GoToLinePanel.current = nil
+        }
+    }
+}
+
+extension GoToLinePanel: NSWindowDelegate {
+    func windowWillClose(_ notification: Notification) {
+        if GoToLinePanel.current === self {
+            GoToLinePanel.current = nil
+        }
     }
 }
 #endif

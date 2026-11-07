@@ -51,6 +51,9 @@ jobs:
           xcodebuild -version
           swift --version
 
+      - name: Test xyz command
+        run: sh Scripts/xyz-test.sh
+
       - name: Test XYZCore
         id: test
         run: swift test --package-path XYZCore
@@ -70,6 +73,54 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY=- \
             build
+
+      - name: Check Editing line numbers
+        if: steps.macos.conclusion == 'success'
+        run: |
+          set -euo pipefail
+          APP="$(find "$PWD/build/macos/Build/Products" -name 'XYZ.app' -type d | head -n 1)"
+          test -d "$APP"
+          codesign --force --deep --sign - "$APP"
+          LOG="$PWD/build/macos/gutter.log"
+          SHOTS="$PWD/build/macos/shots"
+          mkdir -p "$SHOTS"
+          XYZWindowShots="$SHOTS" "$APP/Contents/MacOS/XYZ" -XYZCheckGutter -ApplePersistenceIgnoreState YES >"$LOG" 2>&1 &
+          PID=$!
+          CODE=0
+          for _ in $(seq 1 90); do
+            if ! kill -0 "$PID" 2>/dev/null; then
+              wait "$PID" || CODE=$?
+              cat "$LOG"
+              exit "$CODE"
+            fi
+            sleep 1
+          done
+          echo "Timed out waiting for the gutter snapshot"
+          cat "$LOG" || true
+          kill "$PID" || true
+          exit 1
+
+      - name: Check original UI acceptance
+        if: always() && steps.macos.conclusion == 'success'
+        run: |
+          set -euo pipefail
+          LOG="$PWD/build/macos/gutter.log"
+          test -f "$LOG"
+          if grep -q 'ACCEPTANCE_OK' "$LOG"; then
+            echo "UI acceptance passed"
+            exit 0
+          fi
+          echo "UI acceptance is not complete"
+          grep 'ACCEPTANCE' "$LOG" || true
+          exit 1
+
+      - name: Upload editor window shots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: editor-window-shots
+          path: build/macos/shots
+          if-no-files-found: ignore
 
       - name: Launch macOS app
         if: steps.macos.conclusion == 'success'

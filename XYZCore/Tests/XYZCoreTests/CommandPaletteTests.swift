@@ -126,8 +126,28 @@ final class CommandPaletteTests: XCTestCase {
         XCTAssertNil(byID["view.toggleReading"])
         XCTAssertNil(byID["view.preview"])
         XCTAssertEqual(byID["view.toggleSource"]?.shortcut, "⌘/")
-        XCTAssertEqual(byID["workspace.focusFilter"]?.shortcut, "⇧⌘F")
+        XCTAssertEqual(byID["workspace.focusFilter"]?.title, "Search Notes")
+        XCTAssertEqual(byID["workspace.focusFilter"]?.shortcut, "⌘K")
         XCTAssertEqual(byID["folder.open"]?.shortcut, "⇧⌘O")
+        XCTAssertEqual(byID["workspace.toggleSidebar"]?.shortcut, "⌘B")
+        XCTAssertEqual(byID["view.outline"]?.title, "Toggle Outline")
+        XCTAssertEqual(byID["view.outline"]?.shortcut, "⌥⌘B")
+        XCTAssertEqual(byID["view.goToLine"]?.shortcut, "⌃G")
+        XCTAssertEqual(byID["tab.reopen"]?.shortcut, "⇧⌘T")
         XCTAssertEqual(byID["view.source"]?.shortcut, "")
+    }
+
+    func testColonOpensALineAndGreaterThanStaysCommands() {
+        let registry = PaletteCommandRegistry()
+        let line = CommandPalette.rows(rawQuery: ":12:4", files: [], registry: registry)
+        XCTAssertEqual(line, [.line(GoToPosition(line: 12, column: 4))])
+        XCTAssertEqual(CommandPalette.rows(rawQuery: ":", files: [], registry: registry), [])
+        XCTAssertEqual(CommandPalette.parse("：8").mode, .line)
+        let commands = CommandPalette.rows(rawQuery: ">", files: [], registry: registry)
+        XCTAssertEqual(commands.count, PaletteCommand.builtIn.count)
+        XCTAssertTrue(commands.allSatisfy { row in
+            if case .command = row { return true }
+            return false
+        })
     }
 }
