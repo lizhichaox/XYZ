@@ -37,9 +37,10 @@ chasing it:
 - The owner confirmed on the installed build: opening and closing folders, rapid clicking,
   selection, the open-file marker, the scoped Collapse/Expand button and icon state all behave,
   and the sidebar is "丝滑多了" (much smoother).
-- Release 0.5.35 (51): archive, Developer ID export, app notarized, stapled, DMG signed,
-  notarized and stapled, `spctl` accepted for both. Installed over `/Applications/XYZ.app`; one
-  app on the machine.
+- Release 0.5.35 (51): archive, Developer ID export, app notarized
+  (`110ef669-88d7-4554-8819-1a0117cedf8a`) and stapled, DMG signed, notarized
+  (`70cdb64f-4af1-478b-86ea-29cc7b2456b2`) and stapled, `spctl` accepted for both. Installed
+  over `/Applications/XYZ.app`; one app on the machine.
 
 ## 0.5.34
 

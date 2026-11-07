@@ -162,3 +162,22 @@ slide and the sidebar text on the running app ("好了").
   window was used.
 - Not touched: the sandbox/iCloud/quit behaviour and the
   Chinese UI are still unverified in an interactive session. No tag, no upload.
+
+## 0.5.35 on 2026-11-07
+
+The sidebar round (folder clicks, selection, rapid clicking, disclosure drawing) ended at
+0.5.35 (build 51). It went through the whole path:
+
+- Archive `build/XYZ.xcarchive` (51) and Developer ID export to `build/export/XYZ.app`.
+- App zip notarized: submission `110ef669-88d7-4554-8819-1a0117cedf8a`, **Accepted**;
+  `stapler staple` and `validate` worked; `spctl -a -vv --type execute` reports
+  **accepted**, `source=Notarized Developer ID`.
+- DMG `build/XYZ-0.5.35.dmg`: code-signed with the Developer ID identity, notarized
+  (submission `70cdb64f-4af1-478b-86ea-29cc7b2456b2`, **Accepted**), stapled;
+  `spctl -a -t open --context context:primary-signature -vv` reports **accepted**.
+- Installed over `/Applications/XYZ.app`; `mdfind` lists only that bundle. The hidden
+  launch check was used after earlier builds; the owner then ran the interactive checks
+  (open/close folders, rapid clicking, selection, open-file marker, scoped
+  Collapse/Expand button) and confirmed the sidebar is "丝滑多了" (much smoother).
+- Not touched: tag, upload, GitHub release. Everything unverified in 0.5.29 stays
+  unverified (sandbox/iCloud/quit behaviour, Chinese UI).
