@@ -50,6 +50,11 @@ final class XYZMacTextView: NSTextView {
     /// Called after a fold opens or closes, so the pane can redraw its gutter.
     var onFoldingChange: (() -> Void)?
     private var foldRefreshWork: DispatchWorkItem?
+    /// The ranges the TextKit 1 presentation last touched, so unfolding can repaint them.
+    private var lastFoldPresentationRanges: [NSRange] = []
+    /// Asks the coordinator to restyle a range. The TextKit 1 fold presentation is an
+    /// attribute pass, and restyling is what puts the normal attributes back on unfold.
+    var restyleRequested: ((NSRange?) -> Void)?
 
     /// Restored once, after the view is in a window and the inset matches the pane.
     private var pendingAnchor: EditorScrollAnchor?
@@ -816,6 +821,101 @@ private struct FindScan {
     }
 
     /// The current line, already laid out. Does not ask TextKit to lay out the rest of the file.
+    /// One visible layout row: the source line, its characters and its frame in text view
+    /// coordinates. Works on TextKit 1 (`layoutManager`) and TextKit 2, because the live
+    /// editor runs TextKit 1 while some checks render a detached TextKit 2 view.
+    struct EditorTextRow {
+        var line: Int
+        var charRange: NSRange
+        var rect: NSRect
+        /// Position of one character offset inside this row, in text view coordinates.
+        var position: (Int) -> NSPoint
+    }
+
+    var usesTextKit2Layout: Bool { textLayoutManager != nil }
+
+    func visibleTextRows(in rect: NSRect) -> [EditorTextRow] {
+        let ns = string as NSString
+        guard ns.length > 0 else { return [] }
+        let index = cachedLineIndex() ?? LineIndex(string)
+        if textLayoutManager != nil {
+            return textKit2Rows(in: rect, ns: ns, index: index)
+        }
+        return textKit1Rows(in: rect, ns: ns, index: index)
+    }
+
+    private func textKit2Rows(in rect: NSRect, ns: NSString, index: LineIndex) -> [EditorTextRow] {
+        guard let manager = textLayoutManager, let content = manager.textContentManager else { return [] }
+        let document = content.documentRange
+        var rows: [EditorTextRow] = []
+        manager.enumerateTextLayoutFragments(from: nil, options: [.ensuresLayout]) { fragment in
+            let frame = fragment.layoutFragmentFrame
+            if frame.maxY < rect.minY { return true }
+            if frame.minY > rect.maxY { return false }
+            let base = content.offset(from: document.location, to: fragment.rangeInElement.location)
+            for line in fragment.textLineFragments {
+                let local = line.typographicBounds
+                let character = NSRange(
+                    location: base + line.characterRange.location,
+                    length: line.characterRange.length
+                )
+                guard character.location >= 0, NSMaxRange(character) <= ns.length else { continue }
+                let lineNumber = index.line(at: character.location)
+                let rowRect = NSRect(
+                    x: self.textContainerOrigin.x + frame.minX + local.minX,
+                    y: self.textContainerOrigin.y + frame.minY + local.minY,
+                    width: local.width,
+                    height: local.height
+                )
+                let originX = self.textContainerOrigin.x
+                let originY = self.textContainerOrigin.y
+                rows.append(EditorTextRow(line: lineNumber, charRange: character, rect: rowRect) { [weak self] offset in
+                    _ = self
+                    let inside = offset - base
+                    guard inside >= 0, inside < line.characterRange.length else {
+                        return NSPoint(x: rowRect.minX, y: rowRect.minY)
+                    }
+                    let point = line.locationForCharacter(at: inside)
+                    return NSPoint(
+                        x: originX + frame.minX + local.minX + point.x,
+                        y: originY + frame.minY + local.minY + point.y
+                    )
+                })
+            }
+            return true
+        }
+        return rows
+    }
+
+    private func textKit1Rows(in rect: NSRect, ns: NSString, index: LineIndex) -> [EditorTextRow] {
+        guard let layout = layoutManager, let container = textContainer else { return [] }
+        var rows: [EditorTextRow] = []
+        let containerRect = rect.offsetBy(dx: -textContainerOrigin.x, dy: -textContainerOrigin.y)
+        let glyphRange = layout.glyphRange(forBoundingRect: containerRect, in: container)
+        guard glyphRange.length > 0 else { return [] }
+        let originX = textContainerOrigin.x
+        let originY = textContainerOrigin.y
+        layout.enumerateLineFragments(forGlyphRange: glyphRange) { fragmentRect, usedRect, _, lineGlyphRange, _ in
+            _ = fragmentRect
+            let character = layout.characterRange(forGlyphRange: lineGlyphRange, actualGlyphRange: nil)
+            guard character.length > 0, NSMaxRange(character) <= ns.length else { return }
+            let lineNumber = index.line(at: character.location)
+            let rowRect = NSRect(
+                x: originX + usedRect.minX,
+                y: originY + usedRect.minY,
+                width: usedRect.width,
+                height: usedRect.height
+            )
+            rows.append(EditorTextRow(line: lineNumber, charRange: character, rect: rowRect) { offset in
+                let clamped = min(max(offset, character.location), max(character.location, NSMaxRange(character) - 1))
+                let glyph = layout.glyphIndexForCharacter(at: clamped)
+                let point = layout.location(forGlyphAt: glyph)
+                return NSPoint(x: originX + point.x, y: originY + point.y)
+            })
+        }
+        return rows
+    }
+
     private func currentLineBand() -> NSRect? {
         guard let manager = textLayoutManager, let content = manager.textContentManager else { return nil }
         let length = textStorage?.length ?? 0
@@ -842,39 +942,29 @@ private struct FindScan {
 
     /// A faint ellipsis after a folded header, the only visible sign that lines are hidden
     /// there (the gutter chevron is the other).
+    /// A faint ellipsis after a folded header, the only visible sign that lines are hidden
+    /// there (the gutter chevron is the other).
     private func drawFoldMarkers(in rect: NSRect) {
-        guard !foldedHeaderLines.isEmpty,
-              let manager = textLayoutManager,
-              let content = manager.textContentManager
-        else { return }
-        let index = cachedLineIndex() ?? LineIndex(string)
+        guard !foldedHeaderLines.isEmpty, !foldedRangesCache.isEmpty else { return }
         let ns = string as NSString
-        let font = NSFont.systemFont(ofSize: max(10, style.fontSize * 0.7), weight: .regular)
+        let face = NSFont.systemFont(ofSize: max(10, style.fontSize * 0.7), weight: .regular)
         let attributes: [NSAttributedString.Key: Any] = [
-            .font: font,
+            .font: face,
             .foregroundColor: NSColor.xyzSecondaryText,
         ]
         let label = "⋯" as NSString
         let size = label.size(withAttributes: attributes)
+        let rows = visibleTextRows(in: rect)
         for fold in foldableRanges where foldedHeaderLines.contains(fold.headerLine) {
-            guard fold.headerLine <= index.count else { continue }
-            let lineStart = index.starts[fold.headerLine - 1]
-            guard let start = content.location(content.documentRange.location, offsetBy: lineStart),
-                  let fragment = manager.textLayoutFragment(for: start)
-            else { continue }
-            let lineBounds = fragment.textLineFragments.last?.typographicBounds ?? fragment.layoutFragmentFrame
-            let y = textContainerOrigin.y + fragment.layoutFragmentFrame.minY + lineBounds.minY
-            guard y + lineBounds.height >= rect.minY, y <= rect.maxY else { continue }
-            let lineRange = ns.lineRange(for: NSRange(location: lineStart, length: 0))
+            guard let row = rows.first(where: { $0.line == fold.headerLine }) else { continue }
+            let lineRange = ns.lineRange(for: NSRange(location: row.charRange.location, length: 0))
             let header = ns.substring(with: lineRange).trimmingCharacters(in: .newlines)
-            // Measure with the editor's face, not the smaller marker face, or the ellipsis
-            // lands inside the text it is supposed to follow.
-            let textFace = self.font ?? NSFont.monospacedSystemFont(ofSize: style.fontSize, weight: .regular)
+            let textFace = font ?? NSFont.monospacedSystemFont(ofSize: style.fontSize, weight: .regular)
             let textWidth = (header as NSString).size(withAttributes: [.font: textFace]).width
             let x = textContainerOrigin.x + textWidth + 8
             guard x + size.width < bounds.width - 2 else { continue }
             label.draw(
-                at: NSPoint(x: x, y: y + max(0, (lineBounds.height - size.height) / 2)),
+                at: NSPoint(x: x, y: row.rect.minY + max(0, (row.rect.height - size.height) / 2)),
                 withAttributes: attributes
             )
         }
@@ -883,80 +973,65 @@ private struct FindScan {
     /// Middle dots for spaces and a small arrow for tabs, drawn from the laid-out line
     /// fragments so they land on the real glyph positions. Capped so a huge paste does not
     /// turn the first paint into a stipple.
+    /// Middle dots for spaces and a small arrow for tabs, drawn from the laid-out rows so
+    /// both layout systems place them on the real glyphs. Capped so a huge paste does not
+    /// turn the first paint into a stipple.
     private func drawWhitespace(in rect: NSRect) {
-        guard style.showsWhitespace,
-              let manager = textLayoutManager,
-              let content = manager.textContentManager
-        else { return }
+        guard style.showsWhitespace else { return }
         let ns = string as NSString
         guard ns.length > 0 else { return }
-        let font = self.font ?? NSFont.systemFont(ofSize: style.fontSize)
+        let face = font ?? NSFont.systemFont(ofSize: style.fontSize)
         let dotColor = NSColor.xyzSecondaryText.withAlphaComponent(0.4)
         dotColor.setFill()
         let arrowColor = NSColor.xyzSecondaryText.withAlphaComponent(0.55)
         var drawn = 0
         let cap = 3_000
-        let document = content.documentRange
-        manager.enumerateTextLayoutFragments(from: nil, options: [.ensuresLayout]) { fragment in
-            let frame = fragment.layoutFragmentFrame
-            if frame.maxY < rect.minY { return true }
-            if frame.minY > rect.maxY { return false }
-            guard frame.maxY >= rect.minY, frame.width > 0 else { return true }
-            let base = content.offset(from: document.location, to: fragment.rangeInElement.location)
-            for line in fragment.textLineFragments {
-                let range = line.characterRange
-                guard range.length > 0 else { continue }
-                let bounds = line.typographicBounds
-                var index = 0
-                while index < range.length, drawn < cap {
-                    let absolute = base + range.location + index
-                    guard absolute >= 0, absolute < ns.length else { break }
-                    let character = ns.character(at: absolute)
-                    if (character == 0x20 || character == 0x09), !isOffsetHidden(absolute) {
-                        let origin = line.locationForCharacter(at: index)
-                        let point = NSPoint(
-                            x: textContainerOrigin.x + frame.minX + bounds.minX + origin.x,
-                            y: textContainerOrigin.y + frame.minY + bounds.minY + origin.y
+        for row in visibleTextRows(in: rect) {
+            guard drawn < cap else { break }
+            var index = row.charRange.location
+            let end = min(NSMaxRange(row.charRange), ns.length)
+            while index < end, drawn < cap {
+                let character = ns.character(at: index)
+                if (character == 0x20 || character == 0x09), !isOffsetHidden(index) {
+                    let point = row.position(index)
+                    if character == 0x20 {
+                        let dot = NSRect(
+                            x: point.x + 0.5,
+                            y: point.y + face.ascender * 0.35,
+                            width: 1.4,
+                            height: 1.4
                         )
-                        if character == 0x20 {
-                            let dot = NSRect(
-                                x: point.x + 0.5,
-                                y: point.y + font.ascender * 0.35,
-                                width: 1.4,
-                                height: 1.4
-                            )
-                            NSBezierPath(ovalIn: dot).fill()
-                        } else {
-                            arrowColor.setStroke()
-                            let arrow = NSBezierPath()
-                            let y = point.y + font.ascender * 0.35
-                            arrow.move(to: NSPoint(x: point.x + 1, y: y))
-                            arrow.line(to: NSPoint(x: point.x + 7, y: y))
-                            arrow.move(to: NSPoint(x: point.x + 5, y: y + 2))
-                            arrow.line(to: NSPoint(x: point.x + 7, y: y))
-                            arrow.line(to: NSPoint(x: point.x + 5, y: y - 2))
-                            arrow.lineWidth = 1
-                            arrow.stroke()
-                            dotColor.setFill()
-                        }
-                        drawn += 1
+                        NSBezierPath(ovalIn: dot).fill()
+                    } else {
+                        arrowColor.setStroke()
+                        let arrow = NSBezierPath()
+                        let y = point.y + face.ascender * 0.35
+                        arrow.move(to: NSPoint(x: point.x + 1, y: y))
+                        arrow.line(to: NSPoint(x: point.x + 7, y: y))
+                        arrow.move(to: NSPoint(x: point.x + 5, y: y + 2))
+                        arrow.line(to: NSPoint(x: point.x + 7, y: y))
+                        arrow.line(to: NSPoint(x: point.x + 5, y: y - 2))
+                        arrow.lineWidth = 1
+                        arrow.stroke()
+                        dotColor.setFill()
                     }
-                    index += 1
+                    drawn += 1
                 }
+                index += 1
             }
-            return drawn < cap
         }
     }
 
     /// Full-width band for the caret's source line. Wrapping uses the laid-out fragment,
     /// which covers every visual row of that line. A uniform box is only for an unwrapped file.
     private func drawCurrentLineBand(in rect: NSRect) {
+        let caret = selectedRange().location
         let band: NSRect
-        if let laid = currentLineBand() {
-            band = laid
+        if let row = visibleTextRows(in: rect).first(where: { NSLocationInRange(caret, $0.charRange) }) {
+            band = NSRect(x: 0, y: row.rect.minY, width: bounds.width, height: max(row.rect.height, 1))
         } else {
             let box = lineBoxHeight()
-            let line = EditorScrollAnchor.lineNumber(at: selectedRange().location, in: string)
+            let line = EditorScrollAnchor.lineNumber(at: caret, in: string)
             let y = textContainerOrigin.y + CGFloat(max(0, line - 1)) * box
             band = NSRect(x: 0, y: y, width: bounds.width, height: box)
         }
@@ -967,48 +1042,31 @@ private struct FindScan {
 
     /// A hairline at each 2-space or tab indent. Editing only, drawn from the laid-out
     /// rows, so folding and wrapping both keep the guides on their own line.
+    /// A hairline at each 2-space or tab indent. Editing only, drawn from the laid-out
+    /// rows, so folding and wrapping both keep the guides on their own line.
     private func drawIndentGuides(in rect: NSRect) {
-        guard let storage = textStorage,
-              let manager = textLayoutManager,
-              let content = manager.textContentManager
-        else { return }
-        let length = storage.length
-        guard length > 0 else { return }
-        let ns = storage.string as NSString
+        let ns = string as NSString
+        guard ns.length > 0 else { return }
         let face = font ?? NSFont.systemFont(ofSize: style.fontSize)
         let step = max(6, ("  " as NSString).size(withAttributes: [.font: face]).width)
         let originX = textContainerOrigin.x
-        let originY = textContainerOrigin.y
-        let document = content.documentRange
         if effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua {
             NSColor.xyzSecondaryText.withAlphaComponent(0.45).setStroke()
         } else {
             NSColor.xyzDivider.setStroke()
         }
         let path = NSBezierPath()
-        manager.enumerateTextLayoutFragments(from: nil, options: [.ensuresLayout]) { fragment in
-            let frame = fragment.layoutFragmentFrame
-            if frame.maxY < rect.minY { return true }
-            if frame.minY > rect.maxY { return false }
-            let base = content.offset(from: document.location, to: fragment.rangeInElement.location)
-            for line in fragment.textLineFragments {
-                guard line.characterRange.length > 0 else { continue }
-                let offset = min(max(0, base + line.characterRange.location), max(0, length - 1))
-                let lineNumber = EditorScrollAnchor.lineNumber(at: offset, in: self.string)
-                if self.isLineHidden(lineNumber) { continue }
-                let lineRange = ns.lineRange(for: NSRange(location: offset, length: 0))
-                let lineText = ns.substring(with: lineRange)
-                let levels = Self.indentLevels(lineText)
-                guard levels > 0 else { continue }
-                let top = originY + frame.minY + line.typographicBounds.minY
-                let bottom = top + max(1, line.typographicBounds.height)
-                for level in 1...levels {
-                    let x = originX + CGFloat(level) * step
-                    path.move(to: NSPoint(x: x, y: top))
-                    path.line(to: NSPoint(x: x, y: bottom))
-                }
+        for row in visibleTextRows(in: rect) {
+            if isLineHidden(row.line) { continue }
+            let lineRange = ns.lineRange(for: NSRange(location: row.charRange.location, length: 0))
+            let lineText = ns.substring(with: lineRange)
+            let levels = Self.indentLevels(lineText)
+            guard levels > 0 else { continue }
+            for level in 1...levels {
+                let x = originX + CGFloat(level) * step
+                path.move(to: NSPoint(x: x, y: row.rect.minY))
+                path.line(to: NSPoint(x: x, y: row.rect.maxY))
             }
-            return true
         }
         path.lineWidth = 1
         path.stroke()
@@ -1365,6 +1423,9 @@ struct XYZMacEditor: NSViewRepresentable {
         textView.setAccessibilityLabel(String(localized: "Markdown editor"))
 
         context.coordinator.textView = textView
+        textView.restyleRequested = { [weak coordinator = context.coordinator] range in
+            coordinator?.restyle(edited: range)
+        }
         context.coordinator.onTextChange = onTextChange
         context.coordinator.onSelection = onSelection
         context.coordinator.style = style
@@ -1456,6 +1517,9 @@ struct XYZMacEditor: NSViewRepresentable {
         }
         textView.findModel = find
         textView.sourceLanguage = syntax
+        textView.restyleRequested = { [weak coordinator = context.coordinator] range in
+            coordinator?.restyle(edited: range)
+        }
         textView.refreshFolding(immediate: true)
         find?.language = syntax
         let hadEditor = find?.editorView != nil
@@ -1772,6 +1836,7 @@ struct XYZMacEditor: NSViewRepresentable {
                 language: syntax,
                 edited: edited
             )
+            textView.applyFoldPresentationForTextKit1()
             textView.lineNumbersChanged()
         }
     }
@@ -2410,8 +2475,50 @@ enum EditorTypography {
 /// header's own line while the text, the offsets, the undo stack and saving stay untouched.
 extension XYZMacTextView: NSTextContentStorageDelegate {
     func enableFolding() {
-        guard let storage = textLayoutManager?.textContentManager as? NSTextContentStorage else { return }
-        storage.delegate = self
+        if let storage = textLayoutManager?.textContentManager as? NSTextContentStorage {
+            storage.delegate = self
+        }
+    }
+
+    /// TextKit 1 has no content-storage hook. A folded block is collapsed with a display
+    /// attribute pass: a 0.1 pt face, a zero line height and clear ink keep every offset,
+    /// the undo stack and the saved text untouched.
+    func applyFoldPresentationForTextKit1() {
+        guard !usesTextKit2Layout, let storage = textStorage else { return }
+        let previous = lastFoldPresentationRanges
+        let current = foldedRangesCache
+        lastFoldPresentationRanges = current
+        undoManager?.disableUndoRegistration()
+        storage.beginEditing()
+        for range in current where range.length > 0 && NSMaxRange(range) <= storage.length {
+            let face = NSFont(descriptor: (font ?? NSFont.systemFont(ofSize: style.fontSize)).fontDescriptor, size: 0.1)
+                ?? NSFont.systemFont(ofSize: 0.1)
+            let paragraph = NSMutableParagraphStyle()
+            paragraph.minimumLineHeight = 0
+            paragraph.maximumLineHeight = 0
+            paragraph.lineSpacing = 0
+            storage.addAttributes(
+                [.font: face, .paragraphStyle: paragraph, .foregroundColor: NSColor.clear],
+                range: range
+            )
+        }
+        storage.endEditing()
+        undoManager?.enableUndoRegistration()
+        if let layout = layoutManager {
+            var merged: [NSRange] = []
+            for range in previous + current where NSMaxRange(range) <= storage.length && range.length > 0 {
+                if let last = merged.last, NSMaxRange(last) >= range.location {
+                    merged[merged.count - 1] = NSUnionRange(last, range)
+                } else {
+                    merged.append(range)
+                }
+            }
+            for range in merged {
+                layout.invalidateLayout(forCharacterRange: range, actualCharacterRange: nil)
+                layout.invalidateDisplay(forCharacterRange: range)
+            }
+        }
+        needsDisplay = true
     }
 
     func refreshFolding(immediate: Bool) {
@@ -2616,6 +2723,30 @@ extension XYZMacTextView: NSTextContentStorageDelegate {
     /// need to be built again. Marking the attributes edited in the backing store is what
     /// makes the content storage ask the delegate again.
     private func invalidateFoldLayout(in ranges: [NSRange]) {
+        if !usesTextKit2Layout {
+            // TextKit 1: restyling the touched lines clears the old presentation, and the
+            // restyle path reapplies it for the folds that remain.
+            guard let storage = textStorage else { return }
+            let ns = storage.string as NSString
+            var merged: [NSRange] = []
+            for range in ranges where range.length > 0 {
+                let start = min(max(0, range.location), ns.length)
+                let end = min(max(start, NSMaxRange(range)), ns.length)
+                let expanded = ns.lineRange(for: NSRange(location: start, length: end - start))
+                if let last = merged.last, NSMaxRange(last) >= expanded.location {
+                    merged[merged.count - 1] = NSUnionRange(last, expanded)
+                } else {
+                    merged.append(expanded)
+                }
+            }
+            if let restyleRequested {
+                for range in merged { restyleRequested(range) }
+            } else {
+                applyFoldPresentationForTextKit1()
+            }
+            needsDisplay = true
+            return
+        }
         guard let storage = textStorage else { return }
         let length = storage.length
         var merged: [NSRange] = []

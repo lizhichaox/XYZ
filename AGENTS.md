@@ -106,12 +106,22 @@ passing `refresh` case is the minimum evidence that folder clicks work.
 
 ## TextKit 2 editor: what not to repeat
 
-- **TextKit 2 has no "hide this range" API.** Do not swap the text storage for a folded
-  display string, and do not shrink fonts on the storage: both corrupt editing, undo and
-  saving. Folding is done in `NSTextContentStorageDelegate` — a folded paragraph is
-  answered with a custom paragraph of the **same length** (zero-width spaces keep every
-  offset identical), a 0.1 pt font and a zero line height. The real string, the undo
-  stack and `onTextChange` never change.
+- **The live editor is TextKit 1, on purpose.** `makeNSView` reads `layoutManager` (for
+  non-contiguous layout), and reading that property installs TextKit 1. A detached
+  `XYZMacTextView(usingTextLayoutManager: true)` is TextKit 2. Anything drawn from text
+  layout must work on both: `visibleTextRows(in:)` is that seam. A check that only builds a
+  detached TextKit 2 view will not catch a live-editor bug (folding shipped once like
+  that: the check passed and clicking the gutter did nothing).
+- **Folding has two presentations.** TextKit 2 uses `NSTextContentStorageDelegate`: a
+  folded paragraph is answered with a custom paragraph of the **same length** (zero-width
+  spaces keep every offset identical), a 0.1 pt font and a zero line height. TextKit 1 has
+  no such hook, so the folded range gets the same display attributes in the text storage
+  (0.1 pt face, zero line height, clear ink) after every restyle; restyling the range is
+  also how unfolding removes them. Both keep the real string, the undo stack and
+  `onTextChange` untouched. Never swap the text storage for a folded display string.
+- **Do not fold with a uniform line box.** Folding changes line geometry; the gutter,
+  indent guides, whitespace dots, the caret band and the `⋯` marker all read laid-out
+  rows, and hidden rows are skipped in the gutter.
 - **Mark the backing store edited to re-ask the delegate.** `invalidateLayout` alone does
   not regenerate paragraphs; `textStorage.edited(.editedAttributes, range:, changeInLength: 0)`
   over the folded range does, with undo registration off. Covers the range before and

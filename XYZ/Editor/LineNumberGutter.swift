@@ -257,13 +257,15 @@ final class LineNumberGutter: NSView {
         if !numbered.isEmpty {
             return (fragments.filter { $0.y < bounds.maxY && $0.y + $0.height > 0 }, "textLineFragments")
         }
-        if textView.style.wraps {
-            if textView.textLayoutManager == nil, let laid = layoutManagerRows(textView: textView) {
-                let numbered = laid.filter { $0.showsNumber && $0.y < bounds.maxY && $0.y + $0.height > 0 }
-                if !numbered.isEmpty {
-                    return (laid.filter { $0.y < bounds.maxY && $0.y + $0.height > 0 }, "layoutManager")
-                }
+        // TextKit 1: line fragments are the truth, wrapping or not, and folding changes the
+        // geometry a uniform line box cannot describe.
+        if textView.textLayoutManager == nil, let laid = layoutManagerRows(textView: textView) {
+            let numbered = laid.filter { $0.showsNumber && $0.y < bounds.maxY && $0.y + $0.height > 0 }
+            if !numbered.isEmpty {
+                return (laid.filter { $0.y < bounds.maxY && $0.y + $0.height > 0 }, "layoutManager")
             }
+        }
+        if textView.style.wraps {
             textView.textLayoutManager?.textViewportLayoutController.layoutViewport()
             let laidOut = fragmentRows(textView: textView)
             let laidNumbered = laidOut.filter { $0.showsNumber && $0.y < bounds.maxY && $0.y + $0.height > 0 }

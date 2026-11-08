@@ -1649,7 +1649,185 @@ enum GutterSnapshotCheck {
         guard textView.foldedHeaderLines.isEmpty == false || textView.hasFoldableLines else {
             return "the fold state disappeared"
         }
+        return textKit1GutterClick()
+    }
+
+    /// TextKit 1 view + gutter, laid out without a window: the chevron hit area must fold.
+    @MainActor
+    private static func textKit1GutterClick() -> String? {
+        let text = (1...24).map { index in
+            if index == 1 { return "func work() {" }
+            if index == 2 { return "    one()" }
+            if index == 3 { return "    two()" }
+            if index == 24 { return "}" }
+            return "    step\(index)()"
+        }.joined(separator: "\n") + "\n"
+        let textView = XYZMacTextView(frame: NSRect(x: 0, y: 0, width: 620, height: 700))
+        // Reading `layoutManager` installs TextKit 1, exactly like the hosted editor does.
+        guard let layout = textView.layoutManager else { return "TextKit 1 layout manager missing" }
+        layout.delegate = nil
+        var style = XYZEditorStyle()
+        style.fontSize = 15
+        style.monospaced = true
+        style.latin = "menlo"
+        textView.style = style
+        textView.font = NSFont.monospacedSystemFont(ofSize: 15, weight: .regular)
+        textView.textContainerInset = NSSize(width: 13, height: 8)
+        textView.showsLineNumbers = true
+        textView.enableFolding()
+        textView.sourceLanguage = .swift
+        textView.string = text
+        textView.refreshFolding(immediate: true)
+        let pane = EditorPane()
+        pane.frame = NSRect(x: 0, y: 0, width: 640, height: 700)
+        pane.attach(textView)
+        pane.layoutSubtreeIfNeeded()
+        textView.textContainer?.containerSize = NSSize(width: 620, height: 100_000)
+        textView.textContainer?.widthTracksTextView = false
+        textView.frame = NSRect(x: 0, y: 0, width: 620, height: 700)
+        pane.layoutSubtreeIfNeeded()
+        guard textView.hasFoldableLines else { return "TextKit 1 view found no foldable ranges" }
+        guard let gutter = textView.lineNumberGutter else { return "TextKit 1 gutter is not installed" }
+        gutter.frame = NSRect(x: 0, y: 0, width: 60, height: 700)
+        gutter.layoutSubtreeIfNeeded()
+        gutter.textView = textView
+        layout.ensureLayout(for: textView.textContainer!)
+        let before = layout.usedRect(for: textView.textContainer!).height
+        guard before > 0 else { return "the TextKit 1 view never laid out (height 0)" }
+        let pointInGutter = NSPoint(x: 7, y: 10)
+        let pointInWindow = gutter.convert(pointInGutter, to: nil)
+        guard let event = NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: pointInWindow,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: 0,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 1
+        ) else { return "could not build a TextKit 1 gutter click" }
+        gutter.mouseDown(with: event)
+        pump(0.3)
+        guard !textView.foldedHeaderLines.isEmpty else { return "a TextKit 1 gutter click did not fold" }
+        layout.ensureLayout(for: textView.textContainer!)
+        let after = layout.usedRect(for: textView.textContainer!).height
+        guard after < before * 0.7 else {
+            return "a TextKit 1 gutter click did not collapse (before \(Int(before)) after \(Int(after)))"
+        }
         return nil
+    }
+
+
+    /// The same fold through the real folder window: the wiring that the synthetic text
+    /// view case does not cover (content-storage delegate, gutter, editor refresh).
+    @MainActor
+    private static func acceptEditorFolding() -> String? {
+        let code = (1...30).map { index in
+            if index == 1 { return "func work() {" }
+            if index == 2 { return "    let first = 1" }
+            if index == 3 { return "    if first > 0 {" }
+            if index == 4 { return "        print(first)" }
+            if index == 5 { return "    }" }
+            if index == 30 { return "}" }
+            return "    step\(index)()"
+        }.joined(separator: "\n") + "\n"
+        guard let opened = acceptanceWindow(["code/sample.swift": code]) else {
+            return "could not open the folding window"
+        }
+        defer { closeAcceptance(opened) }
+        let (_, session, window, host) = opened
+        session.openRelative("code/sample.swift")
+        guard waitUntil(5, { session.buffer?.relativePath == "code/sample.swift" }) else {
+            return "the code file did not open"
+        }
+        guard waitUntil(5, { findEditor(in: host) != nil }) else {
+            return "the folder window has no editor"
+        }
+        pump(0.6)
+        guard let pane = findPane(in: host),
+              let textView = pane.scrollView.documentView as? XYZMacTextView,
+              textView.string == code
+        else {
+            return "the editor is not showing the code file"
+        }
+        // The live editor still runs TextKit 1 (its layoutManager is read on purpose so
+        // the hosted view paints); detached checks run TextKit 2. Both must fold.
+        let usesTextKit2 = textView.textLayoutManager != nil
+        let measure: () -> CGFloat
+        if usesTextKit2 {
+            guard let storage = textView.textLayoutManager?.textContentManager as? NSTextContentStorage,
+                  storage.delegate != nil else {
+                return "the TextKit 2 content storage delegate was never set"
+            }
+            guard let manager = textView.textLayoutManager, let content = manager.textContentManager else {
+                return "the editor lost its content manager"
+            }
+            measure = {
+                manager.ensureLayout(for: content.documentRange)
+                manager.textViewportLayoutController.layoutViewport()
+                return manager.usageBoundsForTextContainer.maxY
+            }
+        } else {
+            guard let layout = textView.layoutManager, let container = textView.textContainer else {
+                return "the real editor has neither layout system"
+            }
+            measure = {
+                layout.ensureLayout(for: container)
+                return layout.usedRect(for: container).height
+            }
+        }
+        func height() -> CGFloat { measure() }
+        guard textView.hasFoldableLines else {
+            return "the real editor found no foldable ranges"
+        }
+        let before = height()
+        textView.toggleFold(atLine: 1)
+        pump(0.4)
+        let folded = height()
+        guard textView.foldedHeaderLines.contains(1) else { return "the fold state did not change" }
+        guard folded < before * 0.7 else {
+            return "folding in the real editor did not collapse (before \(Int(before)) folded \(Int(folded)))"
+        }
+        if let image = compositedImage(of: host) {
+            saveShot(image, name: "editor-folding.png")
+        }
+        // The gutter is the way users fold: its chevron hit area must find the row and toggle.
+        textView.unfoldAll()
+        pump(0.2)
+        pane.needsLayout = true
+        pane.layoutSubtreeIfNeeded()
+        guard let gutter = textView.lineNumberGutter else { return nil }
+        gutter.layoutSubtreeIfNeeded()
+        let pointInGutter = NSPoint(x: 7, y: 10)
+        let pointInWindow = gutter.convert(pointInGutter, to: nil)
+        guard let event = NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: pointInWindow,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 1
+        ) else { return "could not build a gutter click" }
+        gutter.mouseDown(with: event)
+        pump(0.4)
+        let afterClick = height()
+        guard !textView.foldedHeaderLines.isEmpty else {
+            return "a gutter click did not fold (hit=\(gutter.hitTest(gutter.convert(pointInGutter, to: gutter.superview)) != nil))"
+        }
+        guard afterClick < before * 0.7 else {
+            return "a gutter click did not collapse the layout (before \(Int(before)) after \(Int(afterClick)))"
+        }
+        return nil
+    }
+
+    @MainActor
+    private static func findEditor(in root: NSView) -> XYZMacTextView? {
+        guard let pane = findPane(in: root) else { return nil }
+        return pane.scrollView.documentView as? XYZMacTextView
     }
 
     private static func runAcceptanceGestures() -> String? {
@@ -1675,6 +1853,7 @@ enum GutterSnapshotCheck {
             record("mode-labels", acceptModeLabels())
             record("empty-line-prefs", acceptEmptyLine())
             record("code-folding", acceptCodeFolding())
+            record("editor-folding", acceptEditorFolding())
             if failed.isEmpty {
                 print("ACCEPTANCE_OK")
             } else {
