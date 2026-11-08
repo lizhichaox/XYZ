@@ -378,17 +378,15 @@ final class LineNumberGutter: NSView {
             return [emptyRow(textView: textView)]
         }
         let first = lineFragmentRows(textView: textView, layout: layout, container: container)
-        let numbered = first.filter(\.showsNumber).count
-        if Self.isSourceRun(first), first.count > numbered { return first }
-        guard layout.allowsNonContiguousLayout else { return first }
-        layout.allowsNonContiguousLayout = false
-        let length = (textView.string as NSString).length
-        if length > 0 {
-            layout.ensureLayout(forCharacterRange: NSRange(location: 0, length: length))
+        if Self.isSourceRun(first) || first.isEmpty {
+            return first
         }
-        let second = lineFragmentRows(textView: textView, layout: layout, container: container)
-        layout.allowsNonContiguousLayout = true
-        return second
+        // A noncontiguous viewport can miss the first row of the visible band. Ask for the
+        // whole document once (layout is cached afterwards) instead of toggling
+        // `allowsNonContiguousLayout`: flipping that flag re-lays the note on every draw.
+        let length = (textView.string as NSString).length
+        layout.ensureLayout(forCharacterRange: NSRange(location: 0, length: length))
+        return lineFragmentRows(textView: textView, layout: layout, container: container)
     }
 
     /// The box the source lines use. A number belongs to a source line, so it follows
@@ -417,25 +415,36 @@ final class LineNumberGutter: NSView {
         return numbered == Array(first..<(first + numbered.count))
     }
 
+    /// Rows from the visible band only. The live editor is TextKit 1, and laying out the
+    /// whole note on every gutter draw made scrolling and typing cost O(document): a
+    /// 2,000-line note spent about 90 ms per draw. `allowsNonContiguousLayout` keeps the
+    /// rest estimated, so only the band around the clip has to exist.
     private func lineFragmentRows(
         textView: XYZMacTextView,
         layout: NSLayoutManager,
         container: NSTextContainer
     ) -> [Row] {
-        let length = (textView.string as NSString).length
+        let ns = textView.string as NSString
+        let length = ns.length
         guard length > 0 else { return [] }
-        layout.ensureLayout(forCharacterRange: NSRange(location: 0, length: length))
-        let lines = lineIndex()
         let visible = textView.visibleRect
+        let padding = max(0, visible.height)
+        let band = visible.insetBy(dx: 0, dy: -padding)
+        layout.ensureLayout(forBoundingRect: band, in: container)
+        let glyphs = layout.glyphRange(forBoundingRect: band, in: container)
+        guard glyphs.length > 0 else { return [] }
+        let lines = lineIndex()
         let origin = textView.textContainerOrigin
-        let glyphs = layout.glyphRange(for: container)
         var rows: [Row] = []
         var previous: Int?
         layout.enumerateLineFragments(forGlyphRange: glyphs) { rect, _, _, glyphRange, _ in
             guard glyphRange.length > 0 else { return }
             let index = layout.characterIndexForGlyph(at: glyphRange.location)
-            let line = lines.line(at: max(0, index))
-            let shows = previous != line
+            let line = lines.line(at: max(0, min(index, length)))
+            // The first fragment of a source line carries the number; its wrapped
+            // continuations start past the line start. This also works when the band
+            // starts in the middle of a wrapped line.
+            let shows = line >= 1 && line <= lines.starts.count && index == lines.starts[line - 1]
             previous = line
             let top = origin.y + rect.minY
             guard top + rect.height > visible.minY - 1, top < visible.maxY + 1 else { return }
@@ -447,8 +456,11 @@ final class LineNumberGutter: NSView {
             ))
         }
         // A note ending in a newline has one more empty line, reported as the extra line
-        // fragment. It needs its number, especially while the caret can sit on it.
-        if layout.extraLineFragmentTextContainer != nil, previous != lines.count {
+        // fragment. It needs its number, especially while the caret can sit on it. Only
+        // ask for it when the band reaches the bottom of the document.
+        if visible.maxY >= textView.frame.height - 1,
+           layout.extraLineFragmentTextContainer != nil,
+           previous != lines.count {
             let rect = layout.extraLineFragmentRect
             let top = origin.y + rect.minY
             if top + rect.height > visible.minY - 1, top < visible.maxY + 1 {

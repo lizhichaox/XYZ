@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### Performance
+
+- **The line-number gutter lays out only the visible band.** Every gutter draw used to
+  `ensureLayout` the whole note and toggle `allowsNonContiguousLayout`; on a 2,000-line
+  Markdown note that cost about 89 ms per draw. The draw now asks TextKit for the clip
+  band plus one screen, so a draw is 0.7 ms and a gutter snapshot 0.03 ms.
+- **Find marks are cleared only when a find session painted them.** Removing
+  `.backgroundColor` over the whole text storage on every keystroke was most of the
+  typography pass on a large note.
+- **A large note restyles only the edited lines.** The old pass padded the edit with
+  2,000 characters on each side and rewrote thousands of attribute runs per keystroke.
+- Measured with the new `-XYZPerfProbe` on a 2,000-line / 135 K Markdown note: keystroke
+  (insert plus restyle) 19.1 ms → 1.2 ms; display 0.1 ms; gutter draw 89 ms → 0.7 ms.
+  `swift test` 259/0, `Scripts/xyz-test.sh` 8/8, and the `-XYZCheckGutter` functional
+  cases still pass.
+
 ## 0.5.39
 
 Build 55. Developer ID signed, notarized and stapled. Published as a GitHub release

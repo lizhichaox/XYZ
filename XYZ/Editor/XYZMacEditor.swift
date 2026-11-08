@@ -414,9 +414,16 @@ final class XYZMacTextView: NSTextView {
         readingAssistRanges = []
     }
 
+    /// True while match backgrounds are in the storage. Typing with no find session must
+    /// not clear `.backgroundColor` over the whole note: that attribute edit alone cost
+    /// more than every other part of a keystroke on a large document.
+    private var hasPaintedFindMarks = false
+
     /// Accent marks for every match. The current one is darker. Called again after syntax styling, which clears backgrounds.
     func paintFindMarks() {
         guard let storage = textStorage else { return }
+        let cap = min(findMarks.count, 2_000)
+        guard cap > 0 || hasPaintedFindMarks else { return }
         let full = NSRange(location: 0, length: storage.length)
         undoManager?.disableUndoRegistration()
         storage.beginEditing()
@@ -425,7 +432,6 @@ final class XYZMacTextView: NSTextView {
         }
         let faint = NSColor.xyzFindMatch
         let strong = NSColor.xyzFindCurrent
-        let cap = min(findMarks.count, 2_000)
         if cap > 0 {
             for index in 0..<cap {
                 let match = findMarks[index].range
@@ -437,6 +443,7 @@ final class XYZMacTextView: NSTextView {
         }
         storage.endEditing()
         undoManager?.enableUndoRegistration()
+        hasPaintedFindMarks = cap > 0
     }
 
     func singleLineSelection() -> String? {
@@ -2001,8 +2008,9 @@ enum EditorTypography {
         let full = NSRange(location: 0, length: ns.length)
         let span: NSRange
         if full.length > immediateLimit {
-            let focus = lineSpan(ns, around: edited ?? visibleSpan(in: textView))
-            span = expanded(focus, in: ns, pad: 2_000)
+            // Only the edited lines need the base attributes again. A large pad around
+            // them made every keystroke rewrite thousands of characters of attributes.
+            span = lineSpan(ns, around: edited ?? visibleSpan(in: textView))
         } else {
             span = full
         }

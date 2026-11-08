@@ -10,6 +10,12 @@ enum GutterSnapshotCheck {
     static let argument = "-XYZCheckGutter"
 
     static func finishIfRequested() {
+        if ProcessInfo.processInfo.arguments.contains("-XYZPerfProbe") {
+            MainActor.assumeIsolated {
+                runPerfProbe()
+            }
+            exit(0)
+        }
         guard ProcessInfo.processInfo.arguments.contains(argument) else { return }
         stage("render")
         let rendered = renderEditingGutter()
@@ -48,6 +54,139 @@ enum GutterSnapshotCheck {
         }
         fflush(stdout)
         exit(failure == nil ? 0 : 1)
+    }
+
+    /// `-XYZPerfProbe`: repeatable numbers for the optimization work. Not part of the
+    /// acceptance gate; it builds one large note in a window and prints PERF lines.
+    @MainActor
+    private static func runPerfProbe() {
+        func now() -> Double { CFAbsoluteTimeGetCurrent() }
+        func median(_ values: [Double]) -> Double {
+            let sorted = values.sorted()
+            return sorted.isEmpty ? 0 : sorted[sorted.count / 2] * 1000
+        }
+
+        let lines = (1...2000).map { i -> String in
+            switch i % 7 {
+            case 0: return "## 标题 Heading \(i)"
+            case 1: return "- 中文 list item \(i) with [link](note\(i).md) and `inline_code_\(i)`"
+            case 2: return "这是第 \(i) 行混排正文 mixed Chinese and English text for wrapping and measuring."
+            default: return "line \(i) plain text with some words and 中文 characters to wrap the row nicely."
+            }
+        }
+        let fixture = lines.joined(separator: "\n")
+        var style = XYZEditorStyle()
+        style.wraps = true
+        style.fontSize = 16
+        let editor = XYZMacEditor(
+            text: fixture,
+            isEditable: true,
+            undoManager: nil,
+            reloadToken: 1,
+            style: style,
+            scrollLink: EditorScrollLink(),
+            markup: true,
+            syntax: .markdown,
+            lineNumbers: true,
+            find: nil,
+            onSelection: nil,
+            onTextChange: { _ in }
+        )
+        let host = NSHostingView(rootView: editor)
+        host.frame = NSRect(x: 0, y: 0, width: 900, height: 700)
+        let window = NSWindow(
+            contentRect: host.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = host
+        window.orderFrontRegardless()
+        var pane: EditorPane?
+        let start = now()
+        while now() - start < 8 {
+            host.layoutSubtreeIfNeeded()
+            window.displayIfNeeded()
+            if let found = findPane(in: host),
+               let textView = found.scrollView.documentView as? XYZMacTextView,
+               (textView.string as NSString).length > 50_000,
+               found.frame.width > 100, found.frame.height > 100 {
+                pane = found
+                break
+            }
+            pump(0.05)
+        }
+        guard let pane,
+              let textView = pane.scrollView.documentView as? XYZMacTextView,
+              let layout = textView.layoutManager,
+              let container = textView.textContainer else {
+            print("PERF setup=failed")
+            fflush(stdout)
+            return
+        }
+        let length = (textView.string as NSString).length
+        print("PERF fixture lines=\(lines.count) chars=\(length) load_ms=\((now() - start) * 1000)")
+        fflush(stdout)
+
+        let gutter = pane.gutter
+        let scrollView = pane.scrollView
+        let clip = scrollView.contentView
+        let maxOffset = max(0, textView.frame.height - clip.bounds.height)
+        func scroll(to fraction: Double) {
+            clip.bounds.origin.y = min(maxOffset, max(0, maxOffset * fraction))
+            scrollView.reflectScrolledClipView(clip)
+            window.displayIfNeeded()
+            pump(0.02)
+        }
+        scroll(to: 0.5)
+        var snapshots: [Double] = []
+        var draws: [Double] = []
+        for fraction in [0.0, 0.25, 0.5, 0.75, 1.0] {
+            scroll(to: fraction)
+            for _ in 0..<4 {
+                let begin = now()
+                _ = gutter.testingSnapshot()
+                snapshots.append(now() - begin)
+            }
+            for _ in 0..<4 {
+                let begin = now()
+                gutter.display()
+                draws.append(now() - begin)
+            }
+        }
+        print("PERF guttersnap_ms=\(String(format: "%.2f", median(snapshots))) gutterdraw_ms=\(String(format: "%.2f", median(draws)))")
+        fflush(stdout)
+
+        let fullBegin = now()
+        layout.ensureLayout(forCharacterRange: NSRange(location: 0, length: length))
+        print("PERF full_layout_ms=\((now() - fullBegin) * 1000)")
+        fflush(stdout)
+
+        scroll(to: 0.5)
+        textView.setSelectedRange(NSRange(location: min(length - 2, length / 2), length: 0))
+        var inserts: [Double] = []
+        var displays: [Double] = []
+        var applies: [Double] = []
+        for _ in 0..<12 {
+            let insertBegin = now()
+            textView.insertText("字", replacementRange: textView.selectedRange())
+            inserts.append(now() - insertBegin)
+            let displayBegin = now()
+            window.displayIfNeeded()
+            displays.append(now() - displayBegin)
+            let applyBegin = now()
+            EditorTypography.apply(
+                to: textView,
+                style: style,
+                markup: true,
+                language: .markdown,
+                edited: textView.selectedRange()
+            )
+            applies.append(now() - applyBegin)
+        }
+        print("PERF insert_ms=\(String(format: "%.2f", median(inserts))) display_ms=\(String(format: "%.2f", median(displays))) apply_ms=\(String(format: "%.2f", median(applies)))")
+        fflush(stdout)
+        window.close()
     }
 
     private static func stage(_ name: String) {
