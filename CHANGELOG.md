@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.5.38
+
+Build 54. Installed on this Mac, Developer ID signed, notarized and stapled. Local install only: no tag, no GitHub release.
+
+### What changed
+
+- **Code folding.** Indentation-based folds for code and structured text. The gutter gets a
+  fold column (hover shows the open chevron, folded rows keep the closed one), the folded
+  header shows an ellipsis, and View gets Fold / Fold All / Unfold All (⌥⌘[, ⌥⌘⇧[, ⌥⌘⇧]).
+  Folding never touches the text, offsets, undo or saving; the caret, find and edits open
+  a fold before acting inside it, and folds re-anchor by their header text after edits.
+  Hidden lines keep no number, indent guide or whitespace marks, and the current-line band
+  follows the real laid-out row, not a uniform line box.
+- **Bracket matching and selected-word highlight.** The caret's bracket pair is highlighted,
+  and the other occurrences of the word under the caret are marked with rendering
+  attributes that never enter the text storage.
+- **Relative line numbers and whitespace rendering.** View menu toggles; spaces draw a
+  middle dot, tabs a small arrow.
+- **Markdown fenced blocks color by their language** (`swift`, `js`, `py`, …), scanned as
+  whole blocks so comments and strings stay right.
+- **Symbol breadcrumbs.** The path crumb row now carries a Markdown heading chain
+  (clickable); code and JSON show the path only, no symbol list.
+- **Find enhancements.** ⌘K content search gains Aa / W / regex toggles; ⌘F gains
+  In Selection (S).
+- **Status bar capped at three entries per side**; overflow from the right moves left.
+- **Sidebar arrow column aligned** with the first-level disclosure triangles.
+- **Spelling and grammar checking removed from the whole app**, including the context
+  menu's Spelling / Grammar items. Recorded under Product boundaries in AGENTS.md.
+- The sticky section row added earlier was removed: it repeated the breadcrumb and the
+  outline.
+
+### Where this was checked
+
+- `swift test --package-path XYZCore`: 246 tests, 0 failures.
+- `sh Scripts/xyz-test.sh`: all ok.
+- `-XYZCheckGutter`: new cases `code-folding`, `editor-folding`, `editor-folding-caret`,
+  `editor-caret-band`, `editor-viewport-line`, `sidebar-arrows` all pass in the real
+  folder window; `refresh` and the file creation cases still pass. The five older cases
+  fail on this Mac because the window is inactive while the harness runs, unrelated to
+  these changes.
+- Release 0.5.38 (54): archive, Developer ID export, app notarized and stapled,
+  `spctl` accepted. Installed over `/Applications/XYZ.app`; one app on the machine.
+
 ## 0.5.37
 
 Build 53. Installed on this Mac, Developer ID signed, notarized and stapled. Tagged `v0.5.37` and published as a GitHub release (DMG + ZIP assets).
