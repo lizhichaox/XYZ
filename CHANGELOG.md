@@ -13,10 +13,16 @@
   typography pass on a large note.
 - **A large note restyles only the edited lines.** The old pass padded the edit with
   2,000 characters on each side and rewrote thousands of attribute runs per keystroke.
+- **The outline computes off the main actor.** `FileOutline.entries` scans every line; on
+  a 135 K note it took about 45 ms and ran on the main actor 160 ms after the typing
+  pause. It now runs in a detached utility task, and the words are only counted while
+  View → Show Word Count is on (44 ms per pause otherwise).
+- Editor scrolling after the gutter fix is 0.17 ms per step on the same note, and the
+  Reading scroll reporter scans the block list in about 0.17 ms per frame.
 - Measured with the new `-XYZPerfProbe` on a 2,000-line / 135 K Markdown note: keystroke
-  (insert plus restyle) 19.1 ms → 1.2 ms; display 0.1 ms; gutter draw 89 ms → 0.7 ms.
-  `swift test` 259/0, `Scripts/xyz-test.sh` 8/8, and the `-XYZCheckGutter` functional
-  cases still pass.
+  (insert plus restyle) 19.1 ms → 1.1 ms; display 0.1 ms; gutter draw 89 ms → 0.7 ms;
+  editor scroll 0.17 ms. `swift test` 259/0, `Scripts/xyz-test.sh` 8/8, and
+  `-XYZCheckGutter` reports `GUTTER_OK`.
 
 ## 0.5.39
 

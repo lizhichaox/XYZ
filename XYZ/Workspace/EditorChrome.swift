@@ -1396,7 +1396,11 @@ final class OutlineModel: ObservableObject {
         task = Task { [weak self] in
             try? await Task.sleep(for: .milliseconds(160))
             guard !Task.isCancelled else { return }
-            let next = FileOutline.entries(in: text, language: language)
+            // The outline scans every line; on a large note that is 40+ ms and it used to
+            // run on the main actor after the typing pause. Compute it off the main actor.
+            let next = await Task.detached(priority: .utility) {
+                FileOutline.entries(in: text, language: language)
+            }.value
             guard !Task.isCancelled, let self else { return }
             if self.entries != next {
                 self.entries = next

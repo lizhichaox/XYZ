@@ -157,6 +157,16 @@ enum GutterSnapshotCheck {
         print("PERF guttersnap_ms=\(String(format: "%.2f", median(snapshots))) gutterdraw_ms=\(String(format: "%.2f", median(draws)))")
         fflush(stdout)
 
+        var scrollTimes: [Double] = []
+        for step in 0..<40 {
+            let begin = now()
+            scroll(to: Double(step % 20) / 20)
+            window.displayIfNeeded()
+            scrollTimes.append(now() - begin)
+        }
+        print("PERF scroll_ms=\(String(format: "%.2f", median(scrollTimes)))")
+        fflush(stdout)
+
         let fullBegin = now()
         layout.ensureLayout(forCharacterRange: NSRange(location: 0, length: length))
         print("PERF full_layout_ms=\((now() - fullBegin) * 1000)")
@@ -184,6 +194,84 @@ enum GutterSnapshotCheck {
             )
             applies.append(now() - applyBegin)
         }
+        // Cost of the strings the workspace callbacks touch on every keystroke.
+        let copyBegin = now()
+        let copied = textView.string
+        print("PERF text_copy_ms=\((now() - copyBegin) * 1000) chars=\((copied as NSString).length)")
+        let statsBegin = now()
+        _ = TextStatistics.count(copied)
+        print("PERF word_count_ms=\((now() - statsBegin) * 1000)")
+        let outlineBegin = now()
+        _ = FileOutline.entries(in: copied, language: .markdown)
+        print("PERF outline_ms=\((now() - outlineBegin) * 1000)")
+        fflush(stdout)
+
+        // Reading: rendering cost and the per-scroll JS scan over data-line blocks.
+        let renderBegin = now()
+        let html = MarkdownHTML.render(fixture)
+        print("PERF reading_render_ms=\((now() - renderBegin) * 1000) html_kb=\(html.utf8.count / 1024)")
+        fflush(stdout)
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        configuration.setURLSchemeHandler(BundledFontSchemeHandler(), forURLScheme: AppFonts.scheme)
+        let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 900, height: 700), configuration: configuration)
+        web.loadHTMLString(
+            PreviewPage.shell(css: PreviewStyles.load(), html: html, theme: "light", prefs: PreviewPrefs()),
+            baseURL: nil
+        )
+        let loadStart = now()
+        while now() - loadStart < 8, web.isLoading || web.url == nil {
+            pump(0.05)
+        }
+        web.frame = NSRect(x: 0, y: 0, width: 900, height: 700)
+        web.layoutSubtreeIfNeeded()
+        pump(0.3)
+        var readingResult: String?
+        web.callAsyncJavaScript("""
+            const max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+            const blocks = document.querySelectorAll('[data-line]').length;
+            let t = performance.now();
+            for (let i = 0; i < 120; i++) {
+              window.scrollTo(0, (max * (i % 60)) / 60);
+              xyzReport();
+              xyzMarkCurrentLine();
+            }
+            const report = performance.now() - t;
+            t = performance.now();
+            for (let i = 0; i < 120; i++) {
+              window.scrollTo(0, (max * (i % 12)) / 12);
+              xyzTop();
+            }
+            const top = performance.now() - t;
+            const html = document.getElementById('content').innerHTML;
+            t = performance.now();
+            for (let i = 0; i < 3; i++) { setContent(html); }
+            const setContentMs = performance.now() - t;
+            return 'scroll_report_ms=' + report.toFixed(1) + ' top_only_ms=' + top.toFixed(1)
+              + ' setcontent_ms=' + setContentMs.toFixed(1) + ' blocks=' + blocks + ' max=' + Math.round(max);
+            """, arguments: [:], in: nil, in: .page) { completion in
+                switch completion {
+                case .success(let value): readingResult = value as? String ?? "invalid"
+                case .failure(let error): readingResult = error.localizedDescription
+                }
+            }
+        let readingStart = now()
+        while readingResult == nil, now() - readingStart < 10 {
+            pump(0.05)
+        }
+        print("PERF reading \(readingResult ?? "timeout")")
+        fflush(stdout)
+        // Full restyle cost and the stall after a typing pause (the 280 ms laterRestyle).
+        let fullApplyBegin = now()
+        EditorTypography.apply(to: textView, style: style, markup: true, language: .markdown, edited: nil)
+        print("PERF apply_full_ms=\((now() - fullApplyBegin) * 1000)")
+        fflush(stdout)
+        textView.setSelectedRange(NSRange(location: min(length - 2, length / 2), length: 0))
+        textView.insertText("字", replacementRange: textView.selectedRange())
+        let pauseBegin = now()
+        pump(0.45)
+        print("PERF typing_pause_ms=\((now() - pauseBegin) * 1000)")
+        fflush(stdout)
         print("PERF insert_ms=\(String(format: "%.2f", median(inserts))) display_ms=\(String(format: "%.2f", median(displays))) apply_ms=\(String(format: "%.2f", median(applies)))")
         fflush(stdout)
         window.close()

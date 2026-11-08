@@ -2138,7 +2138,7 @@ private struct WorkspaceDetail: View {
     }
 
     private func countWords(immediate: Bool) {
-        guard format.isProse, let text = session.buffer?.text else { return }
+        guard showsWordCount, format.isProse, let text = session.buffer?.text else { return }
         wordCount.update(text, immediate: immediate)
     }
 
@@ -2234,7 +2234,7 @@ private struct WorkspaceDetail: View {
             onTextChange: { newText in
                 session.buffer?.userEdited(newText)
                 session.previewBridge.send(newText)
-                if format.isProse {
+                if showsWordCount, format.isProse {
                     wordCount.update(newText)
                 }
                 if format.language == .markdown {
