@@ -37,6 +37,39 @@ final class LineNumberGutter: NSView {
         textView.toggleFold(atLine: line)
     }
 
+    private var hoveredLine: Int?
+
+    private var foldTrackingArea: NSTrackingArea?
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        if let foldTrackingArea {
+            removeTrackingArea(foldTrackingArea)
+        }
+        let area = NSTrackingArea(
+            rect: .zero,
+            options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+            owner: self,
+            userInfo: nil
+        )
+        addTrackingArea(area)
+        foldTrackingArea = area
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        let local = convert(event.locationInWindow, from: nil)
+        let line = foldHeader(atY: local.y)
+        guard line != hoveredLine else { return }
+        hoveredLine = line
+        needsDisplay = true
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        guard hoveredLine != nil else { return }
+        hoveredLine = nil
+        needsDisplay = true
+    }
+
     /// The foldable header line at a vertical position, if any.
     private func foldHeader(atY y: CGFloat) -> Int? {
         guard let textView, textView.hasFoldableLines else { return nil }
@@ -138,7 +171,7 @@ final class LineNumberGutter: NSView {
                 NSRect(x: 0, y: row.y, width: bounds.width, height: max(row.height, 1)).fill()
             }
             guard row.showsNumber else { continue }
-            if let folded = foldState[row.line] {
+            if let folded = foldState[row.line], folded || row.line == hoveredLine {
                 drawFoldChevron(folded: folded, row: row)
             }
             // Relative mode counts from the caret line; the caret line itself keeps the
