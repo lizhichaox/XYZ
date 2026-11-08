@@ -1883,7 +1883,13 @@ enum GutterSnapshotCheck {
         }
         layout.ensureLayout(for: container)
         let used = layout.usedRect(for: container)
-        guard used.height > 20 else { return "the folded document has no height" }
+        // The outer JSON fold leaves one row. It can legitimately be <20pt with
+        // smaller saved font/spacing preferences; validate against its actual metrics.
+        let base = EditorTypography.baseFont(textView.style)
+        let minimumRow = EditorTypography.paragraphStyle(textView.style, font: base).minimumLineHeight
+        guard used.height >= minimumRow - 0.5 else {
+            return "the folded document is shorter than one row: \(used.height) < \(minimumRow)"
+        }
         let length = (textView.string as NSString).length
         textView.setSelectedRange(NSRange(location: length, length: 0))
         pump(0.3)
@@ -2155,6 +2161,81 @@ enum GutterSnapshotCheck {
         return nil
     }
 
+    /// Font checks use actual attributed runs and laid-out tab positions, not a second
+    /// copy of the font-selection algorithm. This covers the live editor's TextKit 1.
+    @MainActor
+    private static func acceptTypography() -> String? {
+        let source = "let value = 123\n\tvalue\n  value\n \tvalue\n中文 English 😀\n"
+        for size: CGFloat in [11, 16, 24] {
+            for latin in ["system", "sfmono", "menlo", "jetbrains"] {
+                var style = XYZEditorStyle()
+                style.fontSize = size
+                style.latin = latin
+                style.monospaced = true
+                style.lineHeight = 1.0 // Stress CJK metrics without clipping tall glyphs.
+                let view = XYZMacTextView(usingTextLayoutManager: false)
+                view.frame = NSRect(x: 0, y: 0, width: 700, height: 500)
+                view.style = style
+                view.string = source
+                EditorTypography.apply(to: view, style: style, markup: false, language: .swift, edited: nil)
+                guard let storage = view.textStorage, let manager = view.layoutManager, let container = view.textContainer else {
+                    return "missing TextKit 1 storage"
+                }
+                let expected = EditorTypography.baseFont(style)
+                var mismatched = false
+                // AppKit may materialize CJK/emoji fallback runs in storage. Only the
+                // Latin code must retain the primary face; fallback glyphs must not.
+                let latinRange = NSRange(location: 0, length: (source as NSString).range(of: "中文").location)
+                storage.enumerateAttribute(.font, in: latinRange) { value, _, _ in
+                    guard let font = value as? NSFont else { mismatched = true; return }
+                    if font.fontName != expected.fontName || font.pointSize != size { mismatched = true }
+                }
+                guard !mismatched else { return "syntax changed the face/size: \(latin) \(size)" }
+                guard view.string == source else { return "typography changed source text" }
+                let paragraph = storage.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as! NSParagraphStyle
+                let step = ("  " as NSString).size(withAttributes: [.font: expected]).width
+                guard paragraph.tabStops.isEmpty, abs(paragraph.defaultTabInterval - step) < 0.01,
+                      paragraph.maximumLineHeight == 0 else { return "incorrect tab stops or clamped glyph height" }
+                manager.ensureLayout(for: container)
+                let ns = source as NSString
+                let offsets = ["\tvalue", "  value", " \tvalue"].map {
+                    let range = ns.range(of: $0)
+                    return range.location + ($0 as NSString).length - 5
+                }
+                let positions = offsets.map { offset -> CGFloat in
+                    let glyph = manager.glyphIndexForCharacter(at: offset)
+                    return manager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil).minX
+                        + manager.location(forGlyphAt: glyph).x
+                }
+                guard positions.allSatisfy({ abs($0 - positions[0]) < 0.1 }) else {
+                    return "tab/space grid differs for \(latin) \(size): \(positions)"
+                }
+                // Fence blocks retain full source size and their own measured tab stops.
+                view.string = "```swift\n\tlet value = 123\n```\n"
+                EditorTypography.apply(to: view, style: style, markup: true, edited: nil)
+                let body = (view.string as NSString).range(of: "let")
+                let code = EditorTypography.codeFont(style, inline: false)
+                guard let actual = storage.attribute(.font, at: body.location, effectiveRange: nil) as? NSFont,
+                      actual.pointSize == size, actual.fontName == code.fontName,
+                      let blockParagraph = storage.attribute(.paragraphStyle, at: body.location, effectiveRange: nil) as? NSParagraphStyle,
+                      abs(blockParagraph.defaultTabInterval - ("  " as NSString).size(withAttributes: [.font: code]).width) < 0.01 else {
+                    return "fenced code has a different size/tab grid"
+                }
+            }
+        }
+        for (id, expectedName) in [("pingfang", "PingFangSC-Semibold"), ("songti", "STSongti-SC-Bold"), ("heiti", "STHeitiSC-Medium")] {
+            var style = XYZEditorStyle()
+            style.cjk = id
+            let font = EditorTypography.headingFont(style, level: 2)
+            let resolved = CTFontCreateForString(font as CTFont, "中文" as CFString, CFRange(location: 0, length: 2))
+            guard CTFontCopyPostScriptName(resolved) as String == expectedName else {
+                return "Chinese heading lost its weight: \(id)"
+            }
+        }
+        guard XYZMacTextView.indentLevels(" \t \tvalue") == 2 else { return "mixed-indent tab stops drift" }
+        return nil
+    }
+
     private static func runAcceptanceGestures() -> String? {
         let failures = MainActor.assumeIsolated { () -> [String] in
             var failed: [String] = []
@@ -2184,6 +2265,7 @@ enum GutterSnapshotCheck {
             record("editor-viewport-line", acceptViewportLine())
             record("sidebar-arrows", acceptSidebarArrows())
             record("theme-colors", acceptThemeColors())
+            record("typography", acceptTypography())
             if failed.isEmpty {
                 print("ACCEPTANCE_OK")
             } else {

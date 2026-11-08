@@ -395,8 +395,7 @@ final class LineNumberGutter: NSView {
     /// the text view's font and line height, not the smaller gutter typeface.
     private static func lineBox(for textView: XYZMacTextView) -> CGFloat {
         let font = textView.font ?? NSFont.systemFont(ofSize: textView.style.fontSize)
-        let natural = font.ascender - font.descender + font.leading
-        return max(1, textView.style.paragraphStyle(naturalLineHeight: natural).minimumLineHeight)
+        return max(1, EditorTypography.paragraphStyle(textView.style, font: font).minimumLineHeight)
     }
 
     /// An empty note is one source line. Wrapping does not remove that number.

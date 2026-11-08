@@ -1115,13 +1115,10 @@ private struct FindScan {
 
     /// A hairline at each 2-space or tab indent. Editing only, drawn from the laid-out
     /// rows, so folding and wrapping both keep the guides on their own line.
-    /// A hairline at each 2-space or tab indent. Editing only, drawn from the laid-out
-    /// rows, so folding and wrapping both keep the guides on their own line.
     private func drawIndentGuides(in rect: NSRect) {
         let ns = string as NSString
         guard ns.length > 0 else { return }
-        let face = font ?? NSFont.systemFont(ofSize: style.fontSize)
-        let step = max(6, ("  " as NSString).size(withAttributes: [.font: face]).width)
+        let face = font ?? EditorTypography.baseFont(style)
         let originX = textContainerOrigin.x
         if effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua {
             NSColor.xyzSecondaryText.withAlphaComponent(0.45).setStroke()
@@ -1135,6 +1132,8 @@ private struct FindScan {
             let lineText = ns.substring(with: lineRange)
             let levels = Self.indentLevels(lineText)
             guard levels > 0 else { continue }
+            let rowFont = textStorage?.attribute(.font, at: lineRange.location, effectiveRange: nil) as? NSFont ?? face
+            let step = ("  " as NSString).size(withAttributes: [.font: rowFont]).width
             for level in 1...levels {
                 let x = originX + CGFloat(level) * step
                 path.move(to: NSPoint(x: x, y: row.rect.minY))
@@ -1147,18 +1146,17 @@ private struct FindScan {
 
     private func lineBoxHeight() -> CGFloat {
         let face = font ?? NSFont.systemFont(ofSize: style.fontSize)
-        let natural = face.ascender - face.descender + face.leading
-        return max(1, style.paragraphStyle(naturalLineHeight: natural).minimumLineHeight)
+        return max(1, EditorTypography.paragraphStyle(style, font: face).minimumLineHeight)
     }
 
     /// Two spaces, or one tab, are one indent.
-    private static func indentLevels(_ line: String) -> Int {
+    static func indentLevels(_ line: String) -> Int {
         var columns = 0
         for character in line {
             if character == " " {
                 columns += 1
             } else if character == "\t" {
-                columns += 2
+                columns += 2 - columns % 2
             } else {
                 break
             }
@@ -1684,7 +1682,7 @@ struct XYZMacEditor: NSViewRepresentable {
         textView.style = style
         textView.needsLayout = true
         let font = EditorTypography.baseFont(style)
-        let paragraph = style.paragraphStyle(naturalLineHeight: EditorTypography.naturalLineHeight(font))
+        let paragraph = EditorTypography.paragraphStyle(style, font: font)
         textView.backgroundColor = .xyzEditor
         textView.textColor = .xyzInk
         textView.insertionPointColor = .xyzInk
@@ -1956,17 +1954,31 @@ enum EditorTypography {
         return face(style, size: size, weight: .regular)
     }
 
-    static func codeFont(_ style: XYZEditorStyle) -> NSFont {
+    static func codeFont(_ style: XYZEditorStyle, inline: Bool = true) -> NSFont {
         var code = style
         if !XYZEditorStyle.latinIsMono(style.latin) {
             code.latin = "sfmono"
             code.monospaced = true
         }
-        return face(code, size: (style.fontSize * 0.92).rounded(), weight: .regular)
+        // Only inline code is optically smaller. A fenced block is a full editor row.
+        let size = inline ? (style.fontSize * 0.92).rounded() : style.fontSize
+        return face(code, size: size, weight: .regular)
     }
 
     static func naturalLineHeight(_ font: NSFont) -> CGFloat {
-        font.ascender - font.descender + font.leading
+        let latin = font.ascender - font.descender + font.leading
+        // Reserve room for the chosen CJK fallback even on Latin-only rows. At tight
+        // line spacing, inserting one Chinese character must not change the row rhythm.
+        let cascade = font.fontDescriptor.object(forKey: .cascadeList) as? [NSFontDescriptor] ?? []
+        let cjk = cascade.first.flatMap { NSFont(descriptor: $0, size: font.pointSize) }
+        return max(latin, cjk.map { $0.ascender - $0.descender + $0.leading } ?? latin)
+    }
+
+    static func paragraphStyle(_ style: XYZEditorStyle, font: NSFont) -> NSMutableParagraphStyle {
+        style.paragraphStyle(
+            naturalLineHeight: naturalLineHeight(font),
+            spaceAdvance: (" " as NSString).size(withAttributes: [.font: font]).width
+        )
     }
 
     /// Latin face, with the chosen CJK face for characters the Latin font does not cover.
@@ -1974,9 +1986,11 @@ enum EditorTypography {
         let latin = latinFont(style, size: size, weight: weight)
         let cjkName: String
         switch style.cjk {
-        case "songti": cjkName = "Songti SC"
-        case "heiti": cjkName = "Heiti SC"
-        default: cjkName = "PingFang SC"
+        case "songti": cjkName = weight >= .semibold ? "STSongti-SC-Bold" : "STSongti-SC-Regular"
+        case "heiti": cjkName = weight >= .semibold ? "STHeitiSC-Medium" : "STHeitiSC-Light"
+        default:
+            cjkName = weight >= .semibold ? "PingFangSC-Semibold"
+                : weight >= .medium ? "PingFangSC-Medium" : "PingFangSC-Regular"
         }
         guard let cjk = NSFont(name: cjkName, size: size) else { return latin }
         let descriptor = latin.fontDescriptor.addingAttributes([
@@ -1986,9 +2000,12 @@ enum EditorTypography {
     }
 
     private static func latinFont(_ style: XYZEditorStyle, size: CGFloat, weight: NSFont.Weight) -> NSFont {
+        if style.latin == "sfmono" {
+            // SF Mono is not necessarily registered under a public family name.
+            return NSFont.monospacedSystemFont(ofSize: size, weight: weight)
+        }
         let names: [String]
         switch style.latin {
-        case "sfmono": names = ["SF Mono", "SFMono-Regular"]
         case "menlo": names = ["Menlo"]
         case "jetbrains": names = ["JetBrains Mono", "JetBrainsMono-Regular"]
         default: names = []
@@ -2001,8 +2018,11 @@ enum EditorTypography {
         }
         for name in names {
             if let font = NSFont(name: name, size: size) {
-                if weight == .regular || weight == .medium { return font }
-                return NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask)
+                if weight == .regular { return font }
+                let managerWeight = weight >= .semibold ? 8 : 6
+                return font.familyName.flatMap {
+                    NSFontManager.shared.font(withFamily: $0, traits: [], weight: managerWeight, size: size)
+                } ?? font
             }
         }
         return NSFont.monospacedSystemFont(ofSize: size, weight: weight)
@@ -2023,7 +2043,7 @@ enum EditorTypography {
     ) {
         guard let storage = textView.textStorage else { return }
         let font = baseFont(style)
-        let paragraph = style.paragraphStyle(naturalLineHeight: naturalLineHeight(font))
+        let paragraph = paragraphStyle(style, font: font)
         // `mutableString` is a view on the storage; `storage.string` copies the file.
         let ns = storage.mutableString as NSString
         let full = NSRange(location: 0, length: ns.length)
@@ -2068,7 +2088,7 @@ enum EditorTypography {
     static func applyMetrics(to textView: NSTextView, style: XYZEditorStyle) {
         guard let storage = textView.textStorage else { return }
         let font = baseFont(style)
-        let paragraph = style.paragraphStyle(naturalLineHeight: naturalLineHeight(font))
+        let paragraph = paragraphStyle(style, font: font)
         let full = NSRange(location: 0, length: storage.length)
         textView.undoManager?.disableUndoRegistration()
         storage.beginEditing()
@@ -2152,16 +2172,11 @@ enum EditorTypography {
         guard span.length > 0, NSMaxRange(span) <= ns.length else { return }
         let range = span.location..<(span.location + span.length)
         let spans = SyntaxColoring.spans(in: storage.string, language: language, within: range)
-        let keyword = style.monospaced
-            ? NSFont.monospacedSystemFont(ofSize: style.fontSize, weight: .semibold)
-            : proportional(size: style.fontSize, weight: .semibold)
+        // Syntax changes color, never the selected face, weight or glyph advances.
         for item in spans {
             let colored = NSRange(location: item.location, length: item.length)
             guard colored.location >= 0, NSMaxRange(colored) <= ns.length, colored.length > 0 else { continue }
             storage.addAttribute(.foregroundColor, value: syntaxColor(item.kind), range: colored)
-            if item.kind == .keyword {
-                storage.addAttribute(.font, value: keyword, range: colored)
-            }
         }
     }
 
@@ -2277,16 +2292,19 @@ enum EditorTypography {
         style: XYZEditorStyle,
         fenceColor: NSColor
     ) {
-        let codeFace = codeFont(style)
+        let codeFace = codeFont(style, inline: false)
+        let paragraph = paragraphStyle(style, font: codeFace)
         let lineRanges = [block.openingLine, block.closingLine].compactMap { $0 }
         for line in lineRanges {
             let content = contentRange(ns, line)
             guard content.range.length > 0, NSMaxRange(content.range) <= storage.length else { continue }
             storage.addAttribute(.font, value: codeFace, range: content.range)
+            storage.addAttribute(.paragraphStyle, value: paragraph, range: line)
             storage.addAttribute(.foregroundColor, value: fenceColor, range: content.range)
         }
         guard block.body.length > 0, NSMaxRange(block.body) <= storage.length else { return }
         storage.addAttribute(.font, value: codeFace, range: block.body)
+        storage.addAttribute(.paragraphStyle, value: paragraph, range: block.body)
         guard block.language != .plain else { return }
         let bodyText = ns.substring(with: block.body)
         for span in SyntaxColoring.spans(in: bodyText, language: block.language) {

@@ -85,7 +85,7 @@ struct XYZEditorStyle: Equatable {
         id == "sfmono" || id == "menlo" || id == "jetbrains"
     }
 
-    func paragraphStyle(naturalLineHeight: CGFloat) -> NSMutableParagraphStyle {
+    func paragraphStyle(naturalLineHeight: CGFloat, spaceAdvance: CGFloat? = nil) -> NSMutableParagraphStyle {
         let paragraph = NSMutableParagraphStyle()
         let target = max(naturalLineHeight, (fontSize * lineHeight).rounded(.up))
         paragraph.minimumLineHeight = target
@@ -93,6 +93,12 @@ struct XYZEditorStyle: Equatable {
         paragraph.paragraphSpacing = 0
         paragraph.lineBreakMode = wraps ? .byWordWrapping : .byClipping
         paragraph.hyphenationFactor = 0
+        if let spaceAdvance {
+            // Match the editor's two-space indent guides and Reading's tab-size: 2.
+            // AppKit's default 28pt stops are unrelated to the selected font or zoom.
+            paragraph.tabStops = []
+            paragraph.defaultTabInterval = max(1, spaceAdvance * 2)
+        }
         return paragraph
     }
 }

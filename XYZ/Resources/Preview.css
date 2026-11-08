@@ -90,7 +90,7 @@ article > :first-child { margin-top: 0; }
 article > :last-child { margin-bottom: 0; }
 
 h1, h2, h3, h4, h5, h6 {
-  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "PingFang SC", "Hiragino Sans GB", sans-serif;
+  font-family: inherit;
   line-height: 1.25;
   font-weight: 600;
   letter-spacing: 0;
@@ -130,7 +130,7 @@ code, kbd, pre {
 }
 
 code, kbd {
-  font-size: 0.86em;
+  font-size: 0.92em;
 }
 
 code {
@@ -157,7 +157,7 @@ pre code {
   background: none;
   border: 0;
   padding: 0;
-  font-size: 0.86em;
+  font-size: 1em;
   white-space: pre;
   border-radius: 0;
 }

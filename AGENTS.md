@@ -59,6 +59,21 @@ rules below more than once; follow them without being asked.
 - The Appearance setting stays system/light/dark and only switches `NSApp.appearance`;
   themes are not user-editable until the owner asks for it.
 
+## Typography
+
+- Syntax highlighting changes color, not font family/weight. A keyword must keep the
+  selected code face and cell width (Menlo must not silently turn into system mono).
+- CJK fallback must follow the requested weight; a semibold Latin heading with regular
+  Chinese is not a coherent heading. Use actual available faces, not synthetic bold.
+- Tabs repeat at two measured space advances, matching Reading and indent guides.
+  Clear AppKit's default 28pt stops; mixed space/tab indentation advances to the next
+  stop. Fenced blocks measure their own code font. Never rewrite the buffer for display.
+- Keep minimum line height only (no clipping maximum). Include the chosen CJK fallback
+  metrics so tight Latin/CJK rows stay stable. Do not override saved font/size/spacing
+  preferences as part of visual tuning.
+- `-XYZCheckGutter`'s `typography` case checks actual font runs, CJK weight and tab layout
+  at 11/16/24pt. Visual preference still needs the owner's review.
+
 ## Product boundaries (owner decisions; do not re-add)
 
 These are product decisions, not missing features. Ask the owner before adding any of
