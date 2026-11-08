@@ -204,6 +204,13 @@ enum GutterSnapshotCheck {
         let outlineBegin = now()
         _ = FileOutline.entries(in: copied, language: .markdown)
         print("PERF outline_ms=\((now() - outlineBegin) * 1000)")
+        let findBegin = now()
+        let query = FindQuery(pattern: "line")
+        let matches = TextFind.matches(in: copied, query: query)
+        print("PERF find_ms=\((now() - findBegin) * 1000) matches=\(matches.count)")
+        let replaceBegin = now()
+        _ = TextFind.replaceAll(in: copied, query: query, with: "row")
+        print("PERF find_replace_ms=\((now() - replaceBegin) * 1000)")
         fflush(stdout)
 
         // Reading: rendering cost and the per-scroll JS scan over data-line blocks.

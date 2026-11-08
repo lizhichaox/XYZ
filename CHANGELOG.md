@@ -18,7 +18,8 @@
   pause. It now runs in a detached utility task, and the words are only counted while
   View → Show Word Count is on (44 ms per pause otherwise).
 - Editor scrolling after the gutter fix is 0.17 ms per step on the same note, and the
-  Reading scroll reporter scans the block list in about 0.17 ms per frame.
+  Reading scroll reporter scans the block list in about 0.17 ms per frame; a find pass
+  over the same note is 1.4 ms (4.8 ms for replace-all), so those stay on the main thread.
 - Measured with the new `-XYZPerfProbe` on a 2,000-line / 135 K Markdown note: keystroke
   (insert plus restyle) 19.1 ms → 1.1 ms; display 0.1 ms; gutter draw 89 ms → 0.7 ms;
   editor scroll 0.17 ms. `swift test` 259/0, `Scripts/xyz-test.sh` 8/8, and
