@@ -82,7 +82,7 @@ enum PreviewFontCSS {
         switch id {
         case "sfmono": return "\"SF Mono\", ui-monospace, Menlo"
         case "menlo": return "Menlo, \"SF Mono\", ui-monospace"
-        case "jetbrains": return "\"JetBrains Mono\", \"SF Mono\", ui-monospace, Menlo"
+        case "jetbrains": return "\"XYZ JetBrains Mono\", ui-monospace, Menlo"
         default: return "-apple-system, BlinkMacSystemFont, \"SF Pro Text\""
         }
     }
@@ -97,7 +97,7 @@ enum PreviewFontCSS {
 
     static func mono(_ latinID: String) -> String {
         if XYZEditorStyle.latinIsMono(latinID) { return latin(latinID) }
-        return "ui-monospace, \"SF Mono\", Menlo"
+        return latin("jetbrains")
     }
 }
 
@@ -865,6 +865,7 @@ enum PreviewPage {
         <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
         <base id="xyz-base" href="\(HTMLAttribute.escape(prefs.baseHref))">
         <style>
+        \(AppFonts.webCSS)
         \(css)
         \(PreviewWebChrome.canvasCSS())
         </style>

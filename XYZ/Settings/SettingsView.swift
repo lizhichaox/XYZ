@@ -46,9 +46,9 @@ struct SettingsView: View {
                 }
             }
 
-            Section("Text") {
+            Section {
                 Picker("Latin", selection: $latinFont) {
-                    Text("System").tag("system")
+                    Text("Automatic").tag("system")
                     Text("SF Mono").tag("sfmono")
                     Text("Menlo").tag("menlo")
                     Text("JetBrains Mono").tag("jetbrains")
@@ -77,6 +77,10 @@ struct SettingsView: View {
                     Text("Wrap lines")
                     Text("Breaks long lines to the width of the editor. Turn this off to scroll sideways.")
                 }
+            } header: {
+                Text("Text")
+            } footer: {
+                Text("Automatic uses system fonts for prose and bundled JetBrains Mono for code.")
             }
 
             Section("Reading") {

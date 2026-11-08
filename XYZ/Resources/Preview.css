@@ -125,7 +125,7 @@ del {
 }
 
 code, kbd, pre {
-  font-family: var(--font-mono, ui-monospace, "SF Mono", Menlo), var(--font-cjk, "PingFang SC"), monospace;
+  font-family: var(--font-mono, "XYZ JetBrains Mono", ui-monospace, Menlo), var(--font-cjk, "PingFang SC"), monospace;
   color: var(--text);
 }
 

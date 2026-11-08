@@ -1,6 +1,12 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "Automatic": {
+      "localizations": { "zh-Hans": { "stringUnit": { "state": "translated", "value": "自动" } } }
+    },
+    "Automatic uses system fonts for prose and bundled JetBrains Mono for code.": {
+      "localizations": { "zh-Hans": { "stringUnit": { "state": "translated", "value": "自动模式：正文使用系统字体，代码使用内置 JetBrains Mono。" } } }
+    },
     "%lld min read": {
       "localizations": {
         "zh-Hans": {

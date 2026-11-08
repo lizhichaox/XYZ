@@ -2236,6 +2236,61 @@ enum GutterSnapshotCheck {
         return nil
     }
 
+    @MainActor
+    private static func acceptBundledFonts() -> String? {
+        AppFonts.register()
+        for face in AppFonts.faces {
+            guard let font = NSFont(name: "JetBrainsMono-\(face.name)", size: 16),
+                  let actual = CTFontCopyAttribute(font as CTFont, kCTFontURLAttribute) as? URL,
+                  let expected = AppFonts.url(face.name, extension: "ttf"),
+                  actual.standardizedFileURL == expected.standardizedFileURL else {
+                return "\(face.name) did not resolve to the bundled font"
+            }
+        }
+        var automatic = XYZEditorStyle()
+        automatic.monospaced = true
+        guard EditorTypography.baseFont(automatic).fontName == "JetBrainsMono-Regular",
+              EditorTypography.codeFont(.markdown).fontName == "JetBrainsMono-Regular" else {
+            return "automatic code did not use JetBrains Mono"
+        }
+        guard !EditorTypography.baseFont(.markdown).fontName.contains("JetBrains") else {
+            return "automatic prose became monospaced"
+        }
+        automatic.latin = "menlo"
+        guard EditorTypography.baseFont(automatic).fontName == "Menlo-Regular" else {
+            return "explicit font choice was replaced"
+        }
+        let native = EditorTypography.codeFont(.markdown)
+        let cjk = CTFontCreateForString(native as CTFont, "中文" as CFString, CFRange(location: 0, length: 2))
+        guard CTFontCopyPostScriptName(cjk) as String == "PingFangSC-Regular" else {
+            return "Chinese code did not fall back to PingFang"
+        }
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = .nonPersistent()
+        let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 480), configuration: configuration)
+        web.loadHTMLString(PreviewPage.shell(css: PreviewStyles.load(), html: "<p>中文 prose</p><pre><code>let value = 123</code></pre>", theme: "light", prefs: PreviewPrefs()), baseURL: nil)
+        guard waitUntil(8, { !web.isLoading && web.url != nil }) else { return "Reading font page did not load" }
+        var result: String?
+        web.callAsyncJavaScript("""
+            for (const spec of ['400', '500', '600', '700', 'italic 400', 'italic 700']) {
+              const faces = await document.fonts.load(spec + ' 16px "XYZ JetBrains Mono"', 'let value = 123');
+              if (!faces.length || faces.some(f => f.status !== 'loaded')) return 'missing web face: ' + spec;
+            }
+            const code = getComputedStyle(document.querySelector('pre code')).fontFamily;
+            const prose = getComputedStyle(document.querySelector('p')).fontFamily;
+            if (!code.startsWith('"XYZ JetBrains Mono"') && !code.startsWith('XYZ JetBrains Mono')) return 'code fell back: ' + code;
+            if (prose.includes('JetBrains')) return 'prose became monospaced';
+            return 'pass';
+            """, arguments: [:], in: nil, in: .page) { completion in
+                switch completion {
+                case .success(let value): result = value as? String ?? "invalid web result"
+                case .failure(let error): result = error.localizedDescription
+                }
+            }
+        guard waitUntil(10, { result != nil }) else { return "web fonts did not finish loading" }
+        return result == "pass" ? nil : result
+    }
+
     private static func runAcceptanceGestures() -> String? {
         let failures = MainActor.assumeIsolated { () -> [String] in
             var failed: [String] = []
@@ -2266,6 +2321,7 @@ enum GutterSnapshotCheck {
             record("sidebar-arrows", acceptSidebarArrows())
             record("theme-colors", acceptThemeColors())
             record("typography", acceptTypography())
+            record("bundled-fonts", acceptBundledFonts())
             if failed.isEmpty {
                 print("ACCEPTANCE_OK")
             } else {

@@ -7,6 +7,10 @@ struct XYZApp: App {
     @NSApplicationDelegateAdaptor(XYZAppDelegate.self) private var appDelegate
     #endif
 
+    init() {
+        AppFonts.register()
+    }
+
     var body: some Scene {
         documents
     }

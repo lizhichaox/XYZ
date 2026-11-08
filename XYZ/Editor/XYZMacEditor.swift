@@ -1957,7 +1957,7 @@ enum EditorTypography {
     static func codeFont(_ style: XYZEditorStyle, inline: Bool = true) -> NSFont {
         var code = style
         if !XYZEditorStyle.latinIsMono(style.latin) {
-            code.latin = "sfmono"
+            code.latin = "jetbrains"
             code.monospaced = true
         }
         // Only inline code is optically smaller. A fenced block is a full editor row.
@@ -2004,10 +2004,15 @@ enum EditorTypography {
             // SF Mono is not necessarily registered under a public family name.
             return NSFont.monospacedSystemFont(ofSize: size, weight: weight)
         }
+        if style.latin == "jetbrains" || (style.latin == "system" && style.monospaced) {
+            AppFonts.register()
+            let face = weight >= .semibold ? "SemiBold" : weight >= .medium ? "Medium" : "Regular"
+            return NSFont(name: "JetBrainsMono-\(face)", size: size)
+                ?? NSFont.monospacedSystemFont(ofSize: size, weight: weight)
+        }
         let names: [String]
         switch style.latin {
         case "menlo": names = ["Menlo"]
-        case "jetbrains": names = ["JetBrains Mono", "JetBrainsMono-Regular"]
         default: names = []
         }
         if names.isEmpty {
