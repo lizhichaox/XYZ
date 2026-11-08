@@ -38,8 +38,10 @@ Build 53. Installed on this Mac, Developer ID signed, notarized and stapled. No 
   open-file marker, sidebar and outline width persistence, reading progress, outline
   bottom-follow, title-bar button geometry (measured 16×15 boxes, 23 pt pitch, mirrored
   centres, one 3 pt radius), ⌘B under rapid presses.
-- Release 0.5.37 (53): archive, Developer ID export, app and DMG notarized and stapled,
-  `spctl` accepted for both. Installed over `/Applications/XYZ.app`; one app on the machine.
+- Release 0.5.37 (53): archive, Developer ID export, app notarized
+  (`c0ccb3e8-322e-4793-8d2a-0e6304527be3`) and stapled, DMG signed, notarized
+  (`4e609d87-c848-420a-a141-4bcc7e7a00c3`) and stapled, `spctl` accepted for both. Installed
+  over `/Applications/XYZ.app`; one app on the machine.
 
 ## 0.5.36
 

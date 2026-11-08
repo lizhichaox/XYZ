@@ -197,3 +197,21 @@ opening a folder patches the index in place instead of walking the vault). Same 
 - Installed over `/Applications/XYZ.app`; `mdfind` lists only that bundle. The owner had
   already tried the equivalent test build and called the performance "差不多了".
 - Not touched: tag, upload, GitHub release.
+
+## 0.5.37 on 2026-11-08
+
+The title-bar, sidebar-toggle and width-memory round. Same path:
+
+- Archive `build/XYZ.xcarchive` (53) and Developer ID export to `build/export/XYZ.app`.
+- App zip notarized: submission `c0ccb3e8-322e-4793-8d2a-0e6304527be3`, **Accepted**;
+  stapled and validated; `spctl -a -vv --type execute` **accepted**,
+  `source=Notarized Developer ID`, `origin=Developer ID Application: Zhichao Li (Z4FMG2KTPM)`.
+- DMG `build/XYZ-0.5.37.dmg`: signed with the Developer ID identity, notarized
+  (submission `4e609d87-c848-420a-a141-4bcc7e7a00c3`, **Accepted**), stapled;
+  `spctl -a -t open --context context:primary-signature -vv` **accepted**.
+- Installed over `/Applications/XYZ.app`; `mdfind` lists only that bundle. Hidden launch
+  (`open -j`), process up, quit — clean.
+- Tests before the build: `swift test --package-path XYZCore` 220/0 and
+  `sh Scripts/xyz-test.sh` 8/8. `-XYZCheckGutter`: `refresh` passes; the other five cases
+  still fail on this Mac for the inactive-window reason.
+- Not touched: tag, upload, GitHub release.
