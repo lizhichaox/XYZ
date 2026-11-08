@@ -2455,16 +2455,6 @@
         }
       }
     },
-    "Copy": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "拷贝"
-          }
-        }
-      }
-    },
     "Expanded": {
       "localizations": {
         "zh-Hans": {
@@ -2511,26 +2501,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "跳转到第 1–%lld 行"
-          }
-        }
-      }
-    },
-    "Install 'xyz' Command in PATH": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "安装 'xyz' 命令到 PATH"
-          }
-        }
-      }
-    },
-    "Install 'xyz' Command in PATH…": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "安装 'xyz' 命令到 PATH…"
           }
         }
       }
@@ -2628,16 +2598,6 @@
         }
       }
     },
-    "Run this in Terminal if the command was linked in /usr/local/bin.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "如果该命令已链接到 /usr/local/bin，请在终端中运行以下命令。"
-          }
-        }
-      }
-    },
     "Search Notes": {
       "localizations": {
         "zh-Hans": {
@@ -2688,26 +2648,6 @@
         }
       }
     },
-    "Uninstall 'xyz' Command": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "卸载 'xyz' 命令"
-          }
-        }
-      }
-    },
-    "Uninstall 'xyz' Command…": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "卸载 'xyz' 命令…"
-          }
-        }
-      }
-    },
     "Unpin": {
       "localizations": {
         "zh-Hans": {
@@ -2744,16 +2684,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "已回绕"
-          }
-        }
-      }
-    },
-    "XYZ is sandboxed, so it cannot change your PATH. Run this in Terminal. Homebrew users can use /opt/homebrew/bin instead of /usr/local/bin.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "XYZ 已启用沙盒，无法修改你的 PATH。请在终端中运行以下命令。使用 Homebrew 的用户可以用 /opt/homebrew/bin 代替 /usr/local/bin。"
           }
         }
       }
@@ -2864,6 +2794,96 @@
           "stringUnit": {
             "state": "translated",
             "value": "全部展开"
+          }
+        }
+      }
+    },
+    "Manage 'xyz' Command": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "管理 'xyz' 命令"
+          }
+        }
+      }
+    },
+    "Manage 'xyz' Command…": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "管理 'xyz' 命令…"
+          }
+        }
+      }
+    },
+    "xyz Command": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "xyz 命令"
+          }
+        }
+      }
+    },
+    "Command:": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "命令："
+          }
+        }
+      }
+    },
+    "Launcher target:": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "启动目标："
+          }
+        }
+      }
+    },
+    "XYZ is sandboxed, so run the command in Terminal. Homebrew users can use /opt/homebrew/bin instead.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "XYZ 处于沙盒中，请在终端中运行命令。使用 Homebrew 的用户可改用 /opt/homebrew/bin。"
+          }
+        }
+      }
+    },
+    "Copy Install Command": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制安装命令"
+          }
+        }
+      }
+    },
+    "Copy Uninstall Command": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制卸载命令"
+          }
+        }
+      }
+    },
+    "Copied to clipboard.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已复制到剪贴板。"
           }
         }
       }

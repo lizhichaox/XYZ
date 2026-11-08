@@ -497,10 +497,8 @@ final class EditorCommands: NSObject {
             toggleOutline(nil)
         case "app.about":
             AboutWindow.show()
-        case "app.installCLI":
-            XYZCommandInstall.showInstall()
-        case "app.uninstallCLI":
-            XYZCommandInstall.showUninstall()
+        case "app.manageCLI":
+            XYZCommandInstall.showManage()
         default:
             break
         }
@@ -755,8 +753,7 @@ enum PaletteTitles {
         case "tab.close": return String(localized: "Close Tab")
         case "file.reload": return String(localized: "Reload")
         case "app.about": return String(localized: "About XYZ")
-        case "app.installCLI": return String(localized: "Install 'xyz' Command in PATH")
-        case "app.uninstallCLI": return String(localized: "Uninstall 'xyz' Command")
+        case "app.manageCLI": return String(localized: "Manage 'xyz' Command")
         default: return nil
         }
     }
@@ -1859,43 +1856,121 @@ private final class PaletteCell: NSTableCellView {
     }
 }
 
-/// The sandbox cannot write `/usr/local/bin`. The dialog is the install step, with Copy.
+/// One dialog for the terminal command: the sandbox cannot write `/usr/local/bin`,
+/// so the app shows the exact line and copies it. The window sizes itself and is
+/// placed over the window the user is working in.
 @MainActor
 enum XYZCommandInstall {
-    static func showInstall() {
-        let script = Bundle.main.bundleURL
+    private static var panel: NSPanel?
+
+    static func showManage() {
+        let panel = self.panel ?? make()
+        self.panel = panel
+        AppPanelPlacement.center(panel)
+        panel.makeKeyAndOrderFront(nil)
+        NSApp.activate()
+    }
+
+    static var launcherTarget: String {
+        Bundle.main.bundleURL
             .appendingPathComponent("Contents/Resources/bin/xyz", isDirectory: false)
             .path
-        let command = "ln -sf \(shellQuoted(script)) /usr/local/bin/xyz"
-        present(
-            title: String(localized: "Install 'xyz' Command in PATH"),
-            body: String(localized: "XYZ is sandboxed, so it cannot change your PATH. Run this in Terminal. Homebrew users can use /opt/homebrew/bin instead of /usr/local/bin."),
-            command: command
-        )
     }
 
-    static func showUninstall() {
-        present(
-            title: String(localized: "Uninstall 'xyz' Command"),
-            body: String(localized: "Run this in Terminal if the command was linked in /usr/local/bin."),
-            command: "rm -f /usr/local/bin/xyz"
-        )
+    static var installCommand: String {
+        "ln -sf \(shellQuoted(launcherTarget)) /usr/local/bin/xyz"
     }
 
-    private static func present(title: String, body: String, command: String) {
-        let alert = NSAlert()
-        alert.messageText = title
-        alert.informativeText = body + "\n\n" + command
-        alert.addButton(withTitle: String(localized: "Copy"))
-        alert.addButton(withTitle: String(localized: "OK"))
-        if alert.runModalClosingOnEscape() == .alertFirstButtonReturn {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(command, forType: .string)
-        }
+    static var uninstallCommand: String {
+        "rm -f /usr/local/bin/xyz"
+    }
+
+    private static func make() -> NSPanel {
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 360, height: 300),
+            styleMask: [.titled, .closable],
+            backing: .buffered,
+            defer: false
+        )
+        panel.title = String(localized: "xyz Command")
+        panel.isReleasedWhenClosed = false
+        panel.hidesOnDeactivate = false
+        EscapeKey.register(panel)
+        let host = NSHostingController(rootView: XYZCommandCard())
+        host.view.layoutSubtreeIfNeeded()
+        let fitted = host.view.fittingSize
+        panel.contentViewController = host
+        panel.setContentSize(NSSize(width: 360, height: fitted.height > 1 ? fitted.height : 300))
+        return panel
     }
 
     private static func shellQuoted(_ path: String) -> String {
         "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+}
+
+private struct XYZCommandCard: View {
+    @State private var copied = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text("Command:")
+                        .foregroundStyle(.secondary)
+                    Text("/usr/local/bin/xyz")
+                        .font(.system(.body, design: .monospaced))
+                        .textSelection(.enabled)
+                }
+                Text("Launcher target:")
+                    .foregroundStyle(.secondary)
+                Text(XYZCommandInstall.launcherTarget)
+                    .font(.system(.callout, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Text("XYZ is sandboxed, so run the command in Terminal. Homebrew users can use /opt/homebrew/bin instead.")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            VStack(spacing: 8) {
+                Button {
+                    copy(XYZCommandInstall.installCommand)
+                } label: {
+                    Text("Copy Install Command").frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
+
+                Button {
+                    copy(XYZCommandInstall.uninstallCommand)
+                } label: {
+                    Text("Copy Uninstall Command").frame(maxWidth: .infinity)
+                }
+                .controlSize(.large)
+            }
+
+            if copied {
+                Text("Copied to clipboard.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .transition(.opacity)
+            }
+        }
+        .padding(20)
+        .frame(width: 360)
+        .fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func copy(_ command: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(command, forType: .string)
+        withAnimation(.easeOut(duration: 0.15)) {
+            copied = true
+        }
     }
 }
 

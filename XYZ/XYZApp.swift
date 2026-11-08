@@ -163,11 +163,8 @@ private struct AboutCommands: Commands {
             Button("About XYZ") {
                 AboutWindow.show()
             }
-            Button("Install 'xyz' Command in PATH…") {
-                XYZCommandInstall.showInstall()
-            }
-            Button("Uninstall 'xyz' Command…") {
-                XYZCommandInstall.showUninstall()
+            Button("Manage 'xyz' Command…") {
+                XYZCommandInstall.showManage()
             }
         }
         // A Settings scene builds a hidden 500×500 window at launch. This item creates the
