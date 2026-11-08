@@ -221,8 +221,8 @@ The title-bar, sidebar-toggle and width-memory round. Same path:
 
 ## 0.5.38 on 2026-11-08
 
-The editor reading aids, code folding and product-boundary round. Local install only —
-no tag, no GitHub release (the owner chose B).
+The editor reading aids, code folding and product-boundary round. Local install, then
+tagged `v0.5.38`; no GitHub release page (the owner chose B).
 
 - Archive `build/XYZ.xcarchive` (54) and Developer ID export to `build/export/XYZ.app`.
 - App zip notarized: submission `8fa6f52b-6de1-45ce-be4e-2dc4b64d6b03`, **Accepted**;

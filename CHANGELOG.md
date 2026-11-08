@@ -2,7 +2,7 @@
 
 ## 0.5.38
 
-Build 54. Installed on this Mac, Developer ID signed, notarized and stapled. Local install only: no tag, no GitHub release.
+Build 54. Installed on this Mac, Developer ID signed, notarized and stapled. Tagged `v0.5.38`; no GitHub release page.
 
 ### What changed
 
@@ -42,7 +42,7 @@ Build 54. Installed on this Mac, Developer ID signed, notarized and stapled. Loc
   these changes.
 - Release 0.5.38 (54): archive, Developer ID export, app notarized and stapled,
   `spctl` accepted. Installed over `/Applications/XYZ.app`; one app on the machine.
-- Not published to GitHub: no tag, no release, per the owner's choice (local install only).
+- Tagged `v0.5.38` on `main` (`bcc4714`); no GitHub release page, per the owner's choice.
 
 ## 0.5.37
 
