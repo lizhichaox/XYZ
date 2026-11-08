@@ -384,7 +384,7 @@ private final class QuickLookHost: NSView {
     private func installUnavailable() {
         let label = NSTextField(wrappingLabelWithString: String(localized: "XYZ can't preview this file."))
         label.alignment = .center
-        label.textColor = .secondaryLabelColor
+        label.textColor = .xyzSecondaryText
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)
         NSLayoutConstraint.activate([

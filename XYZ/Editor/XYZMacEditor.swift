@@ -98,11 +98,9 @@ final class XYZMacTextView: NSTextView {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        let dark = effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         selectedTextAttributes = [
-            .backgroundColor: dark
-                ? NSColor(srgbRed: 38 / 255, green: 79 / 255, blue: 120 / 255, alpha: 1)
-                : NSColor.selectedTextBackgroundColor,
+            .backgroundColor: NSColor.xyzSelectionText,
+            .foregroundColor: NSColor.xyzInk,
         ]
         onAppearanceChange?()
     }
@@ -1567,7 +1565,7 @@ struct XYZMacEditor: NSViewRepresentable {
         context.coordinator.scrollLink = scrollLink
         let editingChanged = textView.isEditable != isEditable
         textView.isEditable = isEditable
-        textView.insertionPointColor = isEditable ? .labelColor : .clear
+        textView.insertionPointColor = isEditable ? .xyzInk : .clear
         if editingChanged {
             textView.showViewport()
             if !isEditable {
@@ -1689,7 +1687,7 @@ struct XYZMacEditor: NSViewRepresentable {
         let paragraph = style.paragraphStyle(naturalLineHeight: EditorTypography.naturalLineHeight(font))
         textView.backgroundColor = .xyzEditor
         textView.textColor = .xyzInk
-        textView.insertionPointColor = .labelColor
+        textView.insertionPointColor = .xyzInk
         textView.defaultParagraphStyle = paragraph
         textView.typingAttributes = [
             .font: font,
@@ -1700,16 +1698,15 @@ struct XYZMacEditor: NSViewRepresentable {
         scrollView.clipsToBounds = true
         scrollView.contentView.clipsToBounds = true
         scrollView.contentView.drawsBackground = false
-        textView.insertionPointColor = textView.isEditable ? .labelColor : .clear
+        textView.insertionPointColor = textView.isEditable ? .xyzInk : .clear
         applySelectionChrome(textView)
     }
 
     private func applySelectionChrome(_ textView: XYZMacTextView) {
-        let dark = textView.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        let background: NSColor = dark
-            ? NSColor(srgbRed: 38 / 255, green: 79 / 255, blue: 120 / 255, alpha: 1)
-            : .selectedTextBackgroundColor
-        textView.selectedTextAttributes = [.backgroundColor: background]
+        textView.selectedTextAttributes = [
+            .backgroundColor: NSColor.xyzSelectionText,
+            .foregroundColor: NSColor.xyzInk,
+        ]
     }
 
     /// Wrap tracks the pane. With wrap off, the line keeps its length and the pane scrolls sideways.
@@ -2042,7 +2039,7 @@ enum EditorTypography {
         if span.length > 0, span.location >= 0, NSMaxRange(span) <= ns.length {
             storage.setAttributes([
                 .font: font,
-                .foregroundColor: NSColor.labelColor,
+                .foregroundColor: NSColor.xyzInk,
                 .paragraphStyle: paragraph,
             ], range: span)
             if markup, full.length <= stylingLimit {
@@ -2057,7 +2054,7 @@ enum EditorTypography {
         textView.undoManager?.enableUndoRegistration()
         textView.typingAttributes = [
             .font: font,
-            .foregroundColor: NSColor.labelColor,
+            .foregroundColor: NSColor.xyzInk,
             .paragraphStyle: paragraph,
         ]
         if let editor = textView as? XYZMacTextView {
@@ -2102,33 +2099,9 @@ enum EditorTypography {
         syntaxColor(kind)
     }
 
-    /// Muted colors in the spirit of VS Code Dark Modern and Light Modern.
+    /// The active theme's color for one token kind.
     private static func syntaxColor(_ kind: SyntaxTokenKind) -> NSColor {
-        let dark = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        switch kind {
-        case .comment:
-            return .tertiaryLabelColor
-        case .string:
-            return dark
-                ? NSColor(srgbRed: 0.81, green: 0.57, blue: 0.47, alpha: 1)
-                : NSColor(srgbRed: 0.64, green: 0.08, blue: 0.08, alpha: 1)
-        case .number:
-            return dark
-                ? NSColor(srgbRed: 0.71, green: 0.81, blue: 0.66, alpha: 1)
-                : NSColor(srgbRed: 0.04, green: 0.53, blue: 0.35, alpha: 1)
-        case .keyword:
-            return dark
-                ? NSColor(srgbRed: 0.34, green: 0.61, blue: 0.84, alpha: 1)
-                : NSColor(srgbRed: 0.08, green: 0.16, blue: 0.65, alpha: 1)
-        case .type:
-            return dark
-                ? NSColor(srgbRed: 0.31, green: 0.79, blue: 0.69, alpha: 1)
-                : NSColor(srgbRed: 0.15, green: 0.50, blue: 0.60, alpha: 1)
-        case .key:
-            return dark
-                ? NSColor(srgbRed: 0.61, green: 0.86, blue: 1.0, alpha: 1)
-                : NSColor(srgbRed: 0.02, green: 0.32, blue: 0.65, alpha: 1)
-        }
+        NSColor.xyzSyntax(kind)
     }
 
     /// The characters already on screen. Does not lay out the rest of the file.
@@ -2194,7 +2167,7 @@ enum EditorTypography {
 
     private static func styleMarkup(_ storage: NSTextStorage, style: XYZEditorStyle, within span: NSRange) {
         let ns = storage.string as NSString
-        let syntax = NSColor.tertiaryLabelColor
+        let syntax = NSColor.xyzTertiaryText
         let limit = min(NSMaxRange(span), ns.length)
         var location = max(0, span.location)
         // Typing inside a fenced block restyles the whole block: token state (comments,

@@ -1026,7 +1026,7 @@ fileprivate final class SidebarColumnView: NSView {
 
         placeholder.translatesAutoresizingMaskIntoConstraints = false
         placeholder.alignment = .center
-        placeholder.textColor = .tertiaryLabelColor
+        placeholder.textColor = NSColor.xyzTertiaryText
         placeholder.font = .systemFont(ofSize: 12)
         placeholder.maximumNumberOfLines = 4
         placeholder.lineBreakMode = .byWordWrapping
@@ -1470,11 +1470,11 @@ fileprivate final class ExplorerHeaderButton: NSControl {
         if hovered || pressed || focused {
             let alpha: CGFloat = pressed ? 0.18 : 0.10
             NSColor.xyzSecondaryText.withAlphaComponent(alpha).setFill()
-            NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: 4, yRadius: 4).fill()
+            NSBezierPath(roundedRect: bounds.insetBy(dx: 1, dy: 1), xRadius: NSColor.xyzDisplay.controlCornerRadius, yRadius: NSColor.xyzDisplay.controlCornerRadius).fill()
         }
         guard let image = NSImage(systemSymbolName: symbol, accessibilityDescription: titleText)?
             .withSymbolConfiguration(NSImage.SymbolConfiguration(pointSize: 12, weight: .regular)) else { return }
-        let tint = isEnabled ? NSColor.xyzSecondaryText : NSColor.xyzSecondaryText.withAlphaComponent(0.35)
+        let tint = isEnabled ? NSColor.xyzSecondaryText : NSColor.xyzDisabledTint
         let side: CGFloat = 14
         let rect = NSRect(x: bounds.midX - side / 2, y: bounds.midY - side / 2, width: side, height: side)
         image.tinted(with: tint).draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)
@@ -1914,7 +1914,7 @@ fileprivate final class SidebarRowView: NSTableRowView {
             NSColor.xyzSelection.setFill()
             bounds.fill()
         } else if outline.hoveredRowIndex == row {
-            NSColor.xyzAccent.withAlphaComponent(0.06).setFill()
+            NSColor.xyzHover.setFill()
             bounds.fill()
         }
     }
@@ -2046,8 +2046,8 @@ fileprivate final class SidebarRowCell: NSTableCellView {
         let name = (hit.relativePath as NSString).lastPathComponent
         let symbol = WorkspaceFileSymbolChoice.symbol(name: name, isDirectory: false, isExpanded: false)
         icon.image = Self.image(symbol)
-        let primary: NSColor = .labelColor
-        let quiet: NSColor = .tertiaryLabelColor
+        let primary: NSColor = .xyzInk
+        let quiet: NSColor = .xyzTertiaryText
         icon.contentTintColor = quiet
         let combined = hit.hit.excerpt.isEmpty ? name : name + "  " + hit.hit.excerpt
         let text = NSMutableAttributedString(string: combined)
@@ -2074,7 +2074,7 @@ fileprivate final class SidebarRowCell: NSTableCellView {
         label.isBezeled = true
         label.drawsBackground = true
         label.backgroundColor = .textBackgroundColor
-        label.textColor = .labelColor
+        label.textColor = .xyzInk
         label.delegate = delegate
         window?.makeFirstResponder(label)
         label.currentEditor()?.selectedRange = NSRange(location: 0, length: (fullName as NSString).length)
@@ -2137,7 +2137,7 @@ fileprivate final class SidebarTextCell: NSTableCellView {
         textField = label
         label.translatesAutoresizingMaskIntoConstraints = false
         label.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: weight)
-        label.textColor = .secondaryLabelColor
+        label.textColor = .xyzSecondaryText
         label.lineBreakMode = .byTruncatingTail
         label.maximumNumberOfLines = 1
         addSubview(label)

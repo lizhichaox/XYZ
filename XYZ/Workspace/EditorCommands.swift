@@ -1260,7 +1260,7 @@ enum AboutWindow {
         let version = NSTextField(labelWithString: versionLine())
         version.alignment = .center
         version.font = .systemFont(ofSize: 13)
-        version.textColor = .secondaryLabelColor
+        version.textColor = .xyzSecondaryText
         version.translatesAutoresizingMaskIntoConstraints = false
 
         let credit = NSTextView()
@@ -1307,13 +1307,13 @@ enum AboutWindow {
         let style = NSMutableParagraphStyle()
         style.alignment = .center
         attributed.addAttribute(.font, value: NSFont.systemFont(ofSize: NSFont.smallSystemFontSize), range: full)
-        attributed.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: full)
+        attributed.addAttribute(.foregroundColor, value: NSColor.xyzSecondaryText, range: full)
         attributed.addAttribute(.paragraphStyle, value: style, range: full)
         let name = text.range(of: "LIZHICHAO")
         if name.location != NSNotFound, let url = URL(string: "https://lizhichao.com") {
             attributed.addAttribute(.link, value: url, range: name)
             attributed.addAttribute(.underlineStyle, value: NSUnderlineStyle.single.rawValue, range: name)
-            attributed.addAttribute(.foregroundColor, value: NSColor.secondaryLabelColor, range: name)
+            attributed.addAttribute(.foregroundColor, value: NSColor.xyzSecondaryText, range: name)
         }
         return attributed
     }
@@ -1509,7 +1509,7 @@ final class CommandPaletteController: NSObject, NSTableViewDataSource, NSTableVi
 
         let empty = NSTextField(labelWithString: String(localized: "No matches"))
         empty.alignment = .center
-        empty.textColor = .secondaryLabelColor
+        empty.textColor = .xyzSecondaryText
         empty.font = .systemFont(ofSize: 13)
         empty.isHidden = true
         empty.translatesAutoresizingMaskIntoConstraints = false

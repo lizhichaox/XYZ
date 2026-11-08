@@ -292,85 +292,50 @@ extension Color {
 
 #if os(macOS)
 extension NSColor {
-    /// One light theme and one dark theme. Accent is the divider hover blue, used sparingly.
-    static func xyzDynamic(light: NSColor, dark: NSColor) -> NSColor {
+    convenience init(xyz color: XYZColor) {
+        self.init(srgbRed: color.red, green: color.green, blue: color.blue, alpha: color.alpha)
+    }
+
+    /// One theme role, resolved per drawing appearance so every window repaints on a
+    /// theme change. The palette lives in `XYZTheme`; nothing hard-codes a hex here.
+    static func xyzResolved(_ role: KeyPath<XYZTheme, XYZColor>) -> NSColor {
         NSColor(name: nil) { appearance in
-            appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua ? dark : light
+            let dark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            return NSColor(xyz: XYZTheme.resolved(dark: dark)[keyPath: role])
         }
     }
 
-    static func xyzSRGB(_ red: CGFloat, _ green: CGFloat, _ blue: CGFloat) -> NSColor {
-        NSColor(srgbRed: red / 255, green: green / 255, blue: blue / 255, alpha: 1)
+    static var xyzEditor: NSColor { xyzResolved(\.editor) }
+    static var xyzSidebar: NSColor { xyzResolved(\.sidebar) }
+    static var xyzInk: NSColor { xyzResolved(\.ink) }
+    static var xyzSecondaryText: NSColor { xyzResolved(\.secondaryText) }
+    static var xyzTertiaryText: NSColor { xyzResolved(\.tertiaryText) }
+    static var xyzAccent: NSColor { xyzResolved(\.accent) }
+    static var xyzSelection: NSColor { xyzResolved(\.selection) }
+    static var xyzSelectionText: NSColor { xyzResolved(\.selectionText) }
+    static var xyzCurrentLine: NSColor { xyzResolved(\.currentLine) }
+    static var xyzDivider: NSColor { xyzResolved(\.divider) }
+    static var xyzHover: NSColor { xyzResolved(\.hover) }
+    static var xyzDisabledTint: NSColor { xyzResolved(\.disabledTint) }
+    static var xyzFindMatch: NSColor { xyzResolved(\.findMatch) }
+    static var xyzFindCurrent: NSColor { xyzResolved(\.findCurrent) }
+    static var xyzFindToggleFill: NSColor { xyzResolved(\.findToggleFill) }
+    static var xyzFindToggleInk: NSColor { xyzResolved(\.findToggleInk) }
+
+    /// One syntax color per drawing appearance; falls back to quiet text when a kind is
+    /// somehow undefined.
+    static func xyzSyntax(_ kind: SyntaxTokenKind) -> NSColor {
+        NSColor(name: nil) { appearance in
+            let dark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            let theme = XYZTheme.resolved(dark: dark)
+            return NSColor(xyz: theme.syntax.color(for: kind) ?? theme.secondaryText)
+        }
     }
 
-    /// Editor and Reading canvas. Light `#FFFFFF`, dark `#1E1E1E`.
-    static var xyzEditor: NSColor {
-        xyzDynamic(light: xyzSRGB(255, 255, 255), dark: xyzSRGB(30, 30, 30))
-    }
-
-    /// Sidebars, the status bar, and the title-bar field in light mode.
-    /// Light is white (`#FFFFFF`), the same as the editor. Dark stays `#181818`.
-    /// Hairlines separate those areas. There is no grey sidebar fill.
-    static var xyzSidebar: NSColor {
-        xyzDynamic(light: xyzSRGB(255, 255, 255), dark: xyzSRGB(24, 24, 24))
-    }
-
-    /// Body text. Light `#1F1F1F`, dark `#D4D4D4`.
-    static var xyzInk: NSColor {
-        xyzDynamic(light: xyzSRGB(31, 31, 31), dark: xyzSRGB(212, 212, 212))
-    }
-
-    /// Tree, breadcrumbs, status, gutter. Light `#5F6368`, dark `#9D9D9D`.
-    static var xyzSecondaryText: NSColor {
-        xyzDynamic(light: xyzSRGB(95, 99, 104), dark: xyzSRGB(157, 157, 157))
-    }
-
-    /// Divider hover and the few accent marks. `#0078D4` (passes WCAG AA on white).
-    static var xyzAccent: NSColor {
-        xyzSRGB(0, 120, 212)
-    }
-
-    /// Selected row. Accent at 14% with ink text. Not a grey slab.
-    static var xyzSelection: NSColor {
-        xyzAccent.withAlphaComponent(0.14)
-    }
-
-    /// Find matches. Light stays an accent tint. Dark uses a visible orange.
-    static var xyzFindMatch: NSColor {
-        xyzDynamic(
-            light: xyzAccent.withAlphaComponent(0.16),
-            dark: NSColor(srgbRed: 234 / 255, green: 92 / 255, blue: 0, alpha: 0.50)
-        )
-    }
-
-    /// The current find match. Dark is a stronger orange so it reads on `#1E1E1E`.
-    static var xyzFindCurrent: NSColor {
-        xyzDynamic(
-            light: xyzAccent.withAlphaComponent(0.42),
-            dark: NSColor(srgbRed: 234 / 255, green: 92 / 255, blue: 0, alpha: 0.92)
-        )
-    }
-
-    /// Pressed find toggles. Light keeps the quiet accent tint. Dark is solid accent.
-    static var xyzFindToggleFill: NSColor {
-        xyzDynamic(light: xyzAccent.withAlphaComponent(0.14), dark: xyzAccent)
-    }
-
-    static var xyzFindToggleInk: NSColor {
-        xyzDynamic(light: xyzAccent, dark: NSColor.white)
-    }
-
-    /// Hairline between white surfaces. Light `#E5E5E5`, dark `#2B2B2B`.
-    static var xyzDivider: NSColor {
-        xyzDynamic(light: xyzSRGB(229, 229, 229), dark: xyzSRGB(43, 43, 43))
-    }
-
-    /// Editing's current line. Light is accent at 6%. Dark keeps the quiet ink band.
-    static var xyzCurrentLine: NSColor {
-        xyzDynamic(
-            light: xyzSRGB(0, 120, 212).withAlphaComponent(0.06),
-            dark: xyzSRGB(212, 212, 212).withAlphaComponent(0.08)
-        )
+    /// The shared display metrics, so radii and alphas cannot drift per control.
+    enum xyzDisplay {
+        static let controlCornerRadius: CGFloat = 5
+        static let panelCornerRadius: CGFloat = 12
     }
 }
 

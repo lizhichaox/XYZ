@@ -41,6 +41,24 @@ rules below more than once; follow them without being asked.
 - The app is sandboxed with iCloud and security-scoped bookmarks; the unsigned CI build
   has no entitlements, so a green cloud run does not prove the sandboxed app works.
 
+## Theming and display style
+
+- **Every color comes from `XYZTheme`.** The model lives in XYZCore as `XYZColor` (RGBA,
+  no AppKit) with `light`/`dark` variants and pure contrast math; the app converts with
+  `NSColor(xyz:)` and resolves each role per drawing appearance (`xyzResolved`). Do not
+  add a hardcoded hex, `labelColor`/`secondaryLabelColor`, or a one-off
+  `NSColor(srgb...)` anywhere: a color outside the theme cannot follow the Appearance
+  setting and drifts from its neighbors.
+- **Syntax colors are theme data too.** `NSColor.xyzSyntax(_ kind:)` resolves the active
+  theme's `SyntaxPalette`; the editor's token lookup must not branch on
+  `effectiveAppearance` itself.
+- **Display metrics are shared constants.** Small controls (rows, hovers, toggles) use
+  `xyzDisplay.controlCornerRadius`; panels use `panelCornerRadius`; hover feedback uses
+  `xyzHover`; disabled controls use `xyzDisabledTint`. Radii 4 and 5 for the same kind of
+  control, and alphas 0.06 vs 0.07 for the same hover, are exactly the drift to avoid.
+- The Appearance setting stays system/light/dark and only switches `NSApp.appearance`;
+  themes are not user-editable until the owner asks for it.
+
 ## Product boundaries (owner decisions; do not re-add)
 
 These are product decisions, not missing features. Ask the owner before adding any of

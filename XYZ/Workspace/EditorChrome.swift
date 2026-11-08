@@ -289,7 +289,7 @@ struct EditorFindBar: View {
                     .padding(.horizontal, 4)
                     .padding(.vertical, 2)
                     .background(model.inSelection ? Color(nsColor: .xyzFindToggleFill) : Color.clear)
-                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    .clipShape(RoundedRectangle(cornerRadius: NSColor.xyzDisplay.controlCornerRadius, style: .continuous))
                     .focused($slot, equals: .selection)
                     .onKeyPress(.tab) {
                         move(from: .selection, back: false)
@@ -388,7 +388,7 @@ struct EditorFindBar: View {
             .padding(.horizontal, 4)
             .padding(.vertical, 2)
             .background(on.wrappedValue ? Color(nsColor: .xyzFindToggleFill) : Color.clear)
-            .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+            .clipShape(RoundedRectangle(cornerRadius: NSColor.xyzDisplay.controlCornerRadius, style: .continuous))
             .focused($slot, equals: target)
             .onKeyPress(.tab) {
                 move(from: target, back: false)
@@ -797,7 +797,7 @@ private final class TabSlotControl: NSView {
     override func draw(_ dirtyRect: NSRect) {
         if hovering {
             NSColor.xyzSelection.setFill()
-            NSBezierPath(roundedRect: bounds, xRadius: 4, yRadius: 4).fill()
+            NSBezierPath(roundedRect: bounds, xRadius: NSColor.xyzDisplay.controlCornerRadius, yRadius: NSColor.xyzDisplay.controlCornerRadius).fill()
         }
         let weight: NSFont.Weight = symbol == "xmark" ? .semibold : .regular
         let config = NSImage.SymbolConfiguration(pointSize: 9, weight: weight)

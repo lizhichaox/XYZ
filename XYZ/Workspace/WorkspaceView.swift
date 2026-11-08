@@ -1479,7 +1479,7 @@ final class TitlebarTitleInstaller {
 
     init() {
         label.font = .systemFont(ofSize: 12, weight: .regular)
-        label.textColor = .secondaryLabelColor
+        label.textColor = .xyzSecondaryText
         label.alignment = .center
         label.lineBreakMode = .byTruncatingMiddle
         label.drawsBackground = false
@@ -1761,10 +1761,10 @@ final class TitlebarToggleButton: NSView {
         // current reading state as a book or a document. An open column is drawn at full
         // ink, a closed one is dimmed, which is enough to read state without colour.
         let enabled = isToggleEnabled
-        let color: NSColor = enabled ? .labelColor : NSColor.secondaryLabelColor.withAlphaComponent(0.35)
+        let color: NSColor = enabled ? .xyzInk : .xyzDisabledTint
         if hovered, enabled {
-            NSColor.labelColor.withAlphaComponent(0.07).setFill()
-            NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 5, yRadius: 5).fill()
+            NSColor.xyzHover.setFill()
+            NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: NSColor.xyzDisplay.controlCornerRadius, yRadius: NSColor.xyzDisplay.controlCornerRadius).fill()
         }
         drawGlyph(color)
     }

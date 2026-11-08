@@ -320,7 +320,7 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
 
         let empty = NSTextField(labelWithString: String(localized: "No matches"))
         empty.alignment = .center
-        empty.textColor = .secondaryLabelColor
+        empty.textColor = .xyzSecondaryText
         empty.font = .systemFont(ofSize: 13)
         empty.isHidden = true
         empty.translatesAutoresizingMaskIntoConstraints = false
@@ -676,13 +676,13 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
     private func parentText(_ path: String) -> NSAttributedString? {
         let parent = parentPath(path)
         guard !parent.isEmpty else { return nil }
-        return plain(parent, size: 11, color: .secondaryLabelColor)
+        return plain(parent, size: 11, color: .xyzSecondaryText)
     }
 
     private func pathDetail(_ hit: GlobalFileHit) -> NSAttributedString? {
         let path = hit.relativePath
         guard path != hit.name else { return nil }
-        return emphasized(path, indices: hit.pathIndices, size: 11, color: .secondaryLabelColor)
+        return emphasized(path, indices: hit.pathIndices, size: 11, color: .xyzSecondaryText)
     }
 
     private func parentPath(_ path: String) -> String {
@@ -692,23 +692,23 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
     private func headerText(_ title: String) -> NSAttributedString {
         NSAttributedString(string: title.localizedUppercase, attributes: [
             .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
-            .foregroundColor: NSColor.secondaryLabelColor,
+            .foregroundColor: NSColor.xyzSecondaryText,
             .kern: 0.6,
         ])
     }
 
     private func quiet(_ title: String) -> NSAttributedString {
-        plain(title, size: 12, color: .secondaryLabelColor)
+        plain(title, size: 12, color: .xyzSecondaryText)
     }
 
-    private func plain(_ string: String, size: CGFloat, color: NSColor = .labelColor) -> NSAttributedString {
+    private func plain(_ string: String, size: CGFloat, color: NSColor = .xyzInk) -> NSAttributedString {
         NSAttributedString(string: string, attributes: [
             .font: NSFont.systemFont(ofSize: size),
             .foregroundColor: color,
         ])
     }
 
-    private func emphasized(_ string: String, indices: [Int], size: CGFloat, color: NSColor = .labelColor) -> NSAttributedString {
+    private func emphasized(_ string: String, indices: [Int], size: CGFloat, color: NSColor = .xyzInk) -> NSAttributedString {
         let text = NSMutableAttributedString(string: string, attributes: [
             .font: NSFont.systemFont(ofSize: size),
             .foregroundColor: color,
@@ -721,7 +721,7 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
             if wanted.contains(offset) {
                 text.addAttributes([
                     .font: emphasis,
-                    .foregroundColor: NSColor.labelColor,
+                    .foregroundColor: NSColor.xyzInk,
                 ], range: NSRange(location: location, length: piece.length))
             }
             location += piece.length
@@ -732,7 +732,7 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
     private func snippet(_ excerpt: String, query: String) -> NSAttributedString {
         let text = NSMutableAttributedString(string: excerpt, attributes: [
             .font: NSFont.systemFont(ofSize: 11),
-            .foregroundColor: NSColor.secondaryLabelColor,
+            .foregroundColor: NSColor.xyzSecondaryText,
         ])
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !needle.isEmpty else { return text }
@@ -740,7 +740,7 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
         if range.location != NSNotFound {
             text.addAttributes([
                 .font: NSFont.systemFont(ofSize: 11, weight: .semibold),
-                .foregroundColor: NSColor.labelColor,
+                .foregroundColor: NSColor.xyzInk,
             ], range: range)
         }
         return text
@@ -840,7 +840,7 @@ private final class SearchCell: NSTableCellView {
         self.identifier = identifier
         icon.translatesAutoresizingMaskIntoConstraints = false
         icon.imageScaling = .scaleProportionallyDown
-        icon.contentTintColor = .secondaryLabelColor
+        icon.contentTintColor = .xyzSecondaryText
         title.translatesAutoresizingMaskIntoConstraints = false
         title.lineBreakMode = .byTruncatingTail
         title.maximumNumberOfLines = 1
