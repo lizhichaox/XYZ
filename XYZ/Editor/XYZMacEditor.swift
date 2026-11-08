@@ -416,7 +416,14 @@ final class XYZMacTextView: NSTextView {
         let token = findGeneration
         findTask = Task { [weak self] in
             let scanned = await Task.detached(priority: .userInitiated) {
-                FindScan.make(text: text, query: query, selection: selection, forward: forward, stay: stayIfAlreadyThere)
+                FindScan.make(
+                    text: text,
+                    query: query,
+                    selection: selection,
+                    forward: forward,
+                    stay: stayIfAlreadyThere,
+                    within: model.selectionWindow
+                )
             }.value
             await MainActor.run { [weak self] in
                 guard let self, token == self.findGeneration else { return }
@@ -533,8 +540,22 @@ private struct FindScan {
     var line: Int
     var wrapped: Bool
 
-    static func make(text: String, query: FindQuery, selection: SourceRange, forward: Bool, stay: Bool) -> FindScan {
-        let result = TextFind.scan(text: text, query: query, selection: selection, forward: forward, stay: stay)
+    static func make(
+        text: String,
+        query: FindQuery,
+        selection: SourceRange,
+        forward: Bool,
+        stay: Bool,
+        within window: Range<Int>? = nil
+    ) -> FindScan {
+        let result = TextFind.scan(
+            text: text,
+            query: query,
+            selection: selection,
+            forward: forward,
+            stay: stay,
+            within: window
+        )
         return FindScan(
             matches: result.matches,
             count: result.count,

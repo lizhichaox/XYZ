@@ -61,3 +61,27 @@ final class EditorReadingAidsTests: XCTestCase {
         XCTAssertEqual(found.count, 2)
     }
 }
+
+final class FindWindowTests: XCTestCase {
+    func testScanLimitsMatchesToWindow() {
+        let text = "alpha beta alpha gamma alpha"
+        let all = TextFind.matches(in: text, query: FindQuery(pattern: "alpha"))
+        XCTAssertEqual(all.count, 3)
+        let windowed = TextFind.matches(in: text, query: FindQuery(pattern: "alpha"), within: 6..<20)
+        XCTAssertEqual(windowed.count, 1)
+        XCTAssertEqual(windowed.first?.range.location, 11)
+    }
+
+    func testScanOutsideWindowReturnsNothing() {
+        let text = "alpha beta"
+        let scanned = TextFind.scan(
+            text: text,
+            query: FindQuery(pattern: "alpha"),
+            selection: SourceRange(location: 5, length: 0),
+            forward: true,
+            stay: false,
+            within: 6..<10
+        )
+        XCTAssertEqual(scanned.count, 0)
+    }
+}

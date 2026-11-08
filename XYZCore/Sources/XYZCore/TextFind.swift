@@ -26,13 +26,20 @@ public struct FindMatch: Equatable, Sendable {
 /// Find and replace over a string. Ranges are UTF-16, like a text view.
 /// Characters outside a match, including `\r` and `\n`, are copied unchanged.
 public enum TextFind {
-    public static func matches(in text: String, query: FindQuery) -> [FindMatch] {
+    public static func matches(in text: String, query: FindQuery, within window: Range<Int>? = nil) -> [FindMatch] {
         let pattern = query.pattern
         guard !pattern.isEmpty else { return [] }
         guard let expression = expression(for: query) else { return [] }
         let ns = text as NSString
-        let full = NSRange(location: 0, length: ns.length)
-        return expression.matches(in: text, options: [], range: full).compactMap { result in
+        let scope: NSRange
+        if let window {
+            let location = min(max(0, window.lowerBound), ns.length)
+            let upper = min(max(location, window.upperBound), ns.length)
+            scope = NSRange(location: location, length: upper - location)
+        } else {
+            scope = NSRange(location: 0, length: ns.length)
+        }
+        return expression.matches(in: text, options: [], range: scope).compactMap { result in
             guard result.range.location != NSNotFound, result.range.length > 0 else { return nil }
             return FindMatch(range: SourceRange(location: result.range.location, length: result.range.length))
         }
@@ -102,10 +109,11 @@ public enum TextFind {
         query: FindQuery,
         selection: SourceRange,
         forward: Bool,
-        stay: Bool
+        stay: Bool,
+        within window: Range<Int>? = nil
     ) -> (matches: [FindMatch], count: Int, index: Int, invalid: Bool, range: SourceRange?, line: Int, wrapped: Bool) {
         let invalid = !query.pattern.isEmpty && !isValid(query)
-        let matches = self.matches(in: text, query: query)
+        let matches = self.matches(in: text, query: query, within: window)
         guard !matches.isEmpty else {
             return (matches, 0, 0, invalid, nil, 1, false)
         }

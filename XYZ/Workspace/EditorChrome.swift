@@ -25,11 +25,15 @@ final class EditorFindModel: ObservableObject {
     @Published var matchCase = false
     @Published var wholeWord = false
     @Published var regex = false
+    /// Limit the search to the selection captured when the option was turned on.
+    @Published var inSelection = false
     @Published var regexInvalid = false
     @Published var index = 0
     @Published var count = 0
     @Published var wrapped = false
     @Published var focusToken = 0
+    /// The source range captured when "In Selection" was turned on.
+    var selectionWindow: Range<Int>?
     var language: SyntaxLanguage = .plain
     var perform: ((FindBarAction) -> Void)?
     var edit: (((String, SourceRange) -> SourceReplacement?) -> Void)?
@@ -54,6 +58,27 @@ final class EditorFindModel: ObservableObject {
 
     var query: FindQuery {
         FindQuery(pattern: pattern, matchCase: matchCase, wholeWord: wholeWord, regex: regex)
+    }
+
+    /// Toggles the selection scope, capturing the current selection when turning it on.
+    func toggleInSelection() {
+        if inSelection {
+            inSelection = false
+            selectionWindow = nil
+        } else {
+            guard let editor = editorView,
+                  let range = editor.sourceSelection() as SourceRange?,
+                  range.length > 0
+            else {
+                NSSound.beep()
+                return
+            }
+            selectionWindow = range.location ..< (range.location + range.length)
+            inSelection = true
+        }
+        if visible {
+            perform?(.next)
+        }
     }
 
     func useEditor() {
@@ -257,6 +282,22 @@ struct EditorFindBar: View {
                 toggle("Aa", help: "Match Case", slot: .matchCase, on: $model.matchCase)
                 toggle("W", help: "Whole Word", slot: .word, on: $model.wholeWord)
                 toggle(".*", help: "Regex", slot: .regex, on: $model.regex)
+                Button("S") { model.toggleInSelection() }
+                    .buttonStyle(.borderless)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundStyle(model.inSelection ? Color(nsColor: .xyzFindToggleInk) : Color.xyzSecondaryText)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 2)
+                    .background(model.inSelection ? Color(nsColor: .xyzFindToggleFill) : Color.clear)
+                    .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                    .focused($slot, equals: .selection)
+                    .onKeyPress(.tab) {
+                        move(from: .selection, back: false)
+                        return .handled
+                    }
+                    .help(String(localized: "In Selection"))
+                    .accessibilityLabel(String(localized: "In Selection"))
+                    .accessibilityAddTraits(model.inSelection ? .isSelected : [])
                 Text(countLabel)
                     .font(.system(size: 11))
                     .foregroundStyle(model.regexInvalid ? Color.red.opacity(0.8) : Color.xyzSecondaryText)
@@ -378,6 +419,7 @@ private enum FindSlot: Hashable {
     case matchCase
     case word
     case regex
+    case selection
 }
 
 /// The find field. Return finds the next match, Shift-Return the previous, Tab moves along the bar.

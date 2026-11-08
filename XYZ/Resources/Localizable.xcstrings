@@ -2924,6 +2924,16 @@
           }
         }
       }
+    },
+    "In Selection": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在选区内"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

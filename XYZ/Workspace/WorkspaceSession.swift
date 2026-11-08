@@ -1368,9 +1368,9 @@ final class WorkspaceSession: ObservableObject {
     }
 
     /// Content hits for the ⌘K panel. Skips hidden files when they are hidden, and skips binary and huge files.
-    func searchPanelContents(query: String) async -> (hits: [WorkspaceContentHit], more: Int, capped: Bool) {
-        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !needle.isEmpty else { return ([], 0, false) }
+    func searchPanelContents(query find: FindQuery) async -> (hits: [WorkspaceContentHit], more: Int, capped: Bool) {
+        let needle = find.pattern.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !needle.isEmpty, TextFind.isValid(find) else { return ([], 0, false) }
         let showsHidden = showsHiddenFiles
         var openText: [(String, String)] = []
         var openPaths: Set<String> = []
@@ -1389,7 +1389,12 @@ final class WorkspaceSession: ObservableObject {
                 && (showsHidden || !entry.isHidden)
         }
         let cap = 60
-        let query = FindQuery(pattern: needle)
+        let query = FindQuery(
+            pattern: needle,
+            matchCase: find.matchCase,
+            wholeWord: find.wholeWord,
+            regex: find.regex
+        )
         var found = await Task.detached(priority: .userInitiated) {
             var hits: [WorkspaceContentHit] = []
             for item in openText {

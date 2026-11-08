@@ -10,6 +10,7 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
     private var table: NSTableView?
     private var empty: NSTextField?
     private var chips: [NSButton] = []
+    private var options: [NSButton] = []
     private weak var session: WorkspaceSession?
     private var rows: [Row] = []
     private var fileHits: [GlobalFileHit] = []
@@ -18,6 +19,9 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
     private var contentMore = 0
     private var contentCapped = false
     private var scope: Scope = .all
+    private var matchCase = false
+    private var wholeWord = false
+    private var regex = false
     private var generation = 0
     private var task: Task<Void, Never>?
     /// What the field editor currently holds. The search task reads this and never writes it back.
@@ -188,6 +192,21 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
         openSelection(closePanel: true)
     }
 
+    @objc private func toggleMatchCase(_ sender: NSButton) {
+        matchCase = sender.state == .on
+        schedule()
+    }
+
+    @objc private func toggleWholeWord(_ sender: NSButton) {
+        wholeWord = sender.state == .on
+        schedule()
+    }
+
+    @objc private func toggleRegex(_ sender: NSButton) {
+        regex = sender.state == .on
+        schedule()
+    }
+
     @objc private func chipClicked(_ sender: NSButton) {
         scope = Scope(rawValue: sender.tag) ?? .all
         updateChips()
@@ -256,6 +275,24 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
         let spacer = NSView()
         spacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
         chipRow.addArrangedSubview(spacer)
+        // Content-search options, the same three the editor's find bar has.
+        let optionSpecs: [(String, String, Selector)] = [
+            ("Aa", String(localized: "Match Case"), #selector(toggleMatchCase(_:))),
+            ("W", String(localized: "Whole Word"), #selector(toggleWholeWord(_:))),
+            (".*", String(localized: "Regex"), #selector(toggleRegex(_:))),
+        ]
+        for spec in optionSpecs {
+            let button = NSButton(title: spec.0, target: self, action: spec.2)
+            button.isBordered = false
+            button.setButtonType(.pushOnPushOff)
+            button.controlSize = .small
+            button.font = .monospacedSystemFont(ofSize: 11, weight: .medium)
+            button.toolTip = spec.1
+            button.setAccessibilityLabel(spec.1)
+            button.translatesAutoresizingMaskIntoConstraints = false
+            chipRow.addArrangedSubview(button)
+            options.append(button)
+        }
 
         let table = NSTableView()
         table.headerView = nil
@@ -349,7 +386,13 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
             let files = await Task.detached(priority: .userInitiated) {
                 GlobalFileSearch.match(entries: entries, query: latest, showsHidden: showsHidden, boost: boost)
             }.value
-            let content = await session?.searchPanelContents(query: latest) ?? (hits: [], more: 0, capped: false)
+            let findQuery = FindQuery(
+                pattern: latest,
+                matchCase: self.matchCase,
+                wholeWord: self.wholeWord,
+                regex: self.regex
+            )
+            let content = await session?.searchPanelContents(query: findQuery) ?? (hits: [], more: 0, capped: false)
             guard !Task.isCancelled, self.generation == token else { return }
             self.fileHits = files.hits
             self.fileMore = files.more
