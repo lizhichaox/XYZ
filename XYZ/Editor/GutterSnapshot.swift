@@ -1714,9 +1714,14 @@ enum GutterSnapshotCheck {
                 return "the gutter chevron is not in the hit-test area"
             }
         }
+        textView.setSelectedRange(NSRange(location: 0, length: 0))
+        pump(0.1)
         gutter.mouseDown(with: event)
         pump(0.3)
         guard !textView.foldedHeaderLines.isEmpty else { return "a TextKit 1 gutter click did not fold" }
+        guard textView.selectedRange().location == 0 else {
+            return "a gutter click moved the caret to \(textView.selectedRange().location)"
+        }
         layout.ensureLayout(for: textView.textContainer!)
         let after = layout.usedRect(for: textView.textContainer!).height
         guard after < before * 0.7 else {
@@ -1837,6 +1842,87 @@ enum GutterSnapshotCheck {
         return pane.scrollView.documentView as? XYZMacTextView
     }
 
+
+    /// Reproduces the reported "cursor jumps" case: a nested JSON note is folded, then the
+    /// caret goes to the end and a visible line is clicked. The caret must land on that line,
+    /// and the caret row must stay inside the laid-out text.
+    @MainActor
+    private static func acceptFoldingCaret() -> String? {
+        let json = "{\n  \"interval\": 60,\n  \"cloud_interval\": 600,\n  \"security_interval\": 900,\n  \"servers\": [\n    { \"host\": \"one\", \"port\": 22 },\n    { \"host\": \"two\", \"port\": 2222 },\n    { \"host\": \"three\", \"port\": 2222 },\n    { \"host\": \"four\", \"port\": 22 },\n    { \"host\": \"five\", \"port\": 22 },\n    { \"host\": \"six\", \"port\": 22 }\n  ],\n  \"tail\": true\n}\n"
+        guard let opened = acceptanceWindow(["config.example.json": json]) else {
+            return "could not open the folding window"
+        }
+        defer { closeAcceptance(opened) }
+        let (_, session, window, host) = opened
+        session.openRelative("config.example.json")
+        guard waitUntil(5, { session.buffer?.relativePath == "config.example.json" }) else {
+            return "the JSON note did not open"
+        }
+        guard waitUntil(5, { findEditor(in: host) != nil }) else { return "no editor" }
+        pump(0.6)
+        guard let pane = findPane(in: host), let textView = pane.scrollView.documentView as? XYZMacTextView else {
+            return "the editor is missing"
+        }
+        guard textView.hasFoldableLines, let fold = textView.foldableRanges.first(where: { $0.lineCount >= 6 }) else {
+            return "the JSON note has no foldable block"
+        }
+        // Folding must not move the caret: the report was a caret that jumped away.
+        let originalCaret = NSRange(location: (textView.string as NSString).range(of: "interval").location, length: 0)
+        textView.setSelectedRange(originalCaret)
+        pump(0.2)
+        textView.toggleFold(atLine: fold.headerLine)
+        pump(0.4)
+        guard NSEqualRanges(textView.selectedRange(), originalCaret) else {
+            return "folding moved the caret from \(originalCaret) to \(textView.selectedRange())"
+        }
+        guard textView.foldedHeaderLines.contains(fold.headerLine) else { return "the fold did not open" }
+        guard let layout = textView.layoutManager, let container = textView.textContainer else {
+            return "no TextKit 1 layout"
+        }
+        layout.ensureLayout(for: container)
+        let used = layout.usedRect(for: container)
+        guard used.height > 20 else { return "the folded document has no height" }
+        let length = (textView.string as NSString).length
+        textView.setSelectedRange(NSRange(location: length, length: 0))
+        pump(0.3)
+        let rows = textView.visibleTextRows(in: textView.bounds)
+        let caret = textView.selectedRange().location
+        guard let caretRow = rows.first(where: {
+            NSLocationInRange(caret, $0.charRange) || caret == NSMaxRange($0.charRange)
+        }) else {
+            return "the caret at the end matches no row (rows=\(rows.count))"
+        }
+        let contentBottom = textView.textContainerOrigin.y + used.maxY
+        guard caretRow.rect.minY < contentBottom + 2 else {
+            return "the caret row is below the laid-out text: rowY=\(Int(caretRow.rect.minY)) bottom=\(Int(contentBottom))"
+        }
+        if let image = compositedImage(of: host) {
+            saveShot(image, name: "editor-folding-caret.png")
+        }
+        guard let target = rows.last(where: { $0.line > fold.lastLine }) else {
+            return "no visible line after the folded block"
+        }
+        let windowPoint = textView.convert(NSPoint(x: target.rect.minX + 8, y: target.rect.midY), to: nil)
+        guard let event = NSEvent.mouseEvent(
+            with: .leftMouseDown,
+            location: windowPoint,
+            modifierFlags: [],
+            timestamp: ProcessInfo.processInfo.systemUptime,
+            windowNumber: window.windowNumber,
+            context: nil,
+            eventNumber: 1,
+            clickCount: 1,
+            pressure: 1
+        ) else { return "could not build a click" }
+        textView.mouseDown(with: event)
+        pump(0.3)
+        let clickedLine = EditorScrollAnchor.lineNumber(at: textView.selectedRange().location, in: textView.string)
+        guard clickedLine == target.line else {
+            return "clicking line \(target.line) placed the caret on line \(clickedLine)"
+        }
+        return nil
+    }
+
     private static func runAcceptanceGestures() -> String? {
         let failures = MainActor.assumeIsolated { () -> [String] in
             var failed: [String] = []
@@ -1861,6 +1947,7 @@ enum GutterSnapshotCheck {
             record("empty-line-prefs", acceptEmptyLine())
             record("code-folding", acceptCodeFolding())
             record("editor-folding", acceptEditorFolding())
+            record("editor-folding-caret", acceptFoldingCaret())
             if failed.isEmpty {
                 print("ACCEPTANCE_OK")
             } else {

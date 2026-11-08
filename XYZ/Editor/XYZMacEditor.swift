@@ -913,6 +913,22 @@ private struct FindScan {
                 return NSPoint(x: originX + point.x, y: originY + point.y)
             })
         }
+        // A document ending in a newline has one empty last line that TextKit reports as the
+        // extra line fragment, outside the glyph range above. The caret sits there often,
+        // so the band and the row list need it.
+        if layout.extraLineFragmentTextContainer != nil, rows.last?.charRange.location != ns.length {
+            let extra = layout.extraLineFragmentRect
+            let rowRect = NSRect(
+                x: originX + extra.minX,
+                y: originY + extra.minY,
+                width: max(extra.width, 1),
+                height: max(extra.height, 1)
+            )
+            let character = NSRange(location: ns.length, length: 0)
+            rows.append(EditorTextRow(line: index.line(at: ns.length), charRange: character, rect: rowRect) { _ in
+                NSPoint(x: rowRect.minX, y: rowRect.minY)
+            })
+        }
         return rows
     }
 
@@ -1026,9 +1042,19 @@ private struct FindScan {
     /// which covers every visual row of that line. A uniform box is only for an unwrapped file.
     private func drawCurrentLineBand(in rect: NSRect) {
         let caret = selectedRange().location
+        let rows = visibleTextRows(in: rect)
         let band: NSRect
-        if let row = visibleTextRows(in: rect).first(where: { NSLocationInRange(caret, $0.charRange) }) {
+        if let row = rows.first(where: {
+            NSLocationInRange(caret, $0.charRange)
+                || (caret == NSMaxRange($0.charRange))
+                || ($0.charRange.length == 0 && caret == $0.charRange.location)
+        }) {
             band = NSRect(x: 0, y: row.rect.minY, width: bounds.width, height: max(row.rect.height, 1))
+        } else if let last = rows.last, caret >= NSMaxRange(last.charRange) {
+            // Before the last laid-out row is reached (or with a document that ends in a
+            // newline) the caret belongs to the end of the last row, never to a line box
+            // computed from the top, which folding would misplace.
+            band = NSRect(x: 0, y: last.rect.maxY, width: bounds.width, height: max(last.rect.height, 1))
         } else {
             let box = lineBoxHeight()
             let line = EditorScrollAnchor.lineNumber(at: caret, in: string)

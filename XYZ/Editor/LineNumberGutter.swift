@@ -447,6 +447,20 @@ final class LineNumberGutter: NSView {
                 height: max(rect.height, 1)
             ))
         }
+        // A note ending in a newline has one more empty line, reported as the extra line
+        // fragment. It needs its number, especially while the caret can sit on it.
+        if layout.extraLineFragmentTextContainer != nil, previous != lines.count {
+            let rect = layout.extraLineFragmentRect
+            let top = origin.y + rect.minY
+            if top + rect.height > visible.minY - 1, top < visible.maxY + 1 {
+                rows.append(Row(
+                    line: lines.count,
+                    showsNumber: true,
+                    y: top - visible.minY,
+                    height: max(rect.height, 1)
+                ))
+            }
+        }
         return rows
     }
 
