@@ -27,7 +27,9 @@ rules below more than once; follow them without being asked.
 - Version lives only in `Config/Base.xcconfig` (`MARKETING_VERSION`,
   `CURRENT_PROJECT_VERSION`). The cloud check reads it back out of `Info.plist`.
 - Tests: `swift test --package-path XYZCore` and `sh Scripts/xyz-test.sh`.
-- Unsigned builds (what CI does):
+- GitHub Actions is **disabled** by the owner (`disabled_manually`), so pushes no longer
+  start a run. Do not re-enable it or add a replacement workflow without being asked.
+- Unsigned builds (what the CI workflow used to run):
   `xcodebuild -project XYZ.xcodeproj -scheme XYZ -configuration Debug -destination 'platform=macOS' -derivedDataPath build/dev-macos CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=- build`,
   and the same with `-destination 'generic/platform=iOS Simulator'`.
 - Signing and notarization: `docs/release.md`, `tools/ExportOptions.plist`. Team
