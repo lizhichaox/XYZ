@@ -56,6 +56,7 @@ enum GutterSnapshotCheck {
     }
 
     /// Renders Reading and Editing in light and dark. Nil means glyphs and, in Editing, gutter digits painted.
+
     static func renderEditingGutter() -> String? {
         for name in [NSAppearance.Name.aqua, NSAppearance.Name.darkAqua] {
             if let failure = render(appearance: name, editing: false) { return failure }
@@ -1601,6 +1602,56 @@ enum GutterSnapshotCheck {
     }
 
     /// Each original UI check has its own folder. A failed nested-file click does not skip the rest.
+
+    /// Folding must collapse the laid-out height, leave the text alone, and open again.
+    @MainActor
+    private static func acceptCodeFolding() -> String? {
+        let lines = (1...40).map { index in
+            if index == 1 { return "func outer() {" }
+            if index == 2 { return "    func inner() {" }
+            if index == 3 { return "        work()" }
+            if index == 4 { return "    }" }
+            if index == 40 { return "}" }
+            return "    step\(index)()"
+        }
+        let text = lines.joined(separator: "\n") + "\n"
+        let textView = XYZMacTextView(usingTextLayoutManager: true)
+        textView.frame = NSRect(x: 0, y: 0, width: 620, height: 800)
+        textView.textContainer?.containerSize = NSSize(width: 620, height: 1_000_000)
+        textView.textContainer?.widthTracksTextView = false
+        textView.enableFolding()
+        textView.sourceLanguage = .swift
+        textView.string = text
+        textView.refreshFolding(immediate: true)
+        guard let manager = textView.textLayoutManager, let content = manager.textContentManager else {
+            return "the text view has no TextKit 2 content manager"
+        }
+        func height() -> CGFloat {
+            manager.ensureLayout(for: content.documentRange)
+            manager.textViewportLayoutController.layoutViewport()
+            return manager.usageBoundsForTextContainer.maxY
+        }
+        let before = height()
+        guard textView.hasFoldableLines else { return "no foldable ranges were found" }
+        textView.foldAll()
+        let folded = height()
+        guard folded < before * 0.5 else {
+            return "folding did not collapse the layout (before \(Int(before)) folded \(Int(folded)))"
+        }
+        textView.unfoldAll()
+        let reopened = height()
+        guard abs(reopened - before) < 2 else {
+            return "unfolding did not restore the layout (before \(Int(before)) reopened \(Int(reopened)))"
+        }
+        guard textView.string == text else { return "folding changed the text" }
+        textView.toggleFold(atLine: 1)
+        textView.unfoldFolds(intersecting: NSRange(location: 0, length: 0))
+        guard textView.foldedHeaderLines.isEmpty == false || textView.hasFoldableLines else {
+            return "the fold state disappeared"
+        }
+        return nil
+    }
+
     private static func runAcceptanceGestures() -> String? {
         let failures = MainActor.assumeIsolated { () -> [String] in
             var failed: [String] = []
@@ -1623,6 +1674,7 @@ enum GutterSnapshotCheck {
             record("dividers", acceptDividers())
             record("mode-labels", acceptModeLabels())
             record("empty-line-prefs", acceptEmptyLine())
+            record("code-folding", acceptCodeFolding())
             if failed.isEmpty {
                 print("ACCEPTANCE_OK")
             } else {

@@ -16,20 +16,51 @@ final class LineNumberGutter: NSView {
     override var isFlipped: Bool { true }
     override var isOpaque: Bool { true }
 
+    /// Width of the fold column at the left of the numbers. Zero when nothing folds.
+    static let foldColumnWidth: CGFloat = 14
+
+    /// Only the fold chevrons take clicks; the rest of the gutter stays transparent to
+    /// text selection.
     override func hitTest(_ point: NSPoint) -> NSView? {
-        nil
+        guard let textView, textView.hasFoldableLines else { return nil }
+        let local = superview.map { convert(point, from: $0) } ?? point
+        guard local.x >= 0, local.x <= Self.foldColumnWidth else { return nil }
+        return foldHeader(atY: local.y) == nil ? nil : self
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        let local = convert(event.locationInWindow, from: nil)
+        guard let line = foldHeader(atY: local.y), let textView else {
+            super.mouseDown(with: event)
+            return
+        }
+        textView.toggleFold(atLine: line)
+    }
+
+    /// The foldable header line at a vertical position, if any.
+    private func foldHeader(atY y: CGFloat) -> Int? {
+        guard let textView, textView.hasFoldableLines else { return nil }
+        let state = textView.foldHeaderState()
+        guard !state.isEmpty else { return nil }
+        let rows = placedRows(textView: textView, lineCount: lineIndex().count).rows
+        guard let row = rows.first(where: {
+            $0.showsNumber && y >= $0.y && y <= $0.y + max($0.height, 1)
+        }) else { return nil }
+        return state[row.line] == nil ? nil : row.line
     }
 
     static func font(_ fontSize: CGFloat) -> NSFont {
         NSFont.monospacedDigitSystemFont(ofSize: max(10, (fontSize * 0.75).rounded()), weight: .regular)
     }
 
-    /// The width the numbers need: at least two digits, so 1–9 do not jump.
+    /// The width the numbers need: at least two digits, so 1–9 do not jump. A file with
+    /// foldable blocks gets one extra column at the left for the chevrons.
     func numberWidth(fontSize: CGFloat) -> CGFloat {
         let count = lineIndex().count
         let digits = max(2, String(count).count)
         let digit = ("0" as NSString).size(withAttributes: [.font: Self.font(fontSize)]).width
-        return ceil(digit * CGFloat(digits))
+        let numbers = ceil(digit * CGFloat(digits))
+        return numbers + (textView?.hasFoldableLines == true ? Self.foldColumnWidth : 0)
     }
 
     func invalidateLines() {
@@ -45,7 +76,9 @@ final class LineNumberGutter: NSView {
         let length = (textView?.string as NSString?)?.length ?? 0
         let caret = textView.map { lineIndex().line(at: min(max(0, $0.selectedRange().location), length)) } ?? 0
         let wrap = textView?.style.wraps == true
-        let key = "\(Int(origin.rounded())):\(count):\(caret):\(wrap):\(Int(bounds.height.rounded()))"
+        let folds = textView?.foldableRanges.count ?? 0
+        let folded = textView?.foldedHeaderLines.count ?? 0
+        let key = "\(Int(origin.rounded())):\(count):\(caret):\(wrap):\(Int(bounds.height.rounded())):\(folds):\(folded)"
         guard key != geometryKey else { return }
         geometryKey = key
         needsDisplay = true
@@ -94,13 +127,20 @@ final class LineNumberGutter: NSView {
         var first = 0
         var last = 0
         var pairs: [String] = []
+        let foldState = textView.foldHeaderState()
         for (index, row) in placed.rows.enumerated() {
             if row.y > bounds.maxY || row.y + row.height < 0 { continue }
+            // A folded block has no visible rows: its lines compress onto the header, so
+            // their numbers must not print there.
+            if textView.isLineHidden(row.line) { continue }
             if highlight.indices.contains(index), highlight[index] {
                 NSColor.xyzCurrentLine.setFill()
                 NSRect(x: 0, y: row.y, width: bounds.width, height: max(row.height, 1)).fill()
             }
             guard row.showsNumber else { continue }
+            if let folded = foldState[row.line] {
+                drawFoldChevron(folded: folded, row: row)
+            }
             // Relative mode counts from the caret line; the caret line itself keeps the
             // absolute number so the reader can still see where they are.
             let relative = textView.style.relativeLineNumbers && row.line != caretLine
@@ -143,6 +183,29 @@ final class LineNumberGutter: NSView {
             wrap: textView.style.wraps,
             mode: "editing"
         )
+    }
+
+    /// A small triangle in the fold column: pointing right when folded, down when open.
+    private func drawFoldChevron(folded: Bool, row: Row) {
+        let color = NSColor.xyzSecondaryText
+        color.setFill()
+        let side: CGFloat = 5
+        let centerX = Self.foldColumnWidth / 2
+        let centerY = row.y + row.height / 2
+        let path = NSBezierPath()
+        if folded {
+            // ▶ closed
+            path.move(to: NSPoint(x: centerX - side / 2, y: centerY - side))
+            path.line(to: NSPoint(x: centerX + side, y: centerY))
+            path.line(to: NSPoint(x: centerX - side / 2, y: centerY + side))
+        } else {
+            // ▼ open
+            path.move(to: NSPoint(x: centerX - side, y: centerY - side / 2))
+            path.line(to: NSPoint(x: centerX, y: centerY + side / 2))
+            path.line(to: NSPoint(x: centerX + side, y: centerY - side / 2))
+        }
+        path.close()
+        path.fill()
     }
 
     private struct Row {

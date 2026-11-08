@@ -36,6 +36,21 @@ final class XYZMacTextView: NSTextView {
         }
         return gutter
     }
+    // MARK: Folding
+
+    /// Everything the indentation pass currently considers foldable.
+    var foldableRanges: [CodeFolding.Fold] = []
+    /// Header lines the user has folded, 1-based.
+    var foldedHeaderLines: Set<Int> = []
+    /// The header text of each folded block, so an edit above the block can re-anchor it
+    /// instead of pointing the fold at a different declaration.
+    private var foldedHeaderTexts: [Int: String] = [:]
+    /// `foldedInnerRanges` is asked for every paragraph during layout; keep it ready.
+    private var foldedRangesCache: [NSRange] = []
+    /// Called after a fold opens or closes, so the pane can redraw its gutter.
+    var onFoldingChange: (() -> Void)?
+    private var foldRefreshWork: DispatchWorkItem?
+
     /// Restored once, after the view is in a window and the inset matches the pane.
     private var pendingAnchor: EditorScrollAnchor?
     private var isAligning = false
@@ -46,6 +61,11 @@ final class XYZMacTextView: NSTextView {
 
     override func paste(_ sender: Any?) {
         pasteAsPlainText(sender)
+    }
+
+    override func shouldChangeText(in affectedCharRange: NSRange, replacementString: String?) -> Bool {
+        unfoldFolds(intersecting: affectedCharRange)
+        return super.shouldChangeText(in: affectedCharRange, replacementString: replacementString)
     }
 
     override func changeFont(_ sender: Any?) {}
@@ -295,6 +315,7 @@ final class XYZMacTextView: NSTextView {
         findMarks = []
         findMarkIndex = nil
         clearReadingAssists()
+        resetFolding()
         setSelectedRange(NSRange(location: 0, length: 0))
         paintFindMarks()
     }
@@ -459,6 +480,7 @@ final class XYZMacTextView: NSTextView {
     /// Puts the current match on screen, with a margin. A later layout pass repeats it,
     /// because TextKit 2 can put the clip back.
     func revealFindRange(_ range: NSRange) {
+        unfoldFolds(intersecting: range)
         scrollFindRange(range)
         DispatchQueue.main.async { [weak self] in
             self?.scrollFindRange(range)
@@ -815,6 +837,47 @@ private struct FindScan {
         drawCurrentLineBand(in: rect)
         drawIndentGuides(in: rect)
         drawWhitespace(in: rect)
+        drawFoldMarkers(in: rect)
+    }
+
+    /// A faint ellipsis after a folded header, the only visible sign that lines are hidden
+    /// there (the gutter chevron is the other).
+    private func drawFoldMarkers(in rect: NSRect) {
+        guard !foldedHeaderLines.isEmpty,
+              let manager = textLayoutManager,
+              let content = manager.textContentManager
+        else { return }
+        let index = cachedLineIndex() ?? LineIndex(string)
+        let ns = string as NSString
+        let font = NSFont.systemFont(ofSize: max(10, style.fontSize * 0.7), weight: .regular)
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: NSColor.xyzSecondaryText,
+        ]
+        let label = "⋯" as NSString
+        let size = label.size(withAttributes: attributes)
+        for fold in foldableRanges where foldedHeaderLines.contains(fold.headerLine) {
+            guard fold.headerLine <= index.count else { continue }
+            let lineStart = index.starts[fold.headerLine - 1]
+            guard let start = content.location(content.documentRange.location, offsetBy: lineStart),
+                  let fragment = manager.textLayoutFragment(for: start)
+            else { continue }
+            let lineBounds = fragment.textLineFragments.last?.typographicBounds ?? fragment.layoutFragmentFrame
+            let y = textContainerOrigin.y + fragment.layoutFragmentFrame.minY + lineBounds.minY
+            guard y + lineBounds.height >= rect.minY, y <= rect.maxY else { continue }
+            let lineRange = ns.lineRange(for: NSRange(location: lineStart, length: 0))
+            let header = ns.substring(with: lineRange).trimmingCharacters(in: .newlines)
+            // Measure with the editor's face, not the smaller marker face, or the ellipsis
+            // lands inside the text it is supposed to follow.
+            let textFace = self.font ?? NSFont.monospacedSystemFont(ofSize: style.fontSize, weight: .regular)
+            let textWidth = (header as NSString).size(withAttributes: [.font: textFace]).width
+            let x = textContainerOrigin.x + textWidth + 8
+            guard x + size.width < bounds.width - 2 else { continue }
+            label.draw(
+                at: NSPoint(x: x, y: y + max(0, (lineBounds.height - size.height) / 2)),
+                withAttributes: attributes
+            )
+        }
     }
 
     /// Middle dots for spaces and a small arrow for tabs, drawn from the laid-out line
@@ -849,7 +912,7 @@ private struct FindScan {
                     let absolute = base + range.location + index
                     guard absolute >= 0, absolute < ns.length else { break }
                     let character = ns.character(at: absolute)
-                    if character == 0x20 || character == 0x09 {
+                    if (character == 0x20 || character == 0x09), !isOffsetHidden(absolute) {
                         let origin = line.locationForCharacter(at: index)
                         let point = NSPoint(
                             x: textContainerOrigin.x + frame.minX + bounds.minX + origin.x,
@@ -889,7 +952,7 @@ private struct FindScan {
     /// which covers every visual row of that line. A uniform box is only for an unwrapped file.
     private func drawCurrentLineBand(in rect: NSRect) {
         let band: NSRect
-        if style.wraps, let laid = currentLineBand() {
+        if let laid = currentLineBand() {
             band = laid
         } else {
             let box = lineBoxHeight()
@@ -902,40 +965,50 @@ private struct FindScan {
         band.intersection(NSRect(x: 0, y: band.minY, width: bounds.width, height: band.height)).fill()
     }
 
-    /// A hairline at each 2-space or tab indent. Editing only. Drawn from the source line, not a layout fragment.
+    /// A hairline at each 2-space or tab indent. Editing only, drawn from the laid-out
+    /// rows, so folding and wrapping both keep the guides on their own line.
     private func drawIndentGuides(in rect: NSRect) {
-        guard let storage = textStorage else { return }
+        guard let storage = textStorage,
+              let manager = textLayoutManager,
+              let content = manager.textContentManager
+        else { return }
         let length = storage.length
         guard length > 0 else { return }
-        let index = lineIndexCache ?? LineIndex(string)
-        let box = lineBoxHeight()
-        let originY = textContainerOrigin.y
-        let first = max(1, Int(floor((rect.minY - originY) / box)) + 1)
-        let last = min(index.count, max(first, Int(ceil((rect.maxY - originY) / box)) + 1))
-        guard first <= last else { return }
+        let ns = storage.string as NSString
         let face = font ?? NSFont.systemFont(ofSize: style.fontSize)
         let step = max(6, ("  " as NSString).size(withAttributes: [.font: face]).width)
         let originX = textContainerOrigin.x
+        let originY = textContainerOrigin.y
+        let document = content.documentRange
         if effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua {
             NSColor.xyzSecondaryText.withAlphaComponent(0.45).setStroke()
         } else {
             NSColor.xyzDivider.setStroke()
         }
         let path = NSBezierPath()
-        for line in first...last {
-            let start = index.starts[line - 1]
-            let end = line < index.count ? index.starts[line] : length
-            guard end > start else { continue }
-            let lineText = storage.attributedSubstring(from: NSRange(location: start, length: end - start)).string
-            let levels = Self.indentLevels(lineText)
-            guard levels > 0 else { continue }
-            let top = originY + CGFloat(line - 1) * box
-            let bottom = top + box
-            for level in 1...levels {
-                let x = originX + CGFloat(level) * step
-                path.move(to: NSPoint(x: x, y: top))
-                path.line(to: NSPoint(x: x, y: bottom))
+        manager.enumerateTextLayoutFragments(from: nil, options: [.ensuresLayout]) { fragment in
+            let frame = fragment.layoutFragmentFrame
+            if frame.maxY < rect.minY { return true }
+            if frame.minY > rect.maxY { return false }
+            let base = content.offset(from: document.location, to: fragment.rangeInElement.location)
+            for line in fragment.textLineFragments {
+                guard line.characterRange.length > 0 else { continue }
+                let offset = min(max(0, base + line.characterRange.location), max(0, length - 1))
+                let lineNumber = EditorScrollAnchor.lineNumber(at: offset, in: self.string)
+                if self.isLineHidden(lineNumber) { continue }
+                let lineRange = ns.lineRange(for: NSRange(location: offset, length: 0))
+                let lineText = ns.substring(with: lineRange)
+                let levels = Self.indentLevels(lineText)
+                guard levels > 0 else { continue }
+                let top = originY + frame.minY + line.typographicBounds.minY
+                let bottom = top + max(1, line.typographicBounds.height)
+                for level in 1...levels {
+                    let x = originX + CGFloat(level) * step
+                    path.move(to: NSPoint(x: x, y: top))
+                    path.line(to: NSPoint(x: x, y: bottom))
+                }
             }
+            return true
         }
         path.lineWidth = 1
         path.stroke()
@@ -1160,6 +1233,10 @@ final class EditorPane: NSView {
 
     func attach(_ textView: XYZMacTextView) {
         textView.editorPane = self
+        textView.onFoldingChange = { [weak self] in
+            self?.gutter.invalidateLines()
+            self?.needsLayout = true
+        }
         gutter.textView = textView
         scrollView.documentView = textView
         let clip = scrollView.contentView
@@ -1256,6 +1333,7 @@ struct XYZMacEditor: NSViewRepresentable {
 
     func makeNSView(context: Context) -> EditorPane {
         let textView = XYZMacTextView(usingTextLayoutManager: true)
+        textView.enableFolding()
         textView.isRichText = true
         textView.importsGraphics = false
         textView.allowsImageEditing = false
@@ -1378,6 +1456,7 @@ struct XYZMacEditor: NSViewRepresentable {
         }
         textView.findModel = find
         textView.sourceLanguage = syntax
+        textView.refreshFolding(immediate: true)
         find?.language = syntax
         let hadEditor = find?.editorView != nil
         find?.editorView = textView
@@ -1589,6 +1668,7 @@ struct XYZMacEditor: NSViewRepresentable {
                 textView.undoManager?.disableUndoRegistration()
                 textView.string = replacement
                 textView.clearDocumentChrome()
+                textView.refreshFolding(immediate: true)
                 textView.undoManager?.enableUndoRegistration()
                 laterRestyle?.cancel()
                 textView.warmLineIndex()
@@ -1617,6 +1697,7 @@ struct XYZMacEditor: NSViewRepresentable {
 
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView = notification.object as? XYZMacTextView else { return }
+            textView.unfoldSelectionIfNeeded()
             textView.caretMoved()
             textView.refreshReadingAssists()
             reportSelection(textView)
@@ -1635,6 +1716,7 @@ struct XYZMacEditor: NSViewRepresentable {
 
         func textDidChange(_ notification: Notification) {
             guard !isApplyingExternalText, !isRestyling else { return }
+            (notification.object as? XYZMacTextView)?.noteFoldingTextChanged()
             guard let textView = notification.object as? NSTextView else { return }
             (textView as? XYZMacTextView)?.lineIndexDidChange()
             // Marked Chinese (and other IME) text is still being composed. Restyling it drops the composition.
@@ -2320,4 +2402,277 @@ enum EditorTypography {
         return (ns.substring(with: range), range)
     }
 }
+// MARK: - Folding
+
+/// TextKit 2 has no API for hiding a range, but its content storage asks for the
+/// paragraphs it should lay out. A folded block is answered with a paragraph of the same
+/// length whose characters are zero-width, and a zero line height, so it collapses to the
+/// header's own line while the text, the offsets, the undo stack and saving stay untouched.
+extension XYZMacTextView: NSTextContentStorageDelegate {
+    func enableFolding() {
+        guard let storage = textLayoutManager?.textContentManager as? NSTextContentStorage else { return }
+        storage.delegate = self
+    }
+
+    func refreshFolding(immediate: Bool) {
+        foldRefreshWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            self.rebuildFoldableRanges()
+        }
+        foldRefreshWork = work
+        if immediate {
+            work.perform()
+        } else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: work)
+        }
+    }
+
+    func noteFoldingTextChanged() {
+        refreshFolding(immediate: false)
+    }
+
+    /// Drops every fold and its layout state. A new document starts whole.
+    func resetFolding() {
+        foldRefreshWork?.cancel()
+        let before = foldedInnerRanges
+        foldableRanges = []
+        foldedHeaderLines = []
+        foldedHeaderTexts = [:]
+        rebuildFoldedRangesCache()
+        invalidateFoldLayout(in: before)
+        onFoldingChange?()
+    }
+
+    private func rebuildFoldableRanges() {
+        // A file past the syntax limit does not get an indentation pass on every pause.
+        guard (string as NSString).length <= 400_000 else {
+            resetFolding()
+            return
+        }
+        let before = foldedInnerRanges
+        let previous = foldedHeaderTexts
+        let next = CodeFolding.folds(in: string, language: sourceLanguage)
+        foldableRanges = next
+        // Re-anchor each folded block by its header text. An edit above the block moves
+        // the line number; the block stays folded where the same declaration now is.
+        var anchored: Set<Int> = []
+        var texts: [Int: String] = [:]
+        for (_, text) in previous {
+            guard let match = next.first(where: { headerText(atLine: $0.headerLine) == text }) else { continue }
+            if anchored.insert(match.headerLine).inserted {
+                texts[match.headerLine] = text
+            }
+        }
+        foldedHeaderLines = anchored
+        foldedHeaderTexts = texts
+        rebuildFoldedRangesCache()
+        let after = foldedInnerRanges
+        invalidateFoldLayout(in: before + after)
+        onFoldingChange?()
+    }
+
+    var hasFoldableLines: Bool { !foldableRanges.isEmpty }
+
+    /// True for a line that is collapsed inside a folded header. Its number, indent guides
+    /// and whitespace marks are not drawn.
+    func isLineHidden(_ line: Int) -> Bool {
+        guard !foldedHeaderLines.isEmpty else { return false }
+        return foldableRanges.contains { fold in
+            foldedHeaderLines.contains(fold.headerLine) && line > fold.headerLine && line <= fold.lastLine
+        }
+    }
+
+    func isOffsetHidden(_ offset: Int) -> Bool {
+        guard !foldedHeaderLines.isEmpty else { return false }
+        return foldedRangesCache.contains { NSLocationInRange(offset, $0) }
+    }
+
+    /// Header line → folded, for the gutter.
+    func foldHeaderState() -> [Int: Bool] {
+        var state: [Int: Bool] = [:]
+        for fold in foldableRanges {
+            state[fold.headerLine] = foldedHeaderLines.contains(fold.headerLine)
+        }
+        return state
+    }
+
+    var foldedInnerRanges: [NSRange] { foldedRangesCache }
+
+    private func rebuildFoldedRangesCache() {
+        foldedRangesCache = foldableRanges
+            .filter { foldedHeaderLines.contains($0.headerLine) }
+            .map(\.innerRange)
+    }
+
+    private func headerText(atLine line: Int) -> String? {
+        guard let index = cachedLineIndex(), line >= 1, line <= index.count else { return nil }
+        let ns = string as NSString
+        let start = index.starts[line - 1]
+        let end = line < index.count ? index.starts[line] : ns.length
+        guard end >= start, end <= ns.length else { return nil }
+        return ns.substring(with: NSRange(location: start, length: end - start))
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    func fold(atLine line: Int) -> CodeFolding.Fold? {
+        foldableRanges.first { $0.headerLine == line }
+    }
+
+    /// The fold whose header is the nearest one at or above `line`, for "fold at caret".
+    func enclosingFold(atLine line: Int) -> CodeFolding.Fold? {
+        foldableRanges.last { $0.headerLine <= line }
+    }
+
+    func toggleFold(atLine line: Int) {
+        guard let fold = fold(atLine: line) else { return }
+        let before = foldedInnerRanges
+        if foldedHeaderLines.contains(line) {
+            foldedHeaderLines.remove(line)
+            foldedHeaderTexts[line] = nil
+        } else {
+            foldedHeaderLines.insert(line)
+            if let text = headerText(atLine: line) { foldedHeaderTexts[line] = text }
+        }
+        rebuildFoldedRangesCache()
+        invalidateFoldLayout(in: before + foldedInnerRanges)
+        onFoldingChange?()
+        needsDisplay = true
+        lineNumberGutter?.needsDisplay = true
+    }
+
+    func foldAll() {
+        let before = foldedInnerRanges
+        foldedHeaderLines = Set(foldableRanges.map(\.headerLine))
+        foldedHeaderTexts = [:]
+        for line in foldedHeaderLines {
+            if let text = headerText(atLine: line) { foldedHeaderTexts[line] = text }
+        }
+        rebuildFoldedRangesCache()
+        invalidateFoldLayout(in: before + foldedInnerRanges)
+        onFoldingChange?()
+        needsDisplay = true
+        lineNumberGutter?.needsDisplay = true
+    }
+
+    func unfoldAll() {
+        let before = foldedInnerRanges
+        foldedHeaderLines = []
+        foldedHeaderTexts = [:]
+        rebuildFoldedRangesCache()
+        invalidateFoldLayout(in: before)
+        onFoldingChange?()
+        needsDisplay = true
+        lineNumberGutter?.needsDisplay = true
+    }
+
+    /// Opens any fold that hides a character range, so typing, pasting and find can show
+    /// what they touch.
+    func unfoldFolds(intersecting range: NSRange) {
+        guard !foldedHeaderLines.isEmpty, range.length >= 0 else { return }
+        let touched = foldableRanges.filter { fold in
+            foldedHeaderLines.contains(fold.headerLine)
+                && NSIntersectionRange(fold.innerRange, range).length > 0
+        }
+        guard !touched.isEmpty else { return }
+        let before = foldedInnerRanges
+        for fold in touched {
+            foldedHeaderLines.remove(fold.headerLine)
+            foldedHeaderTexts[fold.headerLine] = nil
+        }
+        rebuildFoldedRangesCache()
+        invalidateFoldLayout(in: before + foldedInnerRanges)
+        onFoldingChange?()
+        lineNumberGutter?.needsDisplay = true
+    }
+
+    /// Arrow keys move the caret into the hidden line before the selection callback runs;
+    /// opening the fold there keeps typing possible everywhere.
+    func unfoldSelectionIfNeeded() {
+        guard !foldedHeaderLines.isEmpty else { return }
+        let selection = selectedRange()
+        unfoldFolds(intersecting: NSRange(location: selection.location, length: max(1, selection.length)))
+    }
+
+    @objc func xyzToggleFold(_ sender: Any?) {
+        guard let line = caretLineNumber() else { return }
+        if let fold = enclosingFold(atLine: line) {
+            toggleFold(atLine: fold.headerLine)
+        }
+    }
+
+    @objc func xyzFoldAll(_ sender: Any?) { foldAll() }
+
+    @objc func xyzUnfoldAll(_ sender: Any?) { unfoldAll() }
+
+    private func caretLineNumber() -> Int? {
+        guard let index = cachedLineIndex() else {
+            return nil
+        }
+        return index.line(at: min(max(0, selectedRange().location), (string as NSString).length))
+    }
+
+    /// Folding changes no characters, but the layout has to be told that these paragraphs
+    /// need to be built again. Marking the attributes edited in the backing store is what
+    /// makes the content storage ask the delegate again.
+    private func invalidateFoldLayout(in ranges: [NSRange]) {
+        guard let storage = textStorage else { return }
+        let length = storage.length
+        var merged: [NSRange] = []
+        for range in ranges where NSMaxRange(range) <= length && range.length > 0 {
+            if let last = merged.last, NSMaxRange(last) >= range.location {
+                merged[merged.count - 1] = NSUnionRange(last, range)
+            } else {
+                merged.append(range)
+            }
+        }
+        guard !merged.isEmpty else { return }
+        undoManager?.disableUndoRegistration()
+        for range in merged {
+            storage.edited(.editedAttributes, range: range, changeInLength: 0)
+        }
+        undoManager?.enableUndoRegistration()
+        if let manager = textLayoutManager, let content = manager.textContentManager {
+            manager.invalidateLayout(for: content.documentRange)
+            manager.textViewportLayoutController.layoutViewport()
+        }
+        needsLayout = true
+    }
+
+    // MARK: TextKit 2 content storage
+
+    public func textContentStorage(_ textContentStorage: NSTextContentStorage, textParagraphWith range: NSRange) -> NSTextParagraph? {
+        guard !foldedHeaderLines.isEmpty,
+              let storage = textStorage,
+              NSMaxRange(range) <= storage.length,
+              foldedInnerRanges.contains(where: { NSIntersectionRange($0, range).length > 0 })
+        else { return nil }
+        let source = storage.attributedSubstring(from: range)
+        // The delegate contract requires the same length. Zero-width spaces keep every
+        // offset identical; newlines stay because they belong to the next paragraph.
+        let hidden = NSMutableAttributedString(string: String(repeating: "\u{200B}", count: range.length))
+        let ns = source.string as NSString
+        var index = 0
+        while index < ns.length {
+            if ns.character(at: index) == 0x0A {
+                hidden.replaceCharacters(in: NSRange(location: index, length: 1), with: "\n")
+            }
+            index += 1
+        }
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.minimumLineHeight = 0
+        paragraph.maximumLineHeight = 0
+        paragraph.lineSpacing = 0
+        hidden.addAttributes(
+            [
+                .font: NSFont.systemFont(ofSize: 0.1),
+                .foregroundColor: NSColor.clear,
+                .paragraphStyle: paragraph,
+            ],
+            range: NSRange(location: 0, length: hidden.length)
+        )
+        return NSTextParagraph(attributedString: hidden)
+    }
+}
+
 #endif

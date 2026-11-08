@@ -96,6 +96,19 @@ private struct MacViewCommands: Commands {
             Toggle("Line Numbers", isOn: $lineNumbers)
             Toggle("Relative Line Numbers", isOn: $relativeLineNumbers)
             Toggle("Show Whitespace", isOn: $showsWhitespace)
+            Divider()
+            Button("Fold") {
+                NSApp.sendAction(#selector(XYZMacTextView.xyzToggleFold(_:)), to: nil, from: nil)
+            }
+            .keyboardShortcut("[", modifiers: [.command, .option])
+            Button("Fold All") {
+                NSApp.sendAction(#selector(XYZMacTextView.xyzFoldAll(_:)), to: nil, from: nil)
+            }
+            .keyboardShortcut("[", modifiers: [.command, .option, .shift])
+            Button("Unfold All") {
+                NSApp.sendAction(#selector(XYZMacTextView.xyzUnfoldAll(_:)), to: nil, from: nil)
+            }
+            .keyboardShortcut("]", modifiers: [.command, .option, .shift])
         }
     }
 }

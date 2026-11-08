@@ -103,3 +103,28 @@ in the order they were found:
 `-XYZCheckGutter` runs these paths as acceptance cases (`refresh`, `collapse-header`,
 `nested-file`). The rest of the app must not be changed to make a harness pass, and a
 passing `refresh` case is the minimum evidence that folder clicks work.
+
+## TextKit 2 editor: what not to repeat
+
+- **TextKit 2 has no "hide this range" API.** Do not swap the text storage for a folded
+  display string, and do not shrink fonts on the storage: both corrupt editing, undo and
+  saving. Folding is done in `NSTextContentStorageDelegate` — a folded paragraph is
+  answered with a custom paragraph of the **same length** (zero-width spaces keep every
+  offset identical), a 0.1 pt font and a zero line height. The real string, the undo
+  stack and `onTextChange` never change.
+- **Mark the backing store edited to re-ask the delegate.** `invalidateLayout` alone does
+  not regenerate paragraphs; `textStorage.edited(.editedAttributes, range:, changeInLength: 0)`
+  over the folded range does, with undo registration off. Covers the range before and
+  after the change so both directions repaint.
+- **Open a fold before anything looks inside it.** Edits (`shouldChangeText`), find
+  reveals and selection changes into a hidden line all unfold first; otherwise the caret
+  sits in text that is not on screen. Folds re-anchor by their header text after edits
+  above them, and a document switch starts unfolded.
+- **Line numbers, indent guides and the current-line band must use laid-out rows, not a
+  uniform line box.** Folding changes the geometry; a formula like `(line - 1) * box`
+  puts guides and the caret band on the wrong lines. Skip hidden lines in the gutter and
+  in the guides, and draw the `⋯` marker after measuring the header with the editor's own
+  face (a line fragment's typographic width can be the whole container).
+- **One draw pass, one fold lookup.** `foldHeaderState()` is called once per gutter draw;
+  `foldedInnerRanges` is cached because the content-storage delegate asks for it for every
+  paragraph during layout.
