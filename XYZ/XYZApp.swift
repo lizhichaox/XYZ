@@ -71,6 +71,10 @@ struct ViewModeCommands: Commands {
 #if os(macOS)
 /// View-menu items. `after: .sidebar` disappears when the window has no sidebar toolbar item.
 private struct MacViewCommands: Commands {
+    @AppStorage(XYZEditorStyle.lineNumbersKey) private var lineNumbers = true
+    @AppStorage(XYZEditorStyle.relativeLineNumbersKey) private var relativeLineNumbers = false
+    @AppStorage(XYZEditorStyle.showWhitespaceKey) private var showsWhitespace = false
+
     var body: some Commands {
         CommandGroup(before: .toolbar) {
             Button("Reading") {
@@ -88,6 +92,10 @@ private struct MacViewCommands: Commands {
                 EditorCommands.shared.toggleSidebarVisibility(nil)
             }
             .keyboardShortcut("b", modifiers: .command)
+            Divider()
+            Toggle("Line Numbers", isOn: $lineNumbers)
+            Toggle("Relative Line Numbers", isOn: $relativeLineNumbers)
+            Toggle("Show Whitespace", isOn: $showsWhitespace)
         }
     }
 }

@@ -101,7 +101,11 @@ final class LineNumberGutter: NSView {
                 NSRect(x: 0, y: row.y, width: bounds.width, height: max(row.height, 1)).fill()
             }
             guard row.showsNumber else { continue }
-            let label = String(row.line) as NSString
+            // Relative mode counts from the caret line; the caret line itself keeps the
+            // absolute number so the reader can still see where they are.
+            let relative = textView.style.relativeLineNumbers && row.line != caretLine
+            let value = relative ? abs(row.line - caretLine) : row.line
+            let label = String(value) as NSString
             let attributes = row.line == caretLine ? current : plain
             let width = ceil(label.size(withAttributes: attributes).width)
             let textHeight = font.ascender - font.descender

@@ -286,13 +286,89 @@ final class XYZMacTextView: NSTextView {
     private var cachedMatches: [FindMatch] = []
     private var findMarks: [FindMatch] = []
     private var findMarkIndex: Int?
+    /// Ranges painted with TextKit 2 rendering attributes. They never touch the text
+    /// storage, so they cannot collide with find marks or the undo stack.
+    private var readingAssistRanges: [NSTextRange] = []
 
     /// Drop the previous document's caret, selection, and find marks before the new text is shown.
     func clearDocumentChrome() {
         findMarks = []
         findMarkIndex = nil
+        clearReadingAssists()
         setSelectedRange(NSRange(location: 0, length: 0))
         paintFindMarks()
+    }
+
+    /// Brackets at the caret and the other occurrences of the selected word. Called on
+    /// every selection change; the ranges are rendering attributes only.
+    func refreshReadingAssists() {
+        guard let manager = textLayoutManager, let content = manager.textContentManager else { return }
+        let document = content.documentRange
+        let ns = string as NSString
+        guard ns.length > 0 else {
+            clearReadingAssists()
+            return
+        }
+        let selection = selectedRange()
+        var wanted: [(NSRange, NSColor)] = []
+        if selection.length == 0 {
+            if let pair = BracketMatching.pair(in: ns, caretOffset: selection.location) {
+                let color = NSColor.xyzFindCurrent
+                wanted.append((pair.opener, color))
+                wanted.append((pair.closer, color))
+            }
+        }
+        if let word = WordOccurrences.wordRange(in: ns, at: NSMaxRange(selection)) {
+            let length = word.length
+            if length >= 2, length <= 64, NSMaxRange(selection) - selection.location <= length {
+                let expanded = assistWindow()
+                let matches = WordOccurrences.matches(
+                    of: word,
+                    in: ns,
+                    within: expanded,
+                    limit: 400,
+                    excluding: [word]
+                )
+                if !matches.isEmpty {
+                    let color = NSColor.xyzFindMatch
+                    for match in matches { wanted.append((match, color)) }
+                }
+            }
+        }
+        clearReadingAssists()
+        for (range, color) in wanted {
+            guard range.length > 0, NSMaxRange(range) <= ns.length else { continue }
+            guard let start = content.location(document.location, offsetBy: range.location),
+                  let end = content.location(start, offsetBy: range.length),
+                  let textRange = NSTextRange(location: start, end: end)
+            else { continue }
+            manager.setRenderingAttributes([.backgroundColor: color], for: textRange)
+            readingAssistRanges.append(textRange)
+        }
+    }
+
+    /// The viewport plus a few thousand characters on each side, so a short scroll keeps
+    /// the word highlights.
+    private func assistWindow() -> NSRange {
+        let ns = string as NSString
+        let visible = EditorTypography.visibleSpan(in: self)
+        guard ns.length > 0, visible.length > 0 else {
+            return NSRange(location: 0, length: min(ns.length, 8_000))
+        }
+        let lower = max(0, visible.location - 4_000)
+        let upper = min(ns.length, NSMaxRange(visible) + 4_000)
+        return NSRange(location: lower, length: max(0, upper - lower))
+    }
+
+    private func clearReadingAssists() {
+        guard let manager = textLayoutManager else {
+            readingAssistRanges = []
+            return
+        }
+        for range in readingAssistRanges {
+            manager.setRenderingAttributes([:], for: range)
+        }
+        readingAssistRanges = []
     }
 
     /// Accent marks for every match. The current one is darker. Called again after syntax styling, which clears backgrounds.
@@ -717,6 +793,75 @@ private struct FindScan {
         guard isEditable else { return }
         drawCurrentLineBand(in: rect)
         drawIndentGuides(in: rect)
+        drawWhitespace(in: rect)
+    }
+
+    /// Middle dots for spaces and a small arrow for tabs, drawn from the laid-out line
+    /// fragments so they land on the real glyph positions. Capped so a huge paste does not
+    /// turn the first paint into a stipple.
+    private func drawWhitespace(in rect: NSRect) {
+        guard style.showsWhitespace,
+              let manager = textLayoutManager,
+              let content = manager.textContentManager
+        else { return }
+        let ns = string as NSString
+        guard ns.length > 0 else { return }
+        let font = self.font ?? NSFont.systemFont(ofSize: style.fontSize)
+        let dotColor = NSColor.xyzSecondaryText.withAlphaComponent(0.4)
+        dotColor.setFill()
+        let arrowColor = NSColor.xyzSecondaryText.withAlphaComponent(0.55)
+        var drawn = 0
+        let cap = 3_000
+        let document = content.documentRange
+        manager.enumerateTextLayoutFragments(from: nil, options: [.ensuresLayout]) { fragment in
+            let frame = fragment.layoutFragmentFrame
+            if frame.maxY < rect.minY { return true }
+            if frame.minY > rect.maxY { return false }
+            guard frame.maxY >= rect.minY, frame.width > 0 else { return true }
+            let base = content.offset(from: document.location, to: fragment.rangeInElement.location)
+            for line in fragment.textLineFragments {
+                let range = line.characterRange
+                guard range.length > 0 else { continue }
+                let bounds = line.typographicBounds
+                var index = 0
+                while index < range.length, drawn < cap {
+                    let absolute = base + range.location + index
+                    guard absolute >= 0, absolute < ns.length else { break }
+                    let character = ns.character(at: absolute)
+                    if character == 0x20 || character == 0x09 {
+                        let origin = line.locationForCharacter(at: index)
+                        let point = NSPoint(
+                            x: textContainerOrigin.x + frame.minX + bounds.minX + origin.x,
+                            y: textContainerOrigin.y + frame.minY + bounds.minY + origin.y
+                        )
+                        if character == 0x20 {
+                            let dot = NSRect(
+                                x: point.x + 0.5,
+                                y: point.y + font.ascender * 0.35,
+                                width: 1.4,
+                                height: 1.4
+                            )
+                            NSBezierPath(ovalIn: dot).fill()
+                        } else {
+                            arrowColor.setStroke()
+                            let arrow = NSBezierPath()
+                            let y = point.y + font.ascender * 0.35
+                            arrow.move(to: NSPoint(x: point.x + 1, y: y))
+                            arrow.line(to: NSPoint(x: point.x + 7, y: y))
+                            arrow.move(to: NSPoint(x: point.x + 5, y: y + 2))
+                            arrow.line(to: NSPoint(x: point.x + 7, y: y))
+                            arrow.line(to: NSPoint(x: point.x + 5, y: y - 2))
+                            arrow.lineWidth = 1
+                            arrow.stroke()
+                            dotColor.setFill()
+                        }
+                        drawn += 1
+                    }
+                    index += 1
+                }
+            }
+            return drawn < cap
+        }
     }
 
     /// Full-width band for the caret's source line. Wrapping uses the laid-out fragment,
@@ -1452,6 +1597,7 @@ struct XYZMacEditor: NSViewRepresentable {
         func textViewDidChangeSelection(_ notification: Notification) {
             guard let textView = notification.object as? XYZMacTextView else { return }
             textView.caretMoved()
+            textView.refreshReadingAssists()
             reportSelection(textView)
         }
 

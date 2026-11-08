@@ -2884,6 +2884,36 @@
           }
         }
       }
+    },
+    "Relative Line Numbers": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "相对行号"
+          }
+        }
+      }
+    },
+    "Show Whitespace": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示空白字符"
+          }
+        }
+      }
+    },
+    "Line Numbers": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "行号"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

@@ -40,6 +40,10 @@ struct XYZEditorStyle: Equatable {
     var cjk: String = "pingfang"
     /// Long lines break to the editor width. Off scrolls sideways.
     var wraps: Bool = true
+    /// Gutter numbers count from the caret line instead of from the top.
+    var relativeLineNumbers: Bool = false
+    /// Spaces and tabs get a middle dot.
+    var showsWhitespace: Bool = false
 
     /// A small fixed side margin. Line numbers widen the left side on their own.
     static func sideInset(for paneWidth: CGFloat) -> CGFloat {
@@ -58,6 +62,10 @@ struct XYZEditorStyle: Equatable {
     static let readingLineNumbersKey = "xyz.editor.readingLineNumbers"
     /// Break long lines to the editor width. On unless turned off.
     static let wordWrapKey = "xyz.editor.wordWrap"
+    /// Gutter numbers count from the caret line. Off unless turned on.
+    static let relativeLineNumbersKey = "xyz.editor.relativeLineNumbers"
+    /// Spaces and tabs are drawn as dots. Off unless turned on.
+    static let showWhitespaceKey = "xyz.editor.showWhitespace"
     static let defaultFontSize: Double = 16
     static let fontSizes: ClosedRange<Double> = 11...24
     static let defaultLineSpacing: Double = 1.7
@@ -213,6 +221,8 @@ struct XYZEditor: View {
     @AppStorage(XYZEditorStyle.lineNumbersKey) private var lineNumbers = true
     #if os(macOS)
     @AppStorage(XYZEditorStyle.wordWrapKey) private var wordWrap = true
+    @AppStorage(XYZEditorStyle.relativeLineNumbersKey) private var relativeLineNumbers = false
+    @AppStorage(XYZEditorStyle.showWhitespaceKey) private var showsWhitespace = false
     #endif
 
     var body: some View {
@@ -228,7 +238,9 @@ struct XYZEditor: View {
                 monospaced: monospaced || forcesMonospace || XYZEditorStyle.latinIsMono(latinFont),
                 latin: latinFont == "system" && monospaced ? "sfmono" : latinFont,
                 cjk: cjkFont,
-                wraps: wordWrap
+                wraps: wordWrap,
+                relativeLineNumbers: relativeLineNumbers,
+                showsWhitespace: showsWhitespace
             ),
             scrollLink: scrollLink,
             markup: markup,
