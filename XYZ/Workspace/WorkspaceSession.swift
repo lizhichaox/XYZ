@@ -44,7 +44,13 @@ final class WorkspaceSession: ObservableObject {
     /// Right-hand Markdown outline for this folder window. On until the user hides it.
     @Published var outlineVisible = true
     /// Width of that outline. Not published: the split view already has the live width.
+    /// The outline width the user last chose. `outlineWidthAdjusted` is false until they
+    /// drag it, which is when a new outline should fit its content instead.
     var outlineWidth: CGFloat = 220
+    private(set) var outlineWidthAdjusted = false
+    /// The sidebar width the user last chose; false until they drag it.
+    var sidebarWidth: CGFloat = 260
+    private(set) var sidebarWidthAdjusted = false
     @Published var nameQuery = "" {
         didSet {
             guard nameQuery != oldValue else { return }
@@ -161,6 +167,14 @@ final class WorkspaceSession: ObservableObject {
         let storedOutlineWidth = UserDefaults.standard.double(forKey: Self.outlineWidthKey(for: rootURL))
         if storedOutlineWidth >= 160 {
             outlineWidth = CGFloat(storedOutlineWidth)
+            // Older builds wrote the default back on every resize. Only a value that
+            // differs from that default counts as the user's own choice.
+            outlineWidthAdjusted = abs(CGFloat(storedOutlineWidth) - 220) > 1
+        }
+        let storedSidebarWidth = UserDefaults.standard.double(forKey: Self.sidebarWidthKey(for: rootURL))
+        if storedSidebarWidth >= 220 {
+            sidebarWidth = CGFloat(storedSidebarWidth)
+            sidebarWidthAdjusted = true
         }
         scrollLink.onViewportLine = { [weak self] line in
             self?.noteViewportLine(line)
@@ -195,10 +209,21 @@ final class WorkspaceSession: ObservableObject {
     }
 
     func rememberOutlineWidth(_ width: CGFloat) {
-        let next = min(420, max(160, width))
+        let next = min(640, max(160, width))
+        outlineWidthAdjusted = true
         guard abs(outlineWidth - next) > 0.5 else { return }
         outlineWidth = next
         UserDefaults.standard.set(Double(next), forKey: Self.outlineWidthKey(for: rootURL))
+    }
+
+    func rememberSidebarWidth(_ width: CGFloat) {
+        // The window's own cap is 40% of its width, so the stored value must not be
+        // tighter than that: a content-fitted width is the user's choice too.
+        let next = min(1000, max(220, width))
+        sidebarWidthAdjusted = true
+        guard abs(sidebarWidth - next) > 0.5 else { return }
+        sidebarWidth = next
+        UserDefaults.standard.set(Double(next), forKey: Self.sidebarWidthKey(for: rootURL))
     }
 
     private static func outlineVisibleKey(for url: URL) -> String {
@@ -207,6 +232,10 @@ final class WorkspaceSession: ObservableObject {
 
     private static func outlineWidthKey(for url: URL) -> String {
         "xyz.workspace.outline.width." + token(for: url)
+    }
+
+    private static func sidebarWidthKey(for url: URL) -> String {
+        "xyz.workspace.sidebar.width." + token(for: url)
     }
 
     func activate() {

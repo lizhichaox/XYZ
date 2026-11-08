@@ -167,6 +167,15 @@ final class EditorCommands: NSObject {
         if flags == .command && key.lowercased() == "w" {
             return target?.closeActiveTab() == true
         }
+        // ⌘B is taken here, not by the menu's key equivalent, so a held key does not
+        // repeat the toggle: the menu fired once per auto-repeat event, which flipped the
+        // sidebar dozens of times and shook the content area.
+        if flags == .command && key.lowercased() == "b" {
+            guard target?.supportsWorkspaceFiles == true else { return false }
+            guard !event.isARepeat else { return true }
+            target?.toggleSidebar()
+            return true
+        }
         if flags == .command && key == "/" {
             guard target != nil else { return false }
             toggleSource(nil)

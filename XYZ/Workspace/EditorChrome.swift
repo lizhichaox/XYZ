@@ -989,31 +989,15 @@ struct EditorStatusBar: View {
             .padding(.horizontal, 6)
     }
 
-    /// Bold mode name plus one symbol. The icon is hidden from VoiceOver so the mode is spoken once.
+    /// The mode name alone. The title bar already carries a reading/editing button, so a
+    /// second icon here read as a duplicate.
     private func modeLabel(_ name: String) -> some View {
         let title = String(localized: String.LocalizationValue(name))
-        let symbol: String?
-        switch name {
-        case "Editing":
-            symbol = "pencil"
-        case "Read-only":
-            symbol = "book"
-        default:
-            symbol = nil
-        }
-        return HStack(alignment: .center, spacing: 4) {
-            if let symbol {
-                Image(systemName: symbol)
-                    .font(.system(size: 10, weight: .semibold))
-                    .accessibilityHidden(true)
-            }
-            Text(title)
-                .font(.system(size: 11, weight: symbol == nil ? .regular : .bold))
-                .lineLimit(1)
-        }
-        .foregroundStyle(Color.xyzSecondaryText)
-        .accessibilityElement(children: .ignore)
-        .accessibilityLabel(title)
+        return Text(title)
+            .font(.system(size: 11, weight: .medium))
+            .lineLimit(1)
+            .foregroundStyle(Color.xyzSecondaryText)
+            .accessibilityLabel(title)
     }
 
     private func statusText(_ value: String) -> some View {

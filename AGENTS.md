@@ -81,6 +81,23 @@ in the order they were found:
   `before=true after=true`). The sidebar now uses AppKit's own geometry, with
   `-XYZCheckGutter`'s `refresh` case as the canary.
 
+- **Do not keep per-toggle layout state in SwiftUI.** The sidebar visibility used to be a
+  `@State` the whole window body read, so every ⌘B re-rendered editor, preview and outline
+  and then pushed the value back down into the split view. `SidebarVisibility` and the
+  split view own it now; SwiftUI passes it once and is not in the loop.
+- **Do not animate a column's width.** Animating it re-lays out the editor and Reading text
+  every frame; with a second press during the slide it reads as shaking. The toggle is a
+  cut, one layout pass. A layer fade on the sidebar was tried too and felt abrupt.
+- **⌘B must drop `isARepeat`.** A menu key equivalent fires once per auto-repeat event;
+  holding ⌘B flipped the sidebar dozens of times. It is handled by the key monitor in
+  `EditorCommands.handleKeyEquivalent` instead.
+- **A width that was never chosen must be fitted, not remembered.** Persist a column width
+  only after the divider is dragged or double-clicked, and keep the fitted width out of the
+  stored value on the next open.
+- **Title-bar buttons share one geometry.** Draw every glyph in the same 16 by 15 box, with
+  one 3 pt corner radius and one 1.3 pt stroke, and place the centres by mirroring the real
+  traffic-light frames (read them at layout time; do not hard-code 20 pt).
+
 `-XYZCheckGutter` runs these paths as acceptance cases (`refresh`, `collapse-header`,
 `nested-file`). The rest of the app must not be changed to make a harness pass, and a
 passing `refresh` case is the minimum evidence that folder clicks work.

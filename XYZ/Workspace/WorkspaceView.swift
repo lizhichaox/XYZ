@@ -2,7 +2,6 @@
 import AppKit
 import QuartzCore
 import SwiftUI
-import os
 import XYZCore
 
 struct WorkspaceActions {
@@ -27,8 +26,12 @@ private struct WorkspaceSplit<Sidebar: View, Detail: View, Outline: View>: NSVie
     var showsSidebar: Bool
     var sidebarVisibility: SidebarVisibility
     var showsOutline: Bool
+    var sidebarWidth: CGFloat
+    var sidebarWidthAdjusted: Bool
     var outlineWidth: CGFloat
+    var outlineWidthAdjusted: Bool
     var onOutlineWidth: (CGFloat) -> Void
+    var onSidebarWidth: (CGFloat) -> Void
     var sidebarContentWidth: () -> CGFloat
     var outlineContentWidth: () -> CGFloat
     var sidebar: Sidebar
@@ -39,8 +42,12 @@ private struct WorkspaceSplit<Sidebar: View, Detail: View, Outline: View>: NSVie
         showsSidebar: Bool,
         sidebarVisibility: SidebarVisibility,
         showsOutline: Bool,
+        sidebarWidth: CGFloat,
+        sidebarWidthAdjusted: Bool,
         outlineWidth: CGFloat,
+        outlineWidthAdjusted: Bool,
         onOutlineWidth: @escaping (CGFloat) -> Void,
+        onSidebarWidth: @escaping (CGFloat) -> Void,
         sidebarContentWidth: @escaping () -> CGFloat,
         outlineContentWidth: @escaping () -> CGFloat,
         @ViewBuilder sidebar: () -> Sidebar,
@@ -50,8 +57,12 @@ private struct WorkspaceSplit<Sidebar: View, Detail: View, Outline: View>: NSVie
         self.showsSidebar = showsSidebar
         self.sidebarVisibility = sidebarVisibility
         self.showsOutline = showsOutline
+        self.sidebarWidth = sidebarWidth
+        self.sidebarWidthAdjusted = sidebarWidthAdjusted
         self.outlineWidth = outlineWidth
+        self.outlineWidthAdjusted = outlineWidthAdjusted
         self.onOutlineWidth = onOutlineWidth
+        self.onSidebarWidth = onSidebarWidth
         self.sidebarContentWidth = sidebarContentWidth
         self.outlineContentWidth = outlineContentWidth
         self.sidebar = sidebar()
@@ -75,6 +86,7 @@ private struct WorkspaceSplit<Sidebar: View, Detail: View, Outline: View>: NSVie
         context.coordinator.detail = main
         context.coordinator.outline = outlineHost
         split.onOutlineWidth = onOutlineWidth
+        split.onSidebarWidth = onSidebarWidth
         split.measureSidebar = sidebarContentWidth
         split.measureOutline = outlineContentWidth
         split.install(
@@ -82,22 +94,33 @@ private struct WorkspaceSplit<Sidebar: View, Detail: View, Outline: View>: NSVie
             detail: main,
             outline: outlineHost,
             showsSidebar: showsSidebar,
-            showsOutline: showsOutline,
-            outlineWidth: outlineWidth
+            showsOutline: showsOutline
+        )
+        split.applyPreferences(
+            sidebar: sidebarWidth,
+            sidebarAdjusted: sidebarWidthAdjusted,
+            outline: outlineWidth,
+            outlineAdjusted: outlineWidthAdjusted
         )
         sidebarVisibility.attach(split: split)
         return split
     }
 
     func updateNSView(_ split: XYZSplitView, context: Context) {
-        SplitTrace.note("update sidebar=\(showsSidebar) outline=\(showsOutline)")
         context.coordinator.side?.rootView = sidebar
         context.coordinator.detail?.rootView = detail
         context.coordinator.outline?.rootView = outline
         split.onOutlineWidth = onOutlineWidth
+        split.onSidebarWidth = onSidebarWidth
         split.measureSidebar = sidebarContentWidth
         split.measureOutline = outlineContentWidth
-        split.setOutline(shown: showsOutline, width: outlineWidth)
+        split.applyPreferences(
+            sidebar: sidebarWidth,
+            sidebarAdjusted: sidebarWidthAdjusted,
+            outline: outlineWidth,
+            outlineAdjusted: outlineWidthAdjusted
+        )
+        split.setOutline(shown: showsOutline)
         // The sidebar is not pushed from here: the split view owns it after install.
     }
 
@@ -110,12 +133,6 @@ private struct WorkspaceSplit<Sidebar: View, Detail: View, Outline: View>: NSVie
         var detail: NSHostingView<Detail>?
         var outline: NSHostingView<Outline>?
     }
-}
-
-/// Temporary trace for the sidebar toggle. Removed once the shaking is fixed.
-enum SplitTrace {
-    private static let log = Logger(subsystem: "com.lizhichao.XYZ", category: "sidebar")
-    static func note(_ message: String) { log.notice("\(message, privacy: .public)") }
 }
 
 /// Sidebar visibility, owned by AppKit.
@@ -177,6 +194,7 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
     /// eye reads as the content area.
     var detailWidth: CGFloat { detail?.frame.width ?? 0 }
     var onOutlineWidth: ((CGFloat) -> Void)?
+    var onSidebarWidth: ((CGFloat) -> Void)?
     /// Told when the sidebar should be open, right away, so the title-bar button with the
     /// sidebar glyph follows the click instead of the end of the slide.
     var onSidebarVisibilityChange: ((Bool) -> Void)?
@@ -193,9 +211,13 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
     /// columns are attached right now, and a hide stays attached until its slide ends.
     private var sidebarWanted = true
     private var outlineWanted = false
+    /// False until the user drags the divider; a column that was never sized opens at its
+    /// content's width.
+    private var sidebarAdjusted = false
+    private var outlineAdjusted = false
     private var adjusting = false
     private var dividerDrag = false
-    /// A width that is easing between two values. `nil` when the columns are still.
+
     private struct ColumnSlide {
         enum Edge {
             case left
@@ -207,9 +229,7 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
         var to: CGFloat
         var started: CFTimeInterval
         var duration: CFTimeInterval
-        var completion: (() -> Void)?
 
-        /// Width of the column this slide drives, eased out.
         func width(at time: CFTimeInterval) -> CGFloat {
             let t = min(1, max(0, (time - started) / duration))
             let eased = 1 - pow(1 - t, 3)
@@ -219,25 +239,9 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
 
     private var slide: ColumnSlide?
     private var slideTimer: Timer?
-    private var slideTicks = 0
-    private let slideDuration: CFTimeInterval = 0.18
-    /// Outline toggles still coalesce rapid presses; the sidebar does not need it now that
-    /// a press during its slide is only remembered, never a second animation.
-    private var outlineSettleTimer: Timer?
-    private var lastOutlineIntent: CFTimeInterval = 0
-    private let rapidPressWindow: CFTimeInterval = 0.2
-    private let settleQuiet: CFTimeInterval = 0.14
-
-    /// The system's Reduce Motion setting turns the ease into a cut.
-    private var effectiveSlideDuration: CFTimeInterval {
-        NSWorkspace.shared.accessibilityDisplayShouldReduceMotion ? 0 : slideDuration
-    }
-
-    deinit {
-        slideTimer?.invalidate()
-        outlineSettleTimer?.invalidate()
-    }
-
+    private var lastSidebarPress: CFTimeInterval = 0
+    private var lastOutlinePress: CFTimeInterval = 0
+    private let rapidPressWindow: CFTimeInterval = 0.18
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         panes.isVertical = true
@@ -248,6 +252,8 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
         panes.lockFrames = { [weak self] in
             self?.lockColumnFrames()
         }
+        panes.wantsLayer = true
+        panes.layer?.masksToBounds = true
         addSubview(panes)
         addSubview(leftDivider)
         addSubview(rightDivider)
@@ -312,11 +318,10 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
         let showsSide = views.contains { $0 === sidebar }
         let showsOutline = views.contains { $0 === outline }
         let now = CACurrentMediaTime()
-        let sliding = slide
         let side: CGFloat
         if showsSide {
-            if sliding.map({ $0.edge == .left }) == true {
-                side = max(0, sliding?.width(at: now) ?? 0)
+            if let slide, slide.edge == .left {
+                side = min(area.width, max(0, slide.width(at: now).rounded()))
             } else {
                 side = clampedSidebarWidth()
             }
@@ -325,8 +330,8 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
         }
         let outlineWidth: CGFloat
         if showsOutline {
-            if sliding.map({ $0.edge == .right }) == true {
-                outlineWidth = max(0, sliding?.width(at: now) ?? 0)
+            if let slide, slide.edge == .right {
+                outlineWidth = min(area.width - side, max(0, slide.width(at: now).rounded()))
             } else {
                 outlineWidth = min(max(160, savedOutline), max(160, area.width - side - 320))
             }
@@ -364,8 +369,7 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
         detail: NSView,
         outline: NSView,
         showsSidebar: Bool,
-        showsOutline: Bool,
-        outlineWidth: CGFloat
+        showsOutline: Bool
     ) {
         self.sidebar = sidebar
         self.detail = detail
@@ -374,133 +378,122 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
         outlineShown = showsOutline
         sidebarWanted = showsSidebar
         outlineWanted = showsOutline
-        savedOutline = outlineWidth
         panes.addSubview(detail)
+        if !sidebarAdjusted { savedPosition = fitSidebarWidth() }
+        if showsOutline, !outlineAdjusted { savedOutline = fitOutlineWidth() }
         syncPanes()
         applyPositions()
     }
 
-    /// Opens and closes one column with a short ease.
-    ///
-    /// The old path detached all three panes from the split view and added them back
-    /// on every toggle, so the editor and the Reading web view left the window and
-    /// repainted. Only the column that changed now enters or leaves the split view;
-    /// the editor stays attached and its text is laid out while the width eases.
-    /// Opens or closes the sidebar. A press that arrives during a slide only changes the
-    /// target; when the slide ends it continues to that target once. Nothing reverses
-    /// mid-flight, so a burst of ⌘B presses cannot shake the window.
+    /// Opens or closes the sidebar. A cut, not an ease: the window body is not rendered
+    /// by SwiftUI for this, and one layout pass cannot fight a second press.
     func setSidebarShown(_ shown: Bool) {
         guard shown != sidebarWanted else { return }
+        let now = CACurrentMediaTime()
+        let rapid = now - lastSidebarPress < rapidPressWindow
+        lastSidebarPress = now
         sidebarWanted = shown
         onSidebarVisibilityChange?(shown)
-        settleOutlineIfNeeded()  // an outline slide must not drive the left column
-        if slide?.edge == .left { return }
-        runSidebarSlide()
-    }
-
-    private func runSidebarSlide() {
-        let target = sidebarWanted
-        if target, sidebarShown {
-            let from = max(0, sidebar?.frame.width ?? 0)
-            startSlide(edge: .left, from: from, to: clampedSidebarWidth(), shown: true) { [weak self] in
-                self?.finishSidebarSlide(target)
-            }
-        } else if target {
-            sidebarShown = true
-            syncPanes()
-            startSlide(edge: .left, from: 0, to: clampedSidebarWidth(), shown: true) { [weak self] in
-                self?.finishSidebarSlide(target)
+        if rapid || slide != nil && abs((slide?.to ?? 0) - (shown ? clampedSidebarWidth() : 0)) < 1 {
+            // A burst of presses is a cut, not a tug of war: animating every reversal is
+            // what read as shaking. Single presses animate below.
+            applySidebar(shown)
+            return
+        }
+        let targetWidth: CGFloat
+        if sidebarAdjusted {
+            targetWidth = clampedSidebarWidth()
+        } else {
+            targetWidth = fitSidebarWidth()
+            savedPosition = targetWidth
+        }
+        if shown {
+            if !sidebarShown {
+                sidebarShown = true
+                syncPanes()
+                animateColumn(.left, from: 0, to: targetWidth, completion: nil)
+            } else {
+                animateColumn(.left, from: currentWidth(.left), to: targetWidth, completion: nil)
             }
         } else {
             guard sidebarShown else { return }
-            if slide == nil, let sidebar, sidebar.frame.width > 1 {
+            if let sidebar, sidebar.frame.width > 2 {
                 savedPosition = max(220, sidebar.frame.width)
             }
-            let from = max(0, sidebar?.frame.width ?? savedPosition)
-            startSlide(edge: .left, from: from, to: 0, shown: false) { [weak self] in
+            animateColumn(.left, from: currentWidth(.left), to: 0) { [weak self] in
                 guard let self else { return }
                 self.sidebarShown = false
                 self.syncPanes()
                 self.applyPositions()
-                self.finishSidebarSlide(target)
             }
         }
     }
 
-    private func finishSidebarSlide(_ target: Bool) {
-        if target { sidebarShown = true }
-        if sidebarWanted != target, slide == nil {
-            runSidebarSlide()
-        }
-    }
-
-    /// Holds the column where it is, without running the interrupted slide to its end.
-    private func freezeSlide(_ edge: ColumnSlide.Edge) {
-        guard let running = slide, running.edge == edge else { return }
+    /// Immediate state change, used for a burst of presses.
+    private func applySidebar(_ shown: Bool) {
         slide = nil
         slideTimer?.invalidate()
         slideTimer = nil
-        flushPaneLayout(paint: true)
-        placeDividers()
-    }
-
-    private func settleOutlineIfNeeded() {
-        // A press on the left column finishes an outline slide at its end state.
-        guard let running = slide, running.edge == .right else { return }
-        finishSlide()
-    }
-
-    func setOutline(shown: Bool, width: CGFloat) {
-        savedOutline = width
-        guard shown != outlineWanted else {
-            applyOutlineWidthIfNeeded()
-            placeDividers()
-            return
-        }
-        let now = CACurrentMediaTime()
-        let rapid = now - lastOutlineIntent < rapidPressWindow
-        lastOutlineIntent = now
-        outlineWanted = shown
-        if rapid || slide != nil {
-            freezeSlide(.right)
-            outlineSettleTimer?.invalidate()
-            let timer = Timer(timeInterval: settleQuiet, repeats: false) { [weak self] _ in
-                self?.outlineSettleTimer = nil
-                self?.applyOutlineIntent()
-            }
-            RunLoop.main.add(timer, forMode: .common)
-            outlineSettleTimer = timer
-            return
-        }
-        applyOutlineIntent()
-    }
-
-    /// Animates toward `outlineWanted`, starting from the width on screen.
-    private func applyOutlineIntent() {
-        outlineSettleTimer?.invalidate()
-        outlineSettleTimer = nil
-        if slide?.edge != .right {
-            finishSlide()
-        }
-        if outlineWanted {
-            if outlineShown {
-                let from = max(0, outline?.frame.width ?? 0)
-                startSlide(edge: .right, from: from, to: targetOutlineWidth(), shown: true)
-            } else {
-                outlineShown = true
-                syncPanes()
-                startSlide(edge: .right, from: 0, to: targetOutlineWidth(), shown: true)
-            }
+        if shown {
+            if !sidebarAdjusted { savedPosition = fitSidebarWidth() }
+            sidebarShown = true
         } else {
-            guard outlineShown else { return }
-            let from = max(0, outline?.frame.width ?? savedOutline)
-            startSlide(edge: .right, from: from, to: 0, shown: false) { [weak self] in
-                guard let self else { return }
-                self.outlineShown = false
-                self.syncPanes()
-                self.applyPositions()
+            if let sidebar, sidebar.frame.width > 2 {
+                savedPosition = max(220, sidebar.frame.width)
             }
+            sidebarShown = false
         }
+        syncPanes()
+        applyPositions()
+        flushPaneLayout(paint: true)
+    }
+
+    private func currentWidth(_ edge: ColumnSlide.Edge) -> CGFloat {
+        if let slide, slide.edge == edge {
+            return max(0, slide.width(at: CACurrentMediaTime()))
+        }
+        let view = edge == .left ? sidebar : outline
+        return max(0, view?.frame.width ?? 0)
+    }
+
+    /// Applies the widths the user chose in an earlier session. `adjusted` is false until
+    /// they drag a divider, which keeps the opening width content-fitted.
+    func applyPreferences(
+        sidebar: CGFloat,
+        sidebarAdjusted: Bool,
+        outline: CGFloat,
+        outlineAdjusted: Bool
+    ) {
+        self.sidebarAdjusted = sidebarAdjusted
+        self.outlineAdjusted = outlineAdjusted
+        if sidebarAdjusted {
+            savedPosition = max(220, sidebar)
+        } else if !sidebarShown {
+            savedPosition = fitSidebarWidth()
+        }
+        if outlineAdjusted {
+            savedOutline = max(160, outline)
+        } else if !outlineShown {
+            savedOutline = fitOutlineWidth()
+        }
+    }
+
+    private func fitSidebarWidth() -> CGFloat {
+        SidebarFit.sidebar(
+            content: measureSidebar(),
+            window: max(bounds.width, 1),
+            outline: outlineShown ? savedOutline : 0,
+            outlineShown: outlineShown
+        )
+    }
+
+    private func fitOutlineWidth() -> CGFloat {
+        SidebarFit.outline(
+            content: measureOutline(),
+            window: max(bounds.width, 1),
+            sidebar: sidebarShown ? (sidebar?.frame.width ?? savedPosition) : 0,
+            sidebarShown: sidebarShown
+        )
     }
 
     /// The outline width the layout would use, for the start of a slide.
@@ -511,57 +504,77 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
         return min(max(160, savedOutline), max(160, area - side - 320))
     }
 
-    /// Ends a running ease at its end state. A press during a slide finishes the first
-    /// one instead of stacking timed layouts.
-    private func finishSlide() {
-        guard let running = slide else { return }
-        slide = nil
-        slideTimer?.invalidate()
-        slideTimer = nil
-        running.completion?()
-        lockColumnFrames()
-        placeDividers()
-        flushPaneLayout(paint: true)
+    func setOutline(shown: Bool) {
+        guard shown != outlineWanted else {
+            applyOutlineWidthIfNeeded()
+            placeDividers()
+            return
+        }
+        outlineWanted = shown
+        let targetWidth: CGFloat
+        if outlineAdjusted {
+            targetWidth = targetOutlineWidth()
+        } else {
+            targetWidth = fitOutlineWidth()
+            savedOutline = targetWidth
+        }
+        if shown {
+            if !outlineShown {
+                outlineShown = true
+                syncPanes()
+                animateColumn(.right, from: 0, to: targetWidth, completion: nil)
+            } else {
+                animateColumn(.right, from: currentWidth(.right), to: targetWidth, completion: nil)
+            }
+        } else {
+            guard outlineShown else { return }
+            if let outline, outline.frame.width > 2 {
+                savedOutline = max(160, outline.frame.width)
+            }
+            animateColumn(.right, from: currentWidth(.right), to: 0) { [weak self] in
+                guard let self else { return }
+                self.outlineShown = false
+                self.syncPanes()
+                self.applyPositions()
+            }
+        }
     }
 
-    private func startSlide(
-        edge: ColumnSlide.Edge,
+    /// Animates one column's width. The split view lays out every 60 Hz tick; no extra
+    /// layout pass is forced on top, which is what made the old animation shimmer.
+    private func animateColumn(
+        _ edge: ColumnSlide.Edge,
         from: CGFloat,
         to: CGFloat,
-        shown: Bool,
-        completion: (() -> Void)? = nil
+        completion: (() -> Void)?
     ) {
         slideTimer?.invalidate()
         slideTimer = nil
-        if XYZDiagnostics.enabled {
-            let name = edge == .left ? "sidebar" : "outline"
-            XYZDiagnostics.note("slide \(name) from=\(Int(from)) to=\(Int(to)) area=\(Int(panes.bounds.width))")
-        }
-        guard abs(to - from) > 0.5, effectiveSlideDuration > 0 else {
+        let distance = abs(to - from)
+        guard distance > 0.5, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
             slide = nil
+            if edge == .left {
+                if to <= 0.5 { sidebarShown = false }
+            } else if to <= 0.5 {
+                outlineShown = false
+            }
             lockColumnFrames()
             placeDividers()
-            flushPaneLayout(paint: true)
             completion?()
             return
         }
-        let duration = effectiveSlideDuration
+        let duration = min(0.24, max(0.12, 0.12 + Double(distance) / 2600))
         slide = ColumnSlide(
             edge: edge,
             from: from,
             to: to,
             started: CACurrentMediaTime(),
-            duration: duration,
-            completion: completion
+            duration: duration
         )
         lockColumnFrames()
         placeDividers(updatingCursors: false)
-        flushPaneLayout()
         let timer = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] timer in
-            guard let self else {
-                timer.invalidate()
-                return
-            }
+            guard let self else { timer.invalidate(); return }
             guard let running = self.slide else {
                 timer.invalidate()
                 self.slideTimer = nil
@@ -573,18 +586,11 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
                 self.slideTimer = nil
                 self.lockColumnFrames()
                 self.placeDividers()
-                self.flushPaneLayout(paint: true)
-                self.logToggle(edge: edge, shown: shown)
-                running.completion?()
+                completion?()
                 return
             }
             self.lockColumnFrames()
-            self.flushPaneLayout()
             self.placeDividers(updatingCursors: false)
-            self.slideTicks += 1
-            if self.slideTicks % 4 == 1 {
-                SplitTrace.note("tick detail=\(Int(self.detail?.frame.width ?? -1)) sidebar=\(Int(self.sidebar?.frame.width ?? -1))")
-            }
         }
         slideTimer = timer
         RunLoop.main.add(timer, forMode: .common)
@@ -617,14 +623,6 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
         let subviews = detail?.subviews.map { Int($0.frame.width) } ?? []
         let panesBounds = Int(panes.bounds.width)
         XYZDiagnostics.note("\(message) panes=\(panesBounds) side=\(side) detail=\(detailWidth) outline=\(outlineWidth) detailSubviews=\(subviews)")
-    }
-
-    private func logToggle(edge: ColumnSlide.Edge, shown: Bool) {
-        guard XYZDiagnostics.enabled else { return }
-        let name = edge == .left ? "sidebar" : "outline"
-        let ms = Int((slideDuration * 1000).rounded())
-        let frames = "sidebar=\(Int(sidebar?.frame.width ?? 0)) detail=\(Int(detail?.frame.width ?? 0)) outline=\(Int(outline?.frame.width ?? 0))"
-        XYZDiagnostics.note("\(name) shown=\(shown) eased in \(ms)ms \(frames)")
     }
 
     /// Adds or removes only the column that changed. `addSubview(_:positioned:)` keeps
@@ -701,9 +699,11 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
                 outlineShown: outlineShown
             )
             savedPosition = width
+            sidebarAdjusted = true
             adjusting = true
             lockColumnFrames()
             adjusting = false
+            onSidebarWidth?(width)
         case .right:
             guard outlineShown else { return }
             let sidebarWidth = sidebarShown ? (sidebar?.frame.width ?? savedPosition) : 0
@@ -714,6 +714,7 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
                 sidebarShown: sidebarShown
             )
             savedOutline = width
+            outlineAdjusted = true
             adjusting = true
             lockColumnFrames()
             adjusting = false
@@ -757,13 +758,24 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
         let upper = splitView(panes, constrainMaxCoordinate: position, ofSubviewAt: index)
         let clamped = min(max(position, lower), max(lower, upper))
         dividerDrag = true
+        if edge == .left {
+            sidebarAdjusted = true
+        } else {
+            outlineAdjusted = true
+        }
         adjusting = true
         rememberDivider(index: index, position: clamped)
         adjusting = false
+        if edge == .left {
+            onSidebarWidth?(savedPosition)
+        }
         sidebar?.layoutSubtreeIfNeeded()
         detail?.layoutSubtreeIfNeeded()
         outline?.layoutSubtreeIfNeeded()
         placeDividers()
+        if edge == .right {
+            onOutlineWidth?(savedOutline)
+        }
     }
 
     private func placeDividers(updatingCursors: Bool = true) {
@@ -845,10 +857,10 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
     }
 
     func splitViewDidResizeSubviews(_ notification: Notification) {
-        guard slide == nil else { return }
         sidebar?.needsLayout = true
         detail?.needsLayout = true
         outline?.needsLayout = true
+        guard slide == nil, !adjusting else { return }
         if outlineShown, let outline, outline.superview != nil {
             let width = outline.frame.width
             if abs(width - savedOutline) > 0.5 {
@@ -1177,8 +1189,12 @@ struct WorkspaceView: View {
                 showsSidebar: sidebar.shown,
                 sidebarVisibility: sidebar,
                 showsOutline: showsMarkdownOutline,
+                sidebarWidth: session.sidebarWidth,
+                sidebarWidthAdjusted: session.sidebarWidthAdjusted,
                 outlineWidth: session.outlineWidth,
+                outlineWidthAdjusted: session.outlineWidthAdjusted,
                 onOutlineWidth: { session.rememberOutlineWidth($0) },
+                onSidebarWidth: { session.rememberSidebarWidth($0) },
                 sidebarContentWidth: { SidebarContentMeasure.explorer(session) },
                 outlineContentWidth: { SidebarContentMeasure.outline(outline.entries) }
             ) {
@@ -1514,9 +1530,6 @@ final class TitlebarTitleInstaller {
             if let togglesTrailing, abs(togglesTrailing.constant + trailingInset) > 0.5 {
                 togglesTrailing.constant = -trailingInset
             }
-            if ProcessInfo.processInfo.arguments.contains("-XYZCheckTitlebar") {
-                NSLog("MIRROR origin=\(origin) far=\(far) pitch=\(pitch) barMax=\(barMax) width=\(frameView.bounds.width) inset=\(trailingInset) toggles=\(NSStringFromRect(toggles.frame)) bar=\(NSStringFromRect(bar.frame))")
-            }
         }
         if label.stringValue != title {
             label.stringValue = title
@@ -1631,6 +1644,8 @@ final class TitlebarLayoutToggles: NSView {
     /// the bar belongs to `TitlebarTitleInstaller`, which owns that constraint.
     func applyTrafficLightMetrics(pitch: CGFloat) {
         let gap = max(0, pitch - Self.buttonSide)
+        // Equal spacing, whatever each button's state is: the row must not move when a
+        // pane is opened or the mode changes.
         for constraint in gapConstraints where abs(constraint.constant - gap) > 0.5 {
             constraint.constant = gap
         }
@@ -1742,54 +1757,172 @@ final class TitlebarToggleButton: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
-        // A glyph the size of a traffic light, and a round halo only while the pointer is
-        // on it. A permanent 12 pt disc with an 8 pt glyph inside could not be read, and a
-        // row of filled discs fought the real window buttons on the other side.
+        // Plain line icons, no discs and no colour: a left pane, a right pane, then the
+        // current reading state as a book or a document. An open column is drawn at full
+        // ink, a closed one is dimmed, which is enough to read state without colour.
         let enabled = isToggleEnabled
+        let color: NSColor = enabled ? .labelColor : NSColor.secondaryLabelColor.withAlphaComponent(0.35)
         if hovered, enabled {
-            let halo = NSRect(x: bounds.midX - 9.5, y: bounds.midY - 9.5, width: 19, height: 19)
-            (filled
-                ? NSColor.controlAccentColor.withAlphaComponent(0.22)
-                : NSColor.secondaryLabelColor.withAlphaComponent(0.16)
-            ).setFill()
-            NSBezierPath(ovalIn: halo).fill()
-        }
-        let color: NSColor
-        if !enabled {
-            color = NSColor.secondaryLabelColor.withAlphaComponent(0.35)
-        } else if filled {
-            color = .controlAccentColor
-        } else {
-            color = hovered ? .labelColor : .secondaryLabelColor
+            NSColor.labelColor.withAlphaComponent(0.07).setFill()
+            NSBezierPath(roundedRect: bounds.insetBy(dx: 0.5, dy: 0.5), xRadius: 5, yRadius: 5).fill()
         }
         drawGlyph(color)
     }
 
+    /// Every icon is drawn in the same 16 by 15 box with the same 1.3 pt stroke, so the
+    /// row has one geometry and one weight in both states.
     private func drawGlyph(_ color: NSColor) {
-        let name: String
         switch kind {
-        case .sidebar: name = "sidebar.left"
-        case .outline: name = "sidebar.right"
-        case .mode: name = filled ? "book" : "pencil"
+        case .sidebar, .outline:
+            drawPaneGlyph(color)
+        case .mode:
+            if filled {
+                drawBookGlyph(color)
+            } else {
+                drawDocumentGlyph(color)
+            }
         }
-        guard let base = NSImage(systemSymbolName: name, accessibilityDescription: nil) else { return }
-        let sized = base.withSymbolConfiguration(
-            NSImage.SymbolConfiguration(pointSize: 10.5, weight: .medium)
-        ) ?? base
-        let configured = sized.withSymbolConfiguration(
-            NSImage.SymbolConfiguration(paletteColors: [color])
-        ) ?? sized
-        // One 12 by 12 optical box for all three, so the row cannot look uneven.
-        let box = NSRect(x: bounds.midX - 6, y: bounds.midY - 6, width: 12, height: 12)
-        let size = configured.size
-        let rect = NSRect(
-            x: box.midX - size.width / 2,
-            y: box.midY - size.height / 2,
-            width: size.width,
-            height: size.height
-        )
-        configured.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)
     }
+
+    private func glyphBox() -> NSRect {
+        NSRect(x: bounds.midX - 8, y: bounds.midY - 7.5, width: 16, height: 15)
+    }
+
+    /// An open book: two pages with rounded outer corners that meet at the spine.
+    private func drawBookGlyph(_ color: NSColor) {
+        let box = glyphBox().insetBy(dx: 0.7, dy: 0.8)
+        // Same corner radius as the pane icons; one constant for the whole row.
+        let r: CGFloat = 3.0
+        let spineX = box.midX
+        let dip: CGFloat = 2.2
+        color.setStroke()
+        let book = NSBezierPath()
+        book.move(to: NSPoint(x: spineX, y: box.minY))
+        // Left page: bottom edge, rounded bottom-left, left edge, rounded top-left, top edge.
+        book.line(to: NSPoint(x: box.minX + r, y: box.minY + 1.1))
+        book.curve(
+            to: NSPoint(x: box.minX, y: box.minY + 1.1 + r),
+            controlPoint1: NSPoint(x: box.minX + r * 0.35, y: box.minY + 1.1),
+            controlPoint2: NSPoint(x: box.minX, y: box.minY + 1.1 + r * 0.4)
+        )
+        book.line(to: NSPoint(x: box.minX, y: box.maxY - r))
+        book.curve(
+            to: NSPoint(x: box.minX + r, y: box.maxY),
+            controlPoint1: NSPoint(x: box.minX, y: box.maxY - r * 0.4),
+            controlPoint2: NSPoint(x: box.minX + r * 0.35, y: box.maxY)
+        )
+        book.line(to: NSPoint(x: spineX, y: box.maxY - dip))
+        // Right page, mirrored.
+        book.line(to: NSPoint(x: box.maxX - r, y: box.maxY))
+        book.curve(
+            to: NSPoint(x: box.maxX, y: box.maxY - r),
+            controlPoint1: NSPoint(x: box.maxX - r * 0.35, y: box.maxY),
+            controlPoint2: NSPoint(x: box.maxX, y: box.maxY - r * 0.4)
+        )
+        book.line(to: NSPoint(x: box.maxX, y: box.minY + 1.1 + r))
+        book.curve(
+            to: NSPoint(x: box.maxX - r, y: box.minY + 1.1),
+            controlPoint1: NSPoint(x: box.maxX, y: box.minY + 1.1 + r * 0.4),
+            controlPoint2: NSPoint(x: box.maxX - r * 0.35, y: box.minY + 1.1)
+        )
+        book.line(to: NSPoint(x: spineX, y: box.minY))
+        book.lineWidth = 1.3
+        book.lineJoinStyle = .round
+        book.stroke()
+        let spine = NSBezierPath()
+        spine.move(to: NSPoint(x: spineX, y: box.minY))
+        spine.line(to: NSPoint(x: spineX, y: box.maxY - dip))
+        spine.lineWidth = 1.1
+        spine.stroke()
+    }
+
+    /// A document with rounded corners, a folded top-right corner and two text lines.
+    private func drawDocumentGlyph(_ color: NSColor) {
+        let box = glyphBox().insetBy(dx: 0.7, dy: 0.8)
+        let r: CGFloat = 3.0
+        let fold: CGFloat = 4.6
+        color.setStroke()
+        let page = NSBezierPath()
+        page.move(to: NSPoint(x: box.minX + r, y: box.minY))
+        page.line(to: NSPoint(x: box.maxX - r, y: box.minY))
+        page.curve(
+            to: NSPoint(x: box.maxX, y: box.minY + r),
+            controlPoint1: NSPoint(x: box.maxX - r * 0.35, y: box.minY),
+            controlPoint2: NSPoint(x: box.maxX, y: box.minY + r * 0.4)
+        )
+        page.line(to: NSPoint(x: box.maxX, y: box.maxY - fold))
+        page.line(to: NSPoint(x: box.maxX - fold, y: box.maxY))
+        page.line(to: NSPoint(x: box.minX + r, y: box.maxY))
+        page.curve(
+            to: NSPoint(x: box.minX, y: box.maxY - r),
+            controlPoint1: NSPoint(x: box.minX + r * 0.35, y: box.maxY),
+            controlPoint2: NSPoint(x: box.minX, y: box.maxY - r * 0.4)
+        )
+        page.line(to: NSPoint(x: box.minX, y: box.minY + r))
+        page.curve(
+            to: NSPoint(x: box.minX + r, y: box.minY),
+            controlPoint1: NSPoint(x: box.minX, y: box.minY + r * 0.4),
+            controlPoint2: NSPoint(x: box.minX + r * 0.35, y: box.minY)
+        )
+        page.close()
+        page.lineWidth = 1.3
+        page.lineJoinStyle = .round
+        page.stroke()
+        let crease = NSBezierPath()
+        crease.move(to: NSPoint(x: box.maxX - fold, y: box.maxY))
+        crease.line(to: NSPoint(x: box.maxX - fold, y: box.maxY - fold))
+        crease.line(to: NSPoint(x: box.maxX, y: box.maxY - fold))
+        crease.lineWidth = 1.1
+        crease.lineJoinStyle = .round
+        crease.stroke()
+        let rows: [(offset: Int, inset: CGFloat)] = [(0, 2.4), (1, 4.6)]
+        for row in rows {
+            let y = box.maxY - fold - 3.2 - CGFloat(row.offset) * 3.4
+            guard y > box.minY + 1.8 else { break }
+            let line = NSBezierPath()
+            line.move(to: NSPoint(x: box.minX + 2.2, y: y))
+            line.line(to: NSPoint(x: box.maxX - row.inset, y: y))
+            line.lineWidth = 1.1
+            line.lineCapStyle = .round
+            line.stroke()
+        }
+    }
+
+    /// The pane icons are drawn here rather than taken from SF Symbols: one rounded box
+    /// with a divider, the compartment filled when the column is open. The silhouette is
+    /// identical in both states, so the row never shifts.
+    private func drawPaneGlyph(_ color: NSColor) {
+        let rect = NSRect(x: bounds.midX - 8, y: bounds.midY - 7.5, width: 16, height: 15)
+        let outer = NSBezierPath(roundedRect: rect.insetBy(dx: 0.65, dy: 0.65), xRadius: 3, yRadius: 3)
+        outer.lineWidth = 1.3
+        let leading = kind == .sidebar
+        let paneWidth = (rect.width * 0.34).rounded()
+        let dividerX = leading ? rect.minX + paneWidth : rect.maxX - paneWidth
+        if filled {
+            // An open column fills its compartment edge to edge, so it reads as "full"
+            // next to the hollow state of the closed one.
+            let inset: CGFloat = 0.7
+            let pane = NSRect(
+                x: leading ? rect.minX + inset : dividerX,
+                y: rect.minY + inset,
+                width: leading ? paneWidth - inset : paneWidth - inset,
+                height: rect.height - inset * 2
+            )
+            NSGraphicsContext.saveGraphicsState()
+            outer.addClip()
+            color.setFill()
+            pane.fill()
+            NSGraphicsContext.restoreGraphicsState()
+        }
+        color.setStroke()
+        outer.stroke()
+        let divider = NSBezierPath()
+        divider.move(to: NSPoint(x: dividerX, y: rect.minY + 0.65))
+        divider.line(to: NSPoint(x: dividerX, y: rect.maxY - 0.65))
+        divider.lineWidth = 1.3
+        divider.stroke()
+    }
+
 
 }
 

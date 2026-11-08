@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.5.37
+
+Build 53. Installed on this Mac, Developer ID signed, notarized and stapled. No tag or GitHub release.
+
+### What changed
+
+- **Sidebar ownership moved out of SwiftUI.** Visibility now lives in `SidebarVisibility` and
+  the split view; ⌘B and the title-bar button call AppKit directly, so toggling the sidebar
+  no longer re-renders the whole window body. The animation is one slide at a time and a
+  press during a slide is only remembered, never a second reverse animation.
+- **⌘B no longer repeats.** The menu key equivalent fired once per auto-repeat event, so a
+  held key flipped the sidebar dozens of times and shook the content. ⌘B is handled by the
+  local key monitor now and drops `isARepeat` events.
+- **Regular and edited widths are remembered separately.** A column that was never dragged
+  opens at a width fitted to its content; once the divider is dragged (or double-clicked)
+  that width is stored per folder and restored on the next open and next launch. A late
+  `splitViewDidResizeSubviews` no longer overwrites it with the default.
+- **The title bar has three buttons again**, on the traffic lights' own grid: sidebar,
+  outline and the reading/editing switch. All are drawn in one 16 by 15 box with a 3 pt
+  corner radius and a 1.3 pt stroke: an open column fills its compartment, a closed one is
+  hollow; the mode button shows an open book while reading and a document while editing.
+- **Reading mode fills the left side of the status bar** with the scroll progress, and the
+  mode name dropped its icon (the title bar already carries that button).
+- **Scrolling to the bottom of a Reading page now reports the last source line**, so the
+  outline can mark its last entry; before, a short final section could never reach the top
+  of the page and its heading never became current.
+
+### Where this was checked
+
+- `swift test --package-path XYZCore`: 220 tests, 0 failures.
+- `sh Scripts/xyz-test.sh`: 8 cases, all ok.
+- `-XYZCheckGutter`: `refresh` (opens a folder by clicking it) passes. The other five cases
+  fail on this Mac because the window is not active while the harness runs, so its posted
+  clicks and menu lookups are dropped; they are unrelated to these changes.
+- Manual checks during the session: folder open/close and rapid clicking, selection and the
+  open-file marker, sidebar and outline width persistence, reading progress, outline
+  bottom-follow, title-bar button geometry (measured 16×15 boxes, 23 pt pitch, mirrored
+  centres, one 3 pt radius), ⌘B under rapid presses.
+- Release 0.5.37 (53): archive, Developer ID export, app and DMG notarized and stapled,
+  `spctl` accepted for both. Installed over `/Applications/XYZ.app`; one app on the machine.
+
 ## 0.5.36
 
 Build 52. Installed on this Mac, Developer ID signed, notarized and stapled. No tag or GitHub release.

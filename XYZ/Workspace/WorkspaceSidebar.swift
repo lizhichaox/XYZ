@@ -942,8 +942,7 @@ enum SidebarColumnFitCheck {
             detail: NSView(),
             outline: NSView(),
             showsSidebar: true,
-            showsOutline: true,
-            outlineWidth: 220
+            showsOutline: true
         )
         var leftFits = 0
         var rightFits = 0
