@@ -22,11 +22,18 @@ struct HTMLRenderer {
 }
 
 private struct HTMLRenderingWalker: MarkupWalker {
-    var allowsRemoteImages = true
+    var allowsRemoteImages: Bool
     var html = ""
     private var alignments: [Table.ColumnAlignment?] = []
     private var inHeader = false
     private var anchors = HeadingAnchor.Registry()
+
+    /// An explicit initializer, not the memberwise one: a struct with private stored
+    /// properties only synthesizes a memberwise initializer on newer Swift versions, and
+    /// the CI toolchain is older (it reported "takes no arguments").
+    init(allowsRemoteImages: Bool = true) {
+        self.allowsRemoteImages = allowsRemoteImages
+    }
 
     mutating func visitHeading(_ heading: Heading) {
         let level = min(max(heading.level, 1), 6)
