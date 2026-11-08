@@ -1018,6 +1018,7 @@ struct EditorStatusBar: View {
     var onLineEnding: ((LineEnding) -> Void)?
 
     var body: some View {
+        let layout = distribution
         HStack(spacing: 0) {
             if let caret {
                 Button {
@@ -1035,28 +1036,15 @@ struct EditorStatusBar: View {
                 statusText("\(progress)%")
                     .help(String(localized: "Reading Progress"))
             }
+            ForEach(Array(layout.left.enumerated()), id: \.offset) { _, entry in
+                separator
+                entryView(entry)
+            }
             Spacer(minLength: 8)
-            if showsWrap {
-                statusText(String(localized: "Wrap"))
-                separator
+            ForEach(Array(layout.right.enumerated()), id: \.offset) { index, entry in
+                if index > 0 { separator }
+                entryView(entry)
             }
-            if let words {
-                statusText(wordLabel(words))
-                separator
-            }
-            if let encodingValue {
-                encodingMenu(encodingValue)
-                separator
-            }
-            if let lineEndingValue {
-                endingMenu(lineEndingValue)
-                separator
-            }
-            if let detail, !detail.isEmpty {
-                statusText(detail)
-                separator
-            }
-            modeLabel(typeName)
         }
         .padding(.horizontal, 8)
         .frame(height: 22)
@@ -1065,6 +1053,42 @@ struct EditorStatusBar: View {
         .overlay(StatusBarMarker())
         .overlay(alignment: .top) {
             Rectangle().fill(Color.xyzDivider).frame(height: 1)
+        }
+    }
+
+    /// The bar is capped at three entries per side. An entry that does not fit on the
+    /// right (which holds the mode name, encoding, and line ending) moves to the left,
+    /// where the caret position and the selection own the first slots.
+    private var distribution: StatusBarLayout {
+        var candidates: [StatusBarEntry] = []
+        if showsWrap { candidates.append(.wrap) }
+        if let words { candidates.append(.words(words)) }
+        if let detail, !detail.isEmpty { candidates.append(.detail(detail)) }
+        if let encodingValue { candidates.append(.encoding(encodingValue)) }
+        if let lineEndingValue { candidates.append(.lineEnding(lineEndingValue)) }
+        if !typeName.isEmpty { candidates.append(.mode(typeName)) }
+        return StatusBarDistribution.layout(
+            candidates: candidates,
+            hasPrimary: caret != nil || progress != nil,
+            hasSelection: caret.map { selection($0) != nil } ?? false
+        )
+    }
+
+    @ViewBuilder
+    private func entryView(_ entry: StatusBarEntry) -> some View {
+        switch entry {
+        case .wrap:
+            statusText(String(localized: "Wrap"))
+        case .words(let stats):
+            statusText(wordLabel(stats))
+        case .encoding(let value):
+            encodingMenu(value)
+        case .lineEnding(let value):
+            endingMenu(value)
+        case .detail(let text):
+            statusText(text)
+        case .mode(let name):
+            modeLabel(name)
         }
     }
 
