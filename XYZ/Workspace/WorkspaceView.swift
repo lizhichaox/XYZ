@@ -2,6 +2,7 @@
 import AppKit
 import QuartzCore
 import SwiftUI
+import os
 import XYZCore
 
 struct WorkspaceActions {
@@ -24,6 +25,7 @@ extension FocusedValues {
 /// Explorer, editor, and the Markdown outline. Each edge is a hairline with a grab strip on top of the panes.
 private struct WorkspaceSplit<Sidebar: View, Detail: View, Outline: View>: NSViewRepresentable {
     var showsSidebar: Bool
+    var sidebarVisibility: SidebarVisibility
     var showsOutline: Bool
     var outlineWidth: CGFloat
     var onOutlineWidth: (CGFloat) -> Void
@@ -35,6 +37,7 @@ private struct WorkspaceSplit<Sidebar: View, Detail: View, Outline: View>: NSVie
 
     init(
         showsSidebar: Bool,
+        sidebarVisibility: SidebarVisibility,
         showsOutline: Bool,
         outlineWidth: CGFloat,
         onOutlineWidth: @escaping (CGFloat) -> Void,
@@ -45,6 +48,7 @@ private struct WorkspaceSplit<Sidebar: View, Detail: View, Outline: View>: NSVie
         @ViewBuilder outline: () -> Outline
     ) {
         self.showsSidebar = showsSidebar
+        self.sidebarVisibility = sidebarVisibility
         self.showsOutline = showsOutline
         self.outlineWidth = outlineWidth
         self.onOutlineWidth = onOutlineWidth
@@ -81,18 +85,20 @@ private struct WorkspaceSplit<Sidebar: View, Detail: View, Outline: View>: NSVie
             showsOutline: showsOutline,
             outlineWidth: outlineWidth
         )
+        sidebarVisibility.attach(split: split)
         return split
     }
 
     func updateNSView(_ split: XYZSplitView, context: Context) {
+        SplitTrace.note("update sidebar=\(showsSidebar) outline=\(showsOutline)")
         context.coordinator.side?.rootView = sidebar
         context.coordinator.detail?.rootView = detail
         context.coordinator.outline?.rootView = outline
         split.onOutlineWidth = onOutlineWidth
         split.measureSidebar = sidebarContentWidth
         split.measureOutline = outlineContentWidth
-        split.setSidebarShown(showsSidebar)
         split.setOutline(shown: showsOutline, width: outlineWidth)
+        // The sidebar is not pushed from here: the split view owns it after install.
     }
 
     func makeCoordinator() -> Coordinator {
@@ -106,13 +112,74 @@ private struct WorkspaceSplit<Sidebar: View, Detail: View, Outline: View>: NSVie
     }
 }
 
+/// Temporary trace for the sidebar toggle. Removed once the shaking is fixed.
+enum SplitTrace {
+    private static let log = Logger(subsystem: "com.lizhichao.XYZ", category: "sidebar")
+    static func note(_ message: String) { log.notice("\(message, privacy: .public)") }
+}
+
+/// Sidebar visibility, owned by AppKit.
+///
+/// SwiftUI used to own it in `@State`: every ⌘B re-evaluated the whole window body
+/// (editor, preview, outline) and then pushed the value back down through `updateNSView`,
+/// which fought the split view's own animation. Here the split view owns the state, the
+/// title-bar buttons and the command target talk to it directly, and SwiftUI is not in the
+/// loop at all — toggling the sidebar never renders the window body.
+@MainActor
+final class SidebarVisibility {
+    private(set) var shown = true
+    private weak var split: XYZSplitView?
+    private var observers: [(Bool) -> Void] = []
+
+    func attach(split: XYZSplitView) {
+        self.split = split
+        split.onSidebarVisibilityChange = { [weak self] shown in
+            self?.report(shown)
+        }
+    }
+
+    func toggle() {
+        set(!shown)
+    }
+
+    func set(_ value: Bool) {
+        guard value != shown else { return }
+        shown = value
+        split?.setSidebarShown(value)
+        notify()
+    }
+
+    /// The split view finished or started a change; keep the buttons in step.
+    func report(_ value: Bool) {
+        guard value != shown else { return }
+        shown = value
+        notify()
+    }
+
+    func observe(_ body: @escaping (Bool) -> Void) {
+        observers.append(body)
+        body(shown)
+    }
+
+    private func notify() {
+        for observer in observers { observer(shown) }
+    }
+}
+
 /// The panes sit in an `NSSplitView` with no divider of its own. The hairlines are separate
 /// views in front of the editor, so a web view or text view cannot take the resize cursor.
 final class XYZSplitView: NSView, NSSplitViewDelegate {
     fileprivate var sidebar: NSView?
     fileprivate var detail: NSView?
     fileprivate var outline: NSView?
+
+    /// The editor column's current width, for the split-jitter check. This is what the
+    /// eye reads as the content area.
+    var detailWidth: CGFloat { detail?.frame.width ?? 0 }
     var onOutlineWidth: ((CGFloat) -> Void)?
+    /// Told when the sidebar should be open, right away, so the title-bar button with the
+    /// sidebar glyph follows the click instead of the end of the slide.
+    var onSidebarVisibilityChange: ((Bool) -> Void)?
     var measureSidebar: () -> CGFloat = { SidebarFit.sidebarMinimum }
     var measureOutline: () -> CGFloat = { SidebarFit.outlineMinimum }
     private let panes = PaneSplitView()
@@ -152,7 +219,14 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
 
     private var slide: ColumnSlide?
     private var slideTimer: Timer?
+    private var slideTicks = 0
     private let slideDuration: CFTimeInterval = 0.18
+    /// Outline toggles still coalesce rapid presses; the sidebar does not need it now that
+    /// a press during its slide is only remembered, never a second animation.
+    private var outlineSettleTimer: Timer?
+    private var lastOutlineIntent: CFTimeInterval = 0
+    private let rapidPressWindow: CFTimeInterval = 0.2
+    private let settleQuiet: CFTimeInterval = 0.14
 
     /// The system's Reduce Motion setting turns the ease into a cut.
     private var effectiveSlideDuration: CFTimeInterval {
@@ -161,6 +235,7 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
 
     deinit {
         slideTimer?.invalidate()
+        outlineSettleTimer?.invalidate()
     }
 
     override init(frame frameRect: NSRect) {
@@ -311,27 +386,68 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
     /// on every toggle, so the editor and the Reading web view left the window and
     /// repainted. Only the column that changed now enters or leaves the split view;
     /// the editor stays attached and its text is laid out while the width eases.
+    /// Opens or closes the sidebar. A press that arrives during a slide only changes the
+    /// target; when the slide ends it continues to that target once. Nothing reverses
+    /// mid-flight, so a burst of ⌘B presses cannot shake the window.
     func setSidebarShown(_ shown: Bool) {
         guard shown != sidebarWanted else { return }
-        logSplit("toggle-sidebar wanted=\(shown) shown=\(sidebarShown)")
-        finishSlide()
-        if sidebarShown, let sidebar, sidebar.superview != nil, sidebar.frame.width > 1 {
-            savedPosition = max(220, sidebar.frame.width)
-        }
         sidebarWanted = shown
-        if shown {
+        onSidebarVisibilityChange?(shown)
+        settleOutlineIfNeeded()  // an outline slide must not drive the left column
+        if slide?.edge == .left { return }
+        runSidebarSlide()
+    }
+
+    private func runSidebarSlide() {
+        let target = sidebarWanted
+        if target, sidebarShown {
+            let from = max(0, sidebar?.frame.width ?? 0)
+            startSlide(edge: .left, from: from, to: clampedSidebarWidth(), shown: true) { [weak self] in
+                self?.finishSidebarSlide(target)
+            }
+        } else if target {
             sidebarShown = true
             syncPanes()
-            startSlide(edge: .left, from: 0, to: clampedSidebarWidth(), shown: true)
+            startSlide(edge: .left, from: 0, to: clampedSidebarWidth(), shown: true) { [weak self] in
+                self?.finishSidebarSlide(target)
+            }
         } else {
-            let current = max(0, sidebar?.frame.width ?? savedPosition)
-            startSlide(edge: .left, from: current, to: 0, shown: false) { [weak self] in
+            guard sidebarShown else { return }
+            if slide == nil, let sidebar, sidebar.frame.width > 1 {
+                savedPosition = max(220, sidebar.frame.width)
+            }
+            let from = max(0, sidebar?.frame.width ?? savedPosition)
+            startSlide(edge: .left, from: from, to: 0, shown: false) { [weak self] in
                 guard let self else { return }
                 self.sidebarShown = false
                 self.syncPanes()
                 self.applyPositions()
+                self.finishSidebarSlide(target)
             }
         }
+    }
+
+    private func finishSidebarSlide(_ target: Bool) {
+        if target { sidebarShown = true }
+        if sidebarWanted != target, slide == nil {
+            runSidebarSlide()
+        }
+    }
+
+    /// Holds the column where it is, without running the interrupted slide to its end.
+    private func freezeSlide(_ edge: ColumnSlide.Edge) {
+        guard let running = slide, running.edge == edge else { return }
+        slide = nil
+        slideTimer?.invalidate()
+        slideTimer = nil
+        flushPaneLayout(paint: true)
+        placeDividers()
+    }
+
+    private func settleOutlineIfNeeded() {
+        // A press on the left column finishes an outline slide at its end state.
+        guard let running = slide, running.edge == .right else { return }
+        finishSlide()
     }
 
     func setOutline(shown: Bool, width: CGFloat) {
@@ -341,15 +457,44 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
             placeDividers()
             return
         }
-        finishSlide()
+        let now = CACurrentMediaTime()
+        let rapid = now - lastOutlineIntent < rapidPressWindow
+        lastOutlineIntent = now
         outlineWanted = shown
-        if shown {
-            outlineShown = true
-            syncPanes()
-            startSlide(edge: .right, from: 0, to: targetOutlineWidth(), shown: true)
+        if rapid || slide != nil {
+            freezeSlide(.right)
+            outlineSettleTimer?.invalidate()
+            let timer = Timer(timeInterval: settleQuiet, repeats: false) { [weak self] _ in
+                self?.outlineSettleTimer = nil
+                self?.applyOutlineIntent()
+            }
+            RunLoop.main.add(timer, forMode: .common)
+            outlineSettleTimer = timer
+            return
+        }
+        applyOutlineIntent()
+    }
+
+    /// Animates toward `outlineWanted`, starting from the width on screen.
+    private func applyOutlineIntent() {
+        outlineSettleTimer?.invalidate()
+        outlineSettleTimer = nil
+        if slide?.edge != .right {
+            finishSlide()
+        }
+        if outlineWanted {
+            if outlineShown {
+                let from = max(0, outline?.frame.width ?? 0)
+                startSlide(edge: .right, from: from, to: targetOutlineWidth(), shown: true)
+            } else {
+                outlineShown = true
+                syncPanes()
+                startSlide(edge: .right, from: 0, to: targetOutlineWidth(), shown: true)
+            }
         } else {
-            let current = max(0, outline?.frame.width ?? savedOutline)
-            startSlide(edge: .right, from: current, to: 0, shown: false) { [weak self] in
+            guard outlineShown else { return }
+            let from = max(0, outline?.frame.width ?? savedOutline)
+            startSlide(edge: .right, from: from, to: 0, shown: false) { [weak self] in
                 guard let self else { return }
                 self.outlineShown = false
                 self.syncPanes()
@@ -436,6 +581,10 @@ final class XYZSplitView: NSView, NSSplitViewDelegate {
             self.lockColumnFrames()
             self.flushPaneLayout()
             self.placeDividers(updatingCursors: false)
+            self.slideTicks += 1
+            if self.slideTicks % 4 == 1 {
+                SplitTrace.note("tick detail=\(Int(self.detail?.frame.width ?? -1)) sidebar=\(Int(self.sidebar?.frame.width ?? -1))")
+            }
         }
         slideTimer = timer
         RunLoop.main.add(timer, forMode: .common)
@@ -1006,7 +1155,7 @@ struct WorkspaceView: View {
     @ObservedObject var session: WorkspaceSession
     @Environment(\.undoManager) private var undoManager
     @StateObject private var commands = WorkspaceCommandBridge()
-    @State private var columnVisibility = NavigationSplitViewVisibility.all
+    @State private var sidebar = SidebarVisibility()
     @State private var titlebarInset: CGFloat = 0
     @AppStorage(XYZEditorStyle.wordWrapKey) private var wordWrap = true
     @StateObject private var outline = OutlineModel()
@@ -1025,7 +1174,8 @@ struct WorkspaceView: View {
                         .allowsHitTesting(false)
                 }
             WorkspaceSplit(
-                showsSidebar: columnVisibility != .detailOnly,
+                showsSidebar: sidebar.shown,
+                sidebarVisibility: sidebar,
                 showsOutline: showsMarkdownOutline,
                 outlineWidth: session.outlineWidth,
                 onOutlineWidth: { session.rememberOutlineWidth($0) },
@@ -1049,6 +1199,7 @@ struct WorkspaceView: View {
             if session.buffer != nil {
                 EditorStatusBar(
                     caret: statusEditing ? session.caret : nil,
+                    progress: statusEditing ? nil : session.readingProgress,
                     encodingValue: showsStatusText ? session.buffer?.encoding : nil,
                     lineEndingValue: showsStatusText ? session.buffer?.lineEnding : nil,
                     mixedEndings: session.buffer?.mixedLineEndings == true,
@@ -1069,18 +1220,18 @@ struct WorkspaceView: View {
         .background(WorkspaceWindowChrome(
             title: titleText,
             representedFile: session.buffer?.url,
-            sidebarShown: columnVisibility != .detailOnly,
+            sidebar: sidebar,
             outlineShown: showsMarkdownOutline,
             outlineEnabled: outlineToggleEnabled,
+            readingMode: session.viewMode == .reading,
+            modeEnabled: modeToggleEnabled,
             titlebarInset: $titlebarInset,
-            onToggleSidebar: {
-                columnVisibility = columnVisibility == .detailOnly ? .all : .detailOnly
-            },
-            onToggleOutline: { session.toggleOutlinePane() }
+            onToggleOutline: { session.toggleOutlinePane() },
+            onToggleMode: { session.toggleViewMode(source: "titlebar") }
         ))
         .background(
             EditorCommandAnchor(target: commands) {
-                commands.attach(session: session, columnVisibility: $columnVisibility)
+                commands.attach(session: session, sidebar: sidebar)
             }
         )
         .workspaceFolderDrop()
@@ -1145,6 +1296,12 @@ struct WorkspaceView: View {
         return FileFormats.format(for: path).language == .markdown
     }
 
+    /// Reading and editing can be switched only for a file that has both.
+    private var modeToggleEnabled: Bool {
+        guard let buffer = session.buffer else { return false }
+        return EditorModeChoice.canToggle(WorkspaceSession.access(of: buffer))
+    }
+
     /// The right outline is only for a Markdown file, and only when this window left it open.
     private var showsMarkdownOutline: Bool {
         guard session.outlineVisible, let path = session.buffer?.relativePath else { return false }
@@ -1172,12 +1329,14 @@ struct WorkspaceView: View {
 private struct WorkspaceWindowChrome: NSViewRepresentable {
     var title: String
     var representedFile: URL?
-    var sidebarShown: Bool
+    var sidebar: SidebarVisibility
     var outlineShown: Bool
     var outlineEnabled: Bool
+    var readingMode: Bool
+    var modeEnabled: Bool
     @Binding var titlebarInset: CGFloat
-    var onToggleSidebar: () -> Void
     var onToggleOutline: () -> Void
+    var onToggleMode: () -> Void
 
     func makeNSView(context: Context) -> WorkspaceChromeView {
         let view = WorkspaceChromeView()
@@ -1193,11 +1352,13 @@ private struct WorkspaceWindowChrome: NSViewRepresentable {
     private func apply(to view: WorkspaceChromeView) {
         view.title = title
         view.representedFile = representedFile
-        view.sidebarShown = sidebarShown
+        view.sidebar = sidebar
         view.outlineShown = outlineShown
         view.outlineEnabled = outlineEnabled
-        view.onToggleSidebar = onToggleSidebar
+        view.readingMode = readingMode
+        view.modeEnabled = modeEnabled
         view.onToggleOutline = onToggleOutline
+        view.onToggleMode = onToggleMode
         view.onTitlebarInset = { inset in
             if abs(titlebarInset - inset) > 0.5 {
                 titlebarInset = inset
@@ -1209,11 +1370,17 @@ private struct WorkspaceWindowChrome: NSViewRepresentable {
 final class WorkspaceChromeView: NSView {
     var title = ""
     var representedFile: URL?
-    var sidebarShown = true
+    var sidebar: SidebarVisibility? {
+        didSet { wireSidebar() }
+    }
+    private var sidebarShown = true
     var outlineShown = false
     var outlineEnabled = false
-    var onToggleSidebar: () -> Void = {}
+    var readingMode = false
+    var modeEnabled = false
     var onToggleOutline: () -> Void = {}
+    var onToggleMode: () -> Void = {}
+    private var sidebarWired = false
     var onTitlebarInset: (CGFloat) -> Void = { _ in }
     private let titles = TitlebarTitleInstaller()
 
@@ -1234,7 +1401,29 @@ final class WorkspaceChromeView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        wireSidebar()
         apply()
+    }
+
+    /// The title-bar buttons read and write the sidebar without going through SwiftUI:
+    /// an observer keeps their state, and a click calls `toggle` directly.
+    private func wireSidebar() {
+        guard !sidebarWired, let sidebar else { return }
+        sidebarWired = true
+        sidebar.observe { [weak self] shown in
+            guard let self, self.sidebarShown != shown else { return }
+            self.sidebarShown = shown
+            self.titles.updateToggles(
+                sidebarShown: shown,
+                outlineShown: self.outlineShown,
+                outlineEnabled: self.outlineEnabled,
+                readingMode: self.readingMode,
+                modeEnabled: self.modeEnabled,
+                onSidebar: { [weak sidebar] in sidebar?.toggle() },
+                onOutline: self.onToggleOutline,
+                onMode: self.onToggleMode
+            )
+        }
     }
 
     override func layout() {
@@ -1251,8 +1440,11 @@ final class WorkspaceChromeView: NSView {
             sidebarShown: sidebarShown,
             outlineShown: outlineShown,
             outlineEnabled: outlineEnabled,
-            onSidebar: onToggleSidebar,
-            onOutline: onToggleOutline
+            readingMode: readingMode,
+            modeEnabled: modeEnabled,
+            onSidebar: { [weak sidebar] in sidebar?.toggle() },
+            onOutline: onToggleOutline,
+            onMode: onToggleMode
         )
         let overlap = titles.overlap(in: window)
         onTitlebarInset(overlap)
@@ -1267,6 +1459,7 @@ final class WorkspaceChromeView: NSView {
 final class TitlebarTitleInstaller {
     private let label = TitlebarTitleLabel(labelWithString: "")
     private let toggles = TitlebarLayoutToggles()
+    private var togglesTrailing: NSLayoutConstraint?
 
     init() {
         label.font = .systemFont(ofSize: 12, weight: .regular)
@@ -1298,10 +1491,32 @@ final class TitlebarTitleInstaller {
                 label.centerYAnchor.constraint(equalTo: close.centerYAnchor),
                 label.leadingAnchor.constraint(greaterThanOrEqualTo: bar.leadingAnchor, constant: 78),
                 label.trailingAnchor.constraint(lessThanOrEqualTo: toggles.leadingAnchor, constant: -8),
-                toggles.trailingAnchor.constraint(equalTo: bar.trailingAnchor, constant: -10),
                 toggles.centerYAnchor.constraint(equalTo: close.centerYAnchor),
             ]
+            let trailing = toggles.trailingAnchor.constraint(equalTo: bar.trailingAnchor, constant: -10)
+            constraints.append(trailing)
+            togglesTrailing = trailing
             NSLayoutConstraint.activate(constraints)
+        }
+        // Mirror the traffic lights' own metrics: the three centres sit as far from the
+        // right edge as the window buttons sit from the left, at the same pitch.
+        if let zoom = window.standardWindowButton(.zoomButton) {
+            // Work in the frame view's coordinates. `nil` here is window-base coordinates,
+            // which carry a different origin and made the mirror land eleven points short.
+            let frameView = window.contentView?.superview ?? bar
+            let origin = close.convert(NSPoint(x: close.bounds.midX, y: 0), to: frameView).x
+            let far = zoom.convert(NSPoint(x: zoom.bounds.midX, y: 0), to: frameView).x
+            let pitch = (far - origin) / 2
+            let barMax = bar.convert(bar.bounds, to: frameView).maxX
+            let mirror = frameView.bounds.width - origin
+            let trailingInset = barMax - mirror - TitlebarLayoutToggles.buttonSide / 2
+            toggles.applyTrafficLightMetrics(pitch: pitch)
+            if let togglesTrailing, abs(togglesTrailing.constant + trailingInset) > 0.5 {
+                togglesTrailing.constant = -trailingInset
+            }
+            if ProcessInfo.processInfo.arguments.contains("-XYZCheckTitlebar") {
+                NSLog("MIRROR origin=\(origin) far=\(far) pitch=\(pitch) barMax=\(barMax) width=\(frameView.bounds.width) inset=\(trailingInset) toggles=\(NSStringFromRect(toggles.frame)) bar=\(NSStringFromRect(bar.frame))")
+            }
         }
         if label.stringValue != title {
             label.stringValue = title
@@ -1317,15 +1532,21 @@ final class TitlebarTitleInstaller {
         sidebarShown: Bool,
         outlineShown: Bool,
         outlineEnabled: Bool,
+        readingMode: Bool,
+        modeEnabled: Bool,
         onSidebar: @escaping () -> Void,
-        onOutline: @escaping () -> Void
+        onOutline: @escaping () -> Void,
+        onMode: @escaping () -> Void
     ) {
         toggles.update(
             sidebarShown: sidebarShown,
             outlineShown: outlineShown,
             outlineEnabled: outlineEnabled,
+            readingMode: readingMode,
+            modeEnabled: modeEnabled,
             onSidebar: onSidebar,
-            onOutline: onOutline
+            onOutline: onOutline,
+            onMode: onMode
         )
     }
 
@@ -1365,32 +1586,54 @@ final class TitlebarTitleLabel: NSTextField {
 
 /// Left sidebar, then outline, at the trailing end of the title-bar row.
 final class TitlebarLayoutToggles: NSView {
-    private let left = TitlebarToggleButton(side: .left)
-    private let right = TitlebarToggleButton(side: .right)
+    private let sidebar = TitlebarToggleButton(kind: .sidebar)
+    private let mode = TitlebarToggleButton(kind: .mode)
+    private let outline = TitlebarToggleButton(kind: .outline)
+    private var gapConstraints: [NSLayoutConstraint] = []
+
+    /// One 20 pt hit area per glyph. `applyTrafficLightMetrics` places them on the same
+    /// centres as the window buttons on the other side, so the two groups mirror each
+    /// other whatever the system's own spacing is.
+    static let buttonSide: CGFloat = 20
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         translatesAutoresizingMaskIntoConstraints = false
-        left.translatesAutoresizingMaskIntoConstraints = false
-        right.translatesAutoresizingMaskIntoConstraints = false
-        left.toolTip = String(localized: "Toggle Left Sidebar (⌘B)")
-        right.toolTip = String(localized: "Toggle Outline (⌥⌘B)")
-        left.setAccessibilityLabel(left.toolTip)
-        right.setAccessibilityLabel(right.toolTip)
-        addSubview(left)
-        addSubview(right)
-        NSLayoutConstraint.activate([
-            left.leadingAnchor.constraint(equalTo: leadingAnchor),
-            left.topAnchor.constraint(equalTo: topAnchor),
-            left.bottomAnchor.constraint(equalTo: bottomAnchor),
-            left.widthAnchor.constraint(equalToConstant: 22),
-            left.heightAnchor.constraint(equalToConstant: 22),
-            right.leadingAnchor.constraint(equalTo: left.trailingAnchor, constant: 2),
-            right.trailingAnchor.constraint(equalTo: trailingAnchor),
-            right.centerYAnchor.constraint(equalTo: left.centerYAnchor),
-            right.widthAnchor.constraint(equalToConstant: 22),
-            right.heightAnchor.constraint(equalToConstant: 22),
-        ])
+        sidebar.toolTip = String(localized: "Toggle Left Sidebar (⌘B)")
+        mode.toolTip = String(localized: "Toggle Reading and Editing")
+        outline.toolTip = String(localized: "Toggle Outline (⌥⌘B)")
+        sidebar.setAccessibilityLabel(sidebar.toolTip)
+        mode.setAccessibilityLabel(mode.toolTip)
+        outline.setAccessibilityLabel(outline.toolTip)
+        var previous: NSView?
+        for button in [sidebar, outline, mode] {
+            button.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(button)
+            NSLayoutConstraint.activate([
+                button.widthAnchor.constraint(equalToConstant: Self.buttonSide),
+                button.heightAnchor.constraint(equalToConstant: Self.buttonSide),
+                button.centerYAnchor.constraint(equalTo: centerYAnchor),
+                button.topAnchor.constraint(equalTo: topAnchor),
+            ])
+            if let previous {
+                let gap = button.leadingAnchor.constraint(equalTo: previous.trailingAnchor)
+                gapConstraints.append(gap)
+                gap.isActive = true
+            } else {
+                button.leadingAnchor.constraint(equalTo: leadingAnchor).isActive = true
+            }
+            previous = button
+        }
+        mode.trailingAnchor.constraint(equalTo: trailingAnchor).isActive = true
+    }
+
+    /// `pitch` is the distance between two window-button centres. The group's own place in
+    /// the bar belongs to `TitlebarTitleInstaller`, which owns that constraint.
+    func applyTrafficLightMetrics(pitch: CGFloat) {
+        let gap = max(0, pitch - Self.buttonSide)
+        for constraint in gapConstraints where abs(constraint.constant - gap) > 0.5 {
+            constraint.constant = gap
+        }
     }
 
     @available(*, unavailable)
@@ -1402,25 +1645,34 @@ final class TitlebarLayoutToggles: NSView {
         sidebarShown: Bool,
         outlineShown: Bool,
         outlineEnabled: Bool,
+        readingMode: Bool,
+        modeEnabled: Bool,
         onSidebar: @escaping () -> Void,
-        onOutline: @escaping () -> Void
+        onOutline: @escaping () -> Void,
+        onMode: @escaping () -> Void
     ) {
-        left.filled = sidebarShown
-        left.onClick = onSidebar
-        right.filled = outlineShown
-        right.isToggleEnabled = outlineEnabled
-        right.alphaValue = outlineEnabled ? 1 : 0.38
-        right.onClick = onOutline
-        left.needsDisplay = true
-        right.needsDisplay = true
+        sidebar.filled = sidebarShown
+        sidebar.onClick = onSidebar
+        mode.filled = readingMode
+        mode.isToggleEnabled = modeEnabled
+        mode.alphaValue = modeEnabled ? 1 : 0.38
+        mode.onClick = onMode
+        outline.filled = outlineShown
+        outline.isToggleEnabled = outlineEnabled
+        outline.alphaValue = outlineEnabled ? 1 : 0.38
+        outline.onClick = onOutline
+        sidebar.needsDisplay = true
+        mode.needsDisplay = true
+        outline.needsDisplay = true
     }
 }
 
-/// Borderless title-bar icon. A filled pane means that sidebar is open.
+/// Borderless title-bar icon. A filled pane means that pane is open; a filled book means
+/// the file is shown in Reading.
 final class TitlebarToggleButton: NSView {
-    enum Side { case left, right }
+    enum Kind { case sidebar, mode, outline }
 
-    var side: Side = .left
+    let kind: Kind
     var filled = true
     var isToggleEnabled = true
     var onClick: () -> Void = {}
@@ -1428,8 +1680,8 @@ final class TitlebarToggleButton: NSView {
     private var hovered = false
     private var tracking: NSTrackingArea?
 
-    init(side: Side) {
-        self.side = side
+    init(kind: Kind) {
+        self.kind = kind
         super.init(frame: .zero)
         setAccessibilityRole(.button)
     }
@@ -1490,35 +1742,55 @@ final class TitlebarToggleButton: NSView {
     }
 
     override func draw(_ dirtyRect: NSRect) {
+        // A glyph the size of a traffic light, and a round halo only while the pointer is
+        // on it. A permanent 12 pt disc with an 8 pt glyph inside could not be read, and a
+        // row of filled discs fought the real window buttons on the other side.
+        let enabled = isToggleEnabled
+        if hovered, enabled {
+            let halo = NSRect(x: bounds.midX - 9.5, y: bounds.midY - 9.5, width: 19, height: 19)
+            (filled
+                ? NSColor.controlAccentColor.withAlphaComponent(0.22)
+                : NSColor.secondaryLabelColor.withAlphaComponent(0.16)
+            ).setFill()
+            NSBezierPath(ovalIn: halo).fill()
+        }
         let color: NSColor
-        if !isToggleEnabled {
-            color = .secondaryLabelColor.withAlphaComponent(0.35)
-        } else if hovered {
-            color = .secondaryLabelColor.blended(withFraction: 0.55, of: .labelColor) ?? .labelColor
+        if !enabled {
+            color = NSColor.secondaryLabelColor.withAlphaComponent(0.35)
+        } else if filled {
+            color = .controlAccentColor
         } else {
-            color = .secondaryLabelColor
+            color = hovered ? .labelColor : .secondaryLabelColor
         }
-        color.set()
-        let icon = NSRect(x: bounds.midX - 7, y: bounds.midY - 5, width: 14, height: 10)
-        let outer = NSBezierPath(roundedRect: icon, xRadius: 2, yRadius: 2)
-        let paneWidth: CGFloat = 4.5
-        let paneX = side == .left ? icon.minX : icon.maxX - paneWidth
-        let pane = NSRect(x: paneX, y: icon.minY, width: paneWidth, height: icon.height)
-        if filled {
-            NSGraphicsContext.current?.saveGraphicsState()
-            outer.addClip()
-            pane.fill()
-            NSGraphicsContext.current?.restoreGraphicsState()
-        }
-        outer.lineWidth = 1
-        outer.stroke()
-        let dividerX = side == .left ? icon.minX + paneWidth : icon.maxX - paneWidth
-        let divider = NSBezierPath()
-        divider.move(to: NSPoint(x: dividerX, y: icon.minY + 1))
-        divider.line(to: NSPoint(x: dividerX, y: icon.maxY - 1))
-        divider.lineWidth = 1
-        divider.stroke()
+        drawGlyph(color)
     }
+
+    private func drawGlyph(_ color: NSColor) {
+        let name: String
+        switch kind {
+        case .sidebar: name = "sidebar.left"
+        case .outline: name = "sidebar.right"
+        case .mode: name = filled ? "book" : "pencil"
+        }
+        guard let base = NSImage(systemSymbolName: name, accessibilityDescription: nil) else { return }
+        let sized = base.withSymbolConfiguration(
+            NSImage.SymbolConfiguration(pointSize: 10.5, weight: .medium)
+        ) ?? base
+        let configured = sized.withSymbolConfiguration(
+            NSImage.SymbolConfiguration(paletteColors: [color])
+        ) ?? sized
+        // One 12 by 12 optical box for all three, so the row cannot look uneven.
+        let box = NSRect(x: bounds.midX - 6, y: bounds.midY - 6, width: 12, height: 12)
+        let size = configured.size
+        let rect = NSRect(
+            x: box.midX - size.width / 2,
+            y: box.midY - size.height / 2,
+            width: size.width,
+            height: size.height
+        )
+        configured.draw(in: rect, from: .zero, operation: .sourceOver, fraction: 1)
+    }
+
 }
 
 enum WorkspaceChrome {
@@ -1832,11 +2104,11 @@ final class WorkspaceCommandBridge: ObservableObject, EditorCommandTarget {
     private let storedFind = EditorFindModel()
     var findModel: EditorFindModel? { storedFind }
     private weak var session: WorkspaceSession?
-    private var columnVisibility: Binding<NavigationSplitViewVisibility> = .constant(.all)
+    private weak var sidebar: SidebarVisibility?
 
-    func attach(session: WorkspaceSession, columnVisibility: Binding<NavigationSplitViewVisibility>) {
+    func attach(session: WorkspaceSession, sidebar: SidebarVisibility) {
         self.session = session
-        self.columnVisibility = columnVisibility
+        self.sidebar = sidebar
         if EditorCommands.shared.target === self {
             EditorCommandState.shared.setOpenFile(session.buffer != nil)
         }
@@ -1907,7 +2179,7 @@ final class WorkspaceCommandBridge: ObservableObject, EditorCommandTarget {
     }
 
     func toggleSidebar() {
-        columnVisibility.wrappedValue = columnVisibility.wrappedValue == .detailOnly ? .all : .detailOnly
+        sidebar?.toggle()
     }
 
     var showsOutlinePane: Bool { session?.outlineVisible ?? false }

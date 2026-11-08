@@ -117,6 +117,9 @@ final class EditorScrollLink {
     var revealLine: (Int) -> Void = { _ in }
     /// The source line at the top of Reading. Editing does not call this.
     var onViewportLine: ((Int) -> Void)?
+    /// How far down the page Reading is, as a whole percent. Published only when the
+    /// number changes, so a scroll does not redraw the window on every frame.
+    var onReadingProgress: ((Int) -> Void)?
     /// A search hit. The source editor selects the matched text on that line.
     var revealMatch: ((Int, String) -> Void)?
     /// Go to Line. The source editor sets this. Reading does not.

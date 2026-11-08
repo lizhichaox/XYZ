@@ -36,6 +36,8 @@
 		8C0000000000000000000021 /* EscapeKey.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000021 /* EscapeKey.swift */; };
 		8C0000000000000000000022 /* LineNumberGutter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000022 /* LineNumberGutter.swift */; };
 		8C0000000000000000000026 /* GutterSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000026 /* GutterSnapshot.swift */; };
+		8E0000000000000000000033 /* TitlebarShot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D0000000000000000000032 /* TitlebarShot.swift */; };
+		8E0000000000000000000035 /* SplitJitterCheck.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8D0000000000000000000034 /* SplitJitterCheck.swift */; };
 		8C0000000000000000000023 /* EditorChrome.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000023 /* EditorChrome.swift */; };
 		8C0000000000000000000024 /* FileSurfaces.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000024 /* FileSurfaces.swift */; };
 		8C0000000000000000000025 /* GlobalSearchPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000025 /* GlobalSearchPanel.swift */; };
@@ -78,6 +80,8 @@
 		8B0000000000000000000021 /* EscapeKey.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EscapeKey.swift; sourceTree = "<group>"; };
 		8B0000000000000000000022 /* LineNumberGutter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LineNumberGutter.swift; sourceTree = "<group>"; };
 		8B0000000000000000000026 /* GutterSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GutterSnapshot.swift; sourceTree = "<group>"; };
+		8D0000000000000000000032 /* TitlebarShot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TitlebarShot.swift; sourceTree = "<group>"; };
+		8D0000000000000000000034 /* SplitJitterCheck.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SplitJitterCheck.swift; sourceTree = "<group>"; };
 		8B0000000000000000000023 /* EditorChrome.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EditorChrome.swift; sourceTree = "<group>"; };
 		8B0000000000000000000024 /* FileSurfaces.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileSurfaces.swift; sourceTree = "<group>"; };
 		8B0000000000000000000025 /* GlobalSearchPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GlobalSearchPanel.swift; sourceTree = "<group>"; };
@@ -141,6 +145,8 @@
 				8B000000000000000000001E /* WordCountBar.swift */,
 				8B0000000000000000000022 /* LineNumberGutter.swift */,
 				8B0000000000000000000026 /* GutterSnapshot.swift */,
+				8D0000000000000000000032 /* TitlebarShot.swift */,
+				8D0000000000000000000034 /* SplitJitterCheck.swift */,
 			);
 			path = Editor;
 			sourceTree = "<group>";
@@ -326,6 +332,8 @@
 				8C0000000000000000000021 /* EscapeKey.swift in Sources */,
 				8C0000000000000000000022 /* LineNumberGutter.swift in Sources */,
 				8C0000000000000000000026 /* GutterSnapshot.swift in Sources */,
+				8E0000000000000000000033 /* TitlebarShot.swift in Sources */,
+				8E0000000000000000000035 /* SplitJitterCheck.swift in Sources */,
 				8C0000000000000000000023 /* EditorChrome.swift in Sources */,
 				8C0000000000000000000024 /* FileSurfaces.swift in Sources */,
 				8C0000000000000000000025 /* GlobalSearchPanel.swift in Sources */,

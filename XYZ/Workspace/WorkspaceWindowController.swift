@@ -648,6 +648,8 @@ final class XYZAppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         GutterSnapshotCheck.finishIfRequested()
+        TitlebarShot.shootIfRequested()
+        SplitJitterCheck.runIfRequested()
         FolderOpening.installLate()
         XYZDiagnostics.start()
         FileMenuSupport.install()

@@ -915,6 +915,10 @@ struct EditorBreadcrumb: View {
 /// Encoding and line ending are menus. They sit in this bar, not in the note.
 struct EditorStatusBar: View {
     var caret: EditorCaret?
+    /// Reading mode: how far down the page, as a whole percent. It fills the left side
+    /// that the caret position fills while editing, so the bar reads the same from either
+    /// end. The section title is left out: the outline already shows it.
+    var progress: Int?
     var encodingValue: TextEncoding?
     var lineEndingValue: LineEnding?
     var mixedEndings: Bool
@@ -941,6 +945,9 @@ struct EditorStatusBar: View {
                     separator
                     statusText(selection)
                 }
+            } else if let progress {
+                statusText("\(progress)%")
+                    .help(String(localized: "Reading Progress"))
             }
             Spacer(minLength: 8)
             if showsWrap {

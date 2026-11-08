@@ -2874,6 +2874,16 @@
           }
         }
       }
+    },
+    "Reading Progress": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "阅读进度"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

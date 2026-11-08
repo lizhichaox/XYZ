@@ -513,6 +513,7 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate, WKScriptMessa
         let body = message.body as? [String: Any]
         let line = Self.intValue(body?["line"])
         let fraction = min(1, max(0, Self.doubleValue(body?["fraction"])))
+        let progress = min(1, max(0, Self.doubleValue(body?["progress"])))
         let apply = {
             let next = max(0, line)
             self.readingLine = next
@@ -520,6 +521,7 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate, WKScriptMessa
             if next > 0 {
                 MainActor.assumeIsolated { () -> Void in
                     self.scrollLink?.onViewportLine?(next)
+                    self.scrollLink?.onReadingProgress?(Int((progress * 100).rounded()))
                 }
             }
             if let requested = self.pendingReadingAlign {
@@ -1196,7 +1198,9 @@ enum PreviewPage {
         function xyzPost(line, fraction) {
           var handlers = window.webkit && window.webkit.messageHandlers;
           if (!handlers || !handlers.xyzAnchor) return;
-          handlers.xyzAnchor.postMessage({line: line | 0, fraction: +fraction || 0});
+          var max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+          var progress = max > 0 ? Math.min(1, Math.max(0, window.scrollY / max)) : 1;
+          handlers.xyzAnchor.postMessage({line: line | 0, fraction: +fraction || 0, progress: progress});
         }
         function xyzTop() {
           var nodes = document.querySelectorAll("[data-line]");
@@ -1221,12 +1225,31 @@ enum PreviewPage {
           }
           return {line: xyzSourceLine(start, end, fraction), fraction: fraction};
         }
+        // The bottom of the page. The last section can be shorter than the viewport, so its
+        // heading never reaches the top of the page; without this the outline could never
+        // mark the last entry. At the very bottom, report the last source line instead.
+        function xyzAtBottom() {
+          var max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
+          return max > 0 && window.scrollY >= max - 1;
+        }
+        function xyzLastSourceLine() {
+          var nodes = document.querySelectorAll("[data-line]");
+          if (!nodes.length) return 1;
+          var last = nodes[nodes.length - 1];
+          var end = parseInt(last.getAttribute("data-end"), 10) || 0;
+          var start = parseInt(last.getAttribute("data-line"), 10) || 1;
+          return Math.max(start, end);
+        }
         function xyzReport() {
           if (xyzPinned && Date.now() < xyzPinUntil) {
             xyzPost(xyzPinned, 0);
             return;
           }
           xyzPinned = 0;
+          if (xyzAtBottom()) {
+            xyzPost(xyzLastSourceLine(), 1);
+            return;
+          }
           var found = xyzTop();
           xyzPost(found.line, found.fraction);
         }

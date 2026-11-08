@@ -101,6 +101,8 @@ final class WorkspaceSession: ObservableObject {
     @Published var caret = EditorCaret()
     /// The source line at the top of Reading. Zero until the page reports one.
     @Published private(set) var viewportLine = 0
+    /// Reading progress in whole percent, 0...100.
+    @Published private(set) var readingProgress = 0
     /// Set when a new item should start inline rename once the row exists.
     var pendingEditPath: String?
     var focusSearchHandler: (() -> Void)?
@@ -163,6 +165,9 @@ final class WorkspaceSession: ObservableObject {
         scrollLink.onViewportLine = { [weak self] line in
             self?.noteViewportLine(line)
         }
+        scrollLink.onReadingProgress = { [weak self] percent in
+            self?.noteReadingProgress(percent)
+        }
     }
 
     func noteViewportLine(_ line: Int) {
@@ -172,9 +177,16 @@ final class WorkspaceSession: ObservableObject {
         XYZDiagnostics.note("outline viewport=\(next)")
     }
 
+    func noteReadingProgress(_ percent: Int) {
+        let next = min(100, max(0, percent))
+        guard readingProgress != next else { return }
+        readingProgress = next
+    }
+
     func clearViewportLine() {
         guard viewportLine != 0 else { return }
         viewportLine = 0
+        readingProgress = 0
     }
 
     func toggleOutlinePane() {
