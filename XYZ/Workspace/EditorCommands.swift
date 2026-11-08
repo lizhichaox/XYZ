@@ -1225,6 +1225,39 @@ final class EditorCommandState: ObservableObject {
     }
 }
 
+/// Floating panels (About, Settings) center on the window the user is working in,
+/// not on the display, and stay fully on that window's screen.
+@MainActor
+enum AppPanelPlacement {
+    static func center(_ panel: NSPanel) {
+        let size = panel.frame.size
+        let candidates = [NSApp.keyWindow, NSApp.mainWindow].compactMap { $0 }
+        guard let host = candidates.first(where: { $0 !== panel && $0.isVisible }) else {
+            if let screen = NSScreen.main?.visibleFrame {
+                panel.setFrameOrigin(centeredOrigin(size: size, in: screen))
+            } else {
+                panel.center()
+            }
+            return
+        }
+        let origin = centeredOrigin(size: size, in: host.frame)
+        guard let screen = host.screen ?? NSScreen.main else {
+            panel.setFrameOrigin(origin)
+            return
+        }
+        let visible = screen.visibleFrame
+        panel.setFrameOrigin(NSPoint(
+            x: max(visible.minX, min(origin.x, visible.maxX - size.width)),
+            y: max(visible.minY, min(origin.y, visible.maxY - size.height))
+        ))
+    }
+
+    /// Pure geometry, so the placement can be checked without opening a window.
+    static func centeredOrigin(size: NSSize, in area: NSRect) -> NSPoint {
+        NSPoint(x: (area.midX - size.width / 2).rounded(), y: (area.midY - size.height / 2).rounded())
+    }
+}
+
 @MainActor
 enum AboutWindow {
     private static var panel: AboutPanel?
@@ -1233,14 +1266,14 @@ enum AboutWindow {
     static func show() {
         let panel = self.panel ?? make()
         self.panel = panel
-        panel.center()
+        AppPanelPlacement.center(panel)
         panel.makeKeyAndOrderFront(nil)
         NSApp.activate()
     }
 
     private static func make() -> AboutPanel {
         let panel = AboutPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 300, height: 228),
+            contentRect: NSRect(x: 0, y: 0, width: 260, height: 180),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -1274,23 +1307,73 @@ enum AboutWindow {
         credit.translatesAutoresizingMaskIntoConstraints = false
         credit.setAccessibilityLabel(creditLine().string)
 
+        let measured = metrics(versionHeight: max(16, version.intrinsicContentSize.height))
         content.addSubview(icon)
         content.addSubview(version)
         content.addSubview(credit)
         NSLayoutConstraint.activate([
-            icon.topAnchor.constraint(equalTo: content.topAnchor, constant: 18),
+            icon.topAnchor.constraint(equalTo: content.topAnchor, constant: Metrics.topInset),
             icon.centerXAnchor.constraint(equalTo: content.centerXAnchor),
-            icon.widthAnchor.constraint(equalToConstant: 96),
-            icon.heightAnchor.constraint(equalToConstant: 96),
-            version.topAnchor.constraint(equalTo: icon.bottomAnchor, constant: 12),
-            version.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 16),
-            version.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -16),
-            credit.topAnchor.constraint(equalTo: version.bottomAnchor, constant: 4),
-            credit.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 16),
-            credit.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -16),
-            credit.heightAnchor.constraint(equalToConstant: 32),
+            icon.widthAnchor.constraint(equalToConstant: Metrics.iconSize),
+            icon.heightAnchor.constraint(equalToConstant: Metrics.iconSize),
+            version.topAnchor.constraint(equalTo: icon.bottomAnchor, constant: Metrics.iconToVersion),
+            version.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: Metrics.sideInset),
+            version.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -Metrics.sideInset),
+            credit.topAnchor.constraint(equalTo: version.bottomAnchor, constant: Metrics.versionToCredit),
+            credit.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: Metrics.sideInset),
+            credit.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -Metrics.sideInset),
+            credit.heightAnchor.constraint(equalToConstant: measured.creditHeight),
+            credit.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -Metrics.bottomInset),
         ])
+        // The window hugs these three rows; no fixed height leaves empty space below.
+        content.layoutSubtreeIfNeeded()
+        let fitted = content.fittingSize
+        panel.setContentSize(NSSize(
+            width: max(measured.width, fitted.width),
+            height: max(measured.height, fitted.height)
+        ))
         return panel
+    }
+
+
+    private enum Metrics {
+        static let iconSize: CGFloat = 88
+        static let sideInset: CGFloat = 20
+        static let topInset: CGFloat = 20
+        static let bottomInset: CGFloat = 16
+        static let iconToVersion: CGFloat = 14
+        static let versionToCredit: CGFloat = 4
+        static let minimumWidth: CGFloat = 220
+    }
+
+    /// One measurement pass decides the window size: widest row plus the insets.
+    private struct ContentMetrics {
+        var width: CGFloat
+        var height: CGFloat
+        var creditHeight: CGFloat
+    }
+
+    private static func metrics(versionHeight: CGFloat) -> ContentMetrics {
+        let credit = creditLine()
+        let versionWidth = versionLine().size(withAttributes: [.font: NSFont.systemFont(ofSize: 13)]).width
+        let creditWidth = credit.size().width
+        let width = max(
+            Metrics.minimumWidth,
+            ceil(max(Metrics.iconSize, max(versionWidth, creditWidth + 2))) + Metrics.sideInset * 2
+        )
+        let textWidth = width - Metrics.sideInset * 2
+        // Measure the real line box: the emoji and the link run slightly taller than the font.
+        let storage = NSTextStorage(attributedString: credit)
+        let layout = NSLayoutManager()
+        let container = NSTextContainer(containerSize: NSSize(width: textWidth, height: .greatestFiniteMagnitude))
+        container.lineFragmentPadding = 0
+        layout.addTextContainer(container)
+        storage.addLayoutManager(layout)
+        layout.ensureLayout(for: container)
+        let creditHeight = ceil(layout.usedRect(for: container).height) + 1
+        let height = Metrics.topInset + Metrics.iconSize + Metrics.iconToVersion
+            + versionHeight + Metrics.versionToCredit + creditHeight + Metrics.bottomInset
+        return ContentMetrics(width: width, height: height, creditHeight: creditHeight)
     }
 
     private static func versionLine() -> String {

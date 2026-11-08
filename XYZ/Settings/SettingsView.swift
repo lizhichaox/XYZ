@@ -115,39 +115,9 @@ enum SettingsWindow {
     static func show() {
         let panel = self.panel ?? make()
         self.panel = panel
-        centerOverApp(panel)
+        AppPanelPlacement.center(panel)
         panel.makeKeyAndOrderFront(nil)
         NSApp.activate()
-    }
-
-    /// Center over the window the user is working in, not over the display,
-    /// then keep the whole panel on that window's screen.
-    private static func centerOverApp(_ panel: NSPanel) {
-        let size = panel.frame.size
-        let candidates = [NSApp.keyWindow, NSApp.mainWindow].compactMap { $0 }
-        guard let host = candidates.first(where: { $0 !== panel && $0.isVisible }) else {
-            if let screen = NSScreen.main?.visibleFrame {
-                panel.setFrameOrigin(centeredOrigin(size: size, in: screen))
-            } else {
-                panel.center()
-            }
-            return
-        }
-        let origin = centeredOrigin(size: size, in: host.frame)
-        guard let screen = host.screen ?? NSScreen.main else {
-            panel.setFrameOrigin(origin)
-            return
-        }
-        let visible = screen.visibleFrame
-        panel.setFrameOrigin(NSPoint(
-            x: max(visible.minX, min(origin.x, visible.maxX - size.width)),
-            y: max(visible.minY, min(origin.y, visible.maxY - size.height))
-        ))
-    }
-
-    /// Pure geometry, so the placement can be checked without opening a window.
-    static func centeredOrigin(size: NSSize, in area: NSRect) -> NSPoint {
-        NSPoint(x: (area.midX - size.width / 2).rounded(), y: (area.midY - size.height / 2).rounded())
     }
 
     private static func make() -> NSPanel {

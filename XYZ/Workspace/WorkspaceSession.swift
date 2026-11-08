@@ -443,14 +443,30 @@ final class WorkspaceSession: ObservableObject {
     }
 
     /// A link in Reading. Files in this folder open here; anything else goes to its default app.
+    ///
+    /// A wiki link such as `[[ST/AGENTS]]` names a path from the folder root, while the
+    /// page resolves it against the note's own folder. If that note-relative file is
+    /// absent, open the same path from the workspace root instead of a missing file.
     func openLinked(_ url: URL) {
-        let root = rootURL.standardizedFileURL.path
+        let root = rootURL.standardizedFileURL
+        let rootPath = root.path
         let path = url.standardizedFileURL.path
-        guard path.hasPrefix(root + "/") else {
+        guard path.hasPrefix(rootPath + "/") else {
             NSWorkspace.shared.open(url)
             return
         }
-        openRelative(String(path.dropFirst(root.count + 1)))
+        if !FileManager.default.fileExists(atPath: path),
+           let folder = buffer?.url.deletingLastPathComponent().standardizedFileURL,
+           let relative = LinkedNotePath.rootRelative(
+               linkPath: path,
+               noteFolderPath: folder.path,
+               rootPath: rootPath,
+               isFile: { FileManager.default.fileExists(atPath: $0) }
+           ) {
+            openRelative(relative)
+            return
+        }
+        openRelative(String(path.dropFirst(rootPath.count + 1)))
     }
 
     private func rememberScrollLine() {
@@ -1137,6 +1153,9 @@ final class WorkspaceSession: ObservableObject {
         open.onConflict = { [weak self] buffer in
             self?.offerExternalChange(buffer)
         }
+        if loaded.missing {
+            open.noteMissing()
+        }
         open.changeForwarding = open.objectWillChange.sink { [weak self] _ in
             self?.objectWillChange.send()
         }
@@ -1803,6 +1822,9 @@ final class WorkspaceSession: ObservableObject {
         var lineEnding: LineEnding
         var mixedLineEndings: Bool
         var truncated = false
+        /// The name is text, but the file could not be read. Open an empty editor that
+        /// says the file was removed instead of a Quick Look placeholder.
+        var missing = false
     }
 
     fileprivate static func readForEditing(url: URL, name: String) async -> LoadedFile {
@@ -1825,7 +1847,17 @@ final class WorkspaceSession: ObservableObject {
             switch FileOpenRouting.route(name: name, kind: kind) {
             case .edit:
                 let data = (fullFile?.count == size ? fullFile : nil) ?? (try? WorkspaceFileCoordination.readData(at: url))
-                guard let data, let decoded = TextBytes.decode(data, allowLegacy: true) else {
+                guard let data else {
+                    return LoadedFile(
+                        kind: kind,
+                        text: "",
+                        encoding: .utf8,
+                        lineEnding: .lf,
+                        mixedLineEndings: false,
+                        missing: true
+                    )
+                }
+                guard let decoded = TextBytes.decode(data, allowLegacy: true) else {
                     return empty
                 }
                 return LoadedFile(
