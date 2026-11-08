@@ -1841,6 +1841,11 @@ enum EditorTypography {
         manager.textViewportLayoutController.layoutViewport()
     }
 
+    /// The colour for one token kind, used by both the plain code path and fenced blocks.
+    private static func tokenColor(_ kind: SyntaxTokenKind) -> NSColor? {
+        syntaxColor(kind)
+    }
+
     /// Muted colors in the spirit of VS Code Dark Modern and Light Modern.
     private static func syntaxColor(_ kind: SyntaxTokenKind) -> NSColor {
         let dark = NSApp.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
@@ -1934,12 +1939,24 @@ enum EditorTypography {
     private static func styleMarkup(_ storage: NSTextStorage, style: XYZEditorStyle, within span: NSRange) {
         let ns = storage.string as NSString
         let syntax = NSColor.tertiaryLabelColor
-        var inFence = fenceIsOpen(ns, before: span.location)
-        var location = span.location
         let limit = min(NSMaxRange(span), ns.length)
+        var location = max(0, span.location)
+        // Typing inside a fenced block restyles the whole block: token state (comments,
+        // multi-line strings) is only right when the block is scanned as one text.
+        if fenceIsOpen(ns, before: location), let open = precedingFenceLine(ns, before: location) {
+            location = open.location
+        }
         while location < limit {
             let lineRange = ns.lineRange(for: NSRange(location: location, length: 0))
             let content = contentRange(ns, lineRange)
+            if content.range.length > 0, let info = fenceInfo(content.text) {
+                let block = fenceBlock(ns: ns, openingLine: lineRange, info: info)
+                styleFenceBlock(ns: ns, block: block, storage: storage, style: style, fenceColor: syntax)
+                let next = max(NSMaxRange(block.body), NSMaxRange(lineRange))
+                if next <= location { break }
+                location = next
+                continue
+            }
             if content.range.length > 0 {
                 styleLine(
                     ns: ns,
@@ -1947,13 +1964,107 @@ enum EditorTypography {
                     range: content.range,
                     storage: storage,
                     style: style,
-                    syntax: syntax,
-                    inFence: &inFence
+                    syntax: syntax
                 )
             }
             let next = NSMaxRange(lineRange)
             if next <= location || next >= limit { break }
             location = next
+        }
+    }
+
+    private struct FenceBlock {
+        var openingLine: NSRange
+        var body: NSRange
+        var closingLine: NSRange?
+        var language: SyntaxLanguage
+    }
+
+    /// The text after the fence marker, such as `swift` in ```` ```swift ````.
+    private static func fenceInfo(_ content: String) -> String? {
+        let ns = content as NSString
+        var index = 0
+        var indent = 0
+        while index < ns.length, indent < 4 {
+            let character = ns.character(at: index)
+            if character == 0x20 || character == 0x09 {
+                indent += 1
+                index += 1
+            } else {
+                break
+            }
+        }
+        guard indent <= 3, index < ns.length else { return nil }
+        let marker = ns.character(at: index)
+        guard marker == 0x60 || marker == 0x7E else { return nil }
+        var count = 0
+        while index < ns.length, ns.character(at: index) == marker {
+            count += 1
+            index += 1
+        }
+        guard count >= 3 else { return nil }
+        return (content as NSString).substring(from: index)
+    }
+
+    /// The fence line that opens the block around `location`; the nearest fence line above
+    /// it, because the caller already knows the location is inside one.
+    private static func precedingFenceLine(_ ns: NSString, before location: Int) -> NSRange? {
+        var cursor = 0
+        var last: NSRange?
+        while cursor < location, cursor < ns.length {
+            let line = ns.lineRange(for: NSRange(location: cursor, length: 0))
+            let content = contentRange(ns, line)
+            if isFence(content.text) { last = line }
+            let next = NSMaxRange(line)
+            if next <= cursor { break }
+            cursor = next
+        }
+        return last
+    }
+
+    private static func fenceBlock(ns: NSString, openingLine: NSRange, info: String) -> FenceBlock {
+        let language = FileFormats.fenceLanguage(info)
+        var cursor = NSMaxRange(openingLine)
+        var closing: NSRange?
+        while cursor < ns.length {
+            let line = ns.lineRange(for: NSRange(location: cursor, length: 0))
+            if isFence(contentRange(ns, line).text) {
+                closing = line
+                break
+            }
+            let next = NSMaxRange(line)
+            if next <= cursor { break }
+            cursor = next
+        }
+        let bodyEnd = closing?.location ?? min(ns.length, NSMaxRange(openingLine))
+        let body = NSRange(location: NSMaxRange(openingLine), length: max(0, bodyEnd - NSMaxRange(openingLine)))
+        return FenceBlock(openingLine: openingLine, body: body, closingLine: closing, language: language)
+    }
+
+    private static func styleFenceBlock(
+        ns: NSString,
+        block: FenceBlock,
+        storage: NSTextStorage,
+        style: XYZEditorStyle,
+        fenceColor: NSColor
+    ) {
+        let codeFace = codeFont(style)
+        let lineRanges = [block.openingLine, block.closingLine].compactMap { $0 }
+        for line in lineRanges {
+            let content = contentRange(ns, line)
+            guard content.range.length > 0, NSMaxRange(content.range) <= storage.length else { continue }
+            storage.addAttribute(.font, value: codeFace, range: content.range)
+            storage.addAttribute(.foregroundColor, value: fenceColor, range: content.range)
+        }
+        guard block.body.length > 0, NSMaxRange(block.body) <= storage.length else { return }
+        storage.addAttribute(.font, value: codeFace, range: block.body)
+        guard block.language != .plain else { return }
+        let bodyText = ns.substring(with: block.body)
+        for span in SyntaxColoring.spans(in: bodyText, language: block.language) {
+            let range = NSRange(location: block.body.location + span.location, length: span.length)
+            guard range.location >= 0, NSMaxRange(range) <= storage.length else { continue }
+            guard let color = tokenColor(span.kind) else { continue }
+            storage.addAttribute(.foregroundColor, value: color, range: range)
         }
     }
 
@@ -1979,18 +2090,8 @@ enum EditorTypography {
         range: NSRange,
         storage: NSTextStorage,
         style: XYZEditorStyle,
-        syntax: NSColor,
-        inFence: inout Bool
+        syntax: NSColor
     ) {
-        if isFence(content) || inFence {
-            if isFence(content) {
-                inFence.toggle()
-                storage.addAttribute(.foregroundColor, value: syntax, range: range)
-            }
-            storage.addAttribute(.font, value: codeFont(style), range: range)
-            return
-        }
-
         if let heading = heading(content) {
             let hashRange = NSRange(location: range.location + heading.hashLocation, length: heading.hashLength)
             storage.addAttribute(.foregroundColor, value: syntax, range: hashRange)

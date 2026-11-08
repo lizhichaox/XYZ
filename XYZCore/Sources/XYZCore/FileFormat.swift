@@ -122,6 +122,43 @@ public enum FileFormats {
         return nil
     }
 
+    /// The language a Markdown fence's info string names, such as `swift` or `bash`.
+    /// Unknown or missing names fall back to plain, which keeps the code block in the
+    /// monospaced face without inventing colours.
+    public static func fenceLanguage(_ info: String) -> SyntaxLanguage {
+        let token = info.trimmingCharacters(in: .whitespaces)
+            .split(whereSeparator: { $0 == " " || $0 == "\t" || $0 == "{" })
+            .first
+            .map(String.init)?
+            .lowercased() ?? ""
+        guard !token.isEmpty else { return .plain }
+        switch token {
+        case "swift": return .swift
+        case "js", "javascript", "jsx", "mjs", "cjs": return .javascript
+        case "ts", "typescript", "tsx": return .typescript
+        case "py", "python": return .python
+        case "go", "golang": return .go
+        case "rs", "rust": return .rust
+        case "c", "h", "cpp", "c++", "cc", "hpp", "objc", "objective-c": return .c
+        case "sh", "bash", "zsh", "shell", "console": return .shell
+        case "json", "jsonc": return .json
+        case "yaml", "yml": return .yaml
+        case "toml": return .toml
+        case "xml", "html", "xhtml": return .html
+        case "css", "scss", "less": return .css
+        case "sql": return .sql
+        case "rb", "ruby": return .ruby
+        case "java": return .java
+        case "kt", "kotlin": return .kotlin
+        case "php": return .php
+        case "ini", "conf", "cfg": return .ini
+        case "md", "markdown": return .markdown
+        case "csv", "tsv": return .csv
+        case "log": return .log
+        default: return .plain
+        }
+    }
+
     public static func format(for name: String) -> FileFormat {
         let ext = pathExtension(of: name)
         if let viewer = viewerKind(forExtension: ext) {
