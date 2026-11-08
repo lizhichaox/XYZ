@@ -1040,27 +1040,57 @@ private struct FindScan {
 
     /// Full-width band for the caret's source line. Wrapping uses the laid-out fragment,
     /// which covers every visual row of that line. A uniform box is only for an unwrapped file.
-    private func drawCurrentLineBand(in rect: NSRect) {
+    /// The band behind the caret's line, in text view coordinates. Nil until the line is
+    /// laid out. Folding changes line geometry, so this never guesses with a uniform box
+    /// unless there is no layout at all.
+    func currentLineBandRect(in rect: NSRect) -> NSRect? {
+        // With a real selection the selection itself shows the position; a band underneath
+        // it reads as a second, taller highlight.
+        guard selectedRange().length == 0 else { return nil }
         let caret = selectedRange().location
         let rows = visibleTextRows(in: rect)
-        let band: NSRect
+        let caretLine = EditorScrollAnchor.lineNumber(at: caret, in: string)
+        // The line number is the truth. A caret at a line end also ends the previous row's
+        // range, so matching character ranges alone put the band one row too high.
+        let lineHeight = max(1, lineBoxHeight())
+        // One row can report a group's used height; a band taller than a line is never
+        // right, so clamp it rather than painting a block over several lines.
+        func band(for row: EditorTextRow) -> NSRect {
+            NSRect(
+                x: 0,
+                y: row.rect.minY,
+                width: bounds.width,
+                height: max(1, min(row.rect.height, lineHeight * 1.4))
+            )
+        }
+        if let row = rows.first(where: { $0.line == caretLine }) {
+            return band(for: row)
+        }
         if let row = rows.first(where: {
             NSLocationInRange(caret, $0.charRange)
                 || (caret == NSMaxRange($0.charRange))
                 || ($0.charRange.length == 0 && caret == $0.charRange.location)
         }) {
-            band = NSRect(x: 0, y: row.rect.minY, width: bounds.width, height: max(row.rect.height, 1))
-        } else if let last = rows.last, caret >= NSMaxRange(last.charRange) {
-            // Before the last laid-out row is reached (or with a document that ends in a
-            // newline) the caret belongs to the end of the last row, never to a line box
-            // computed from the top, which folding would misplace.
-            band = NSRect(x: 0, y: last.rect.maxY, width: bounds.width, height: max(last.rect.height, 1))
-        } else {
-            let box = lineBoxHeight()
-            let line = EditorScrollAnchor.lineNumber(at: caret, in: string)
-            let y = textContainerOrigin.y + CGFloat(max(0, line - 1)) * box
-            band = NSRect(x: 0, y: y, width: bounds.width, height: box)
+            return band(for: row)
         }
+        if let last = rows.last, caret >= NSMaxRange(last.charRange) {
+            var rect = band(for: last)
+            rect.origin.y = last.rect.maxY
+            return rect
+        }
+        guard useUniformBoxFallback else { return nil }
+        let box = lineBoxHeight()
+        let y = textContainerOrigin.y + CGFloat(max(0, caretLine - 1)) * box
+        return NSRect(x: 0, y: y, width: bounds.width, height: box)
+    }
+
+    /// Before layout exists there is nothing better than the line box.
+    private var useUniformBoxFallback: Bool {
+        textLayoutManager == nil ? layoutManager == nil : false
+    }
+
+    private func drawCurrentLineBand(in rect: NSRect) {
+        guard let band = currentLineBandRect(in: rect) else { return }
         guard band.intersects(rect) else { return }
         NSColor.xyzCurrentLine.setFill()
         band.intersection(NSRect(x: 0, y: band.minY, width: bounds.width, height: band.height)).fill()

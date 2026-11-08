@@ -1753,6 +1753,8 @@ enum GutterSnapshotCheck {
         guard waitUntil(5, { session.buffer?.relativePath == "code/sample.swift" }) else {
             return "the code file did not open"
         }
+        session.selectViewMode(.source, source: "check")
+        pump(0.3)
         guard waitUntil(5, { findEditor(in: host) != nil }) else {
             return "the folder window has no editor"
         }
@@ -1858,6 +1860,7 @@ enum GutterSnapshotCheck {
         guard waitUntil(5, { session.buffer?.relativePath == "config.example.json" }) else {
             return "the JSON note did not open"
         }
+        session.selectViewMode(.source, source: "check")
         guard waitUntil(5, { findEditor(in: host) != nil }) else { return "no editor" }
         pump(0.6)
         guard let pane = findPane(in: host), let textView = pane.scrollView.documentView as? XYZMacTextView else {
@@ -1923,6 +1926,120 @@ enum GutterSnapshotCheck {
         return nil
     }
 
+
+    /// The caret band after every kind of placement, with the JSON note from the report.
+    @MainActor
+    private static func acceptCaretBand() -> String? {
+        let json = "{\n  \"interval\": 60,\n  \"cloud_interval\": 600,\n  \"security_interval\": 900,\n  \"servers\": [\n    { \"id\": \"example-server\", \"name\": \"Example server\" },\n    { \"id\": \"other\", \"name\": \"Other server\" }\n  ],\n  \"tail\": true\n}\n"
+        guard let opened = acceptanceWindow(["config.example.json": json]) else {
+            return "could not open the window"
+        }
+        defer { closeAcceptance(opened) }
+        let (_, session, window, host) = opened
+        session.openRelative("config.example.json")
+        guard waitUntil(5, { session.buffer?.relativePath == "config.example.json" })
+        else { return "the JSON note did not open" }
+        session.selectViewMode(.source, source: "check")
+        guard waitUntil(5, { findEditor(in: host) != nil }) else { return "no editor" }
+        pump(0.6)
+        guard let pane = findPane(in: host),
+              let textView = pane.scrollView.documentView as? XYZMacTextView,
+              let layout = textView.layoutManager,
+              let container = textView.textContainer
+        else { return "the editor is missing" }
+        layout.ensureLayout(for: container)
+        let used = layout.usedRect(for: container)
+        let contentBottom = textView.textContainerOrigin.y + used.maxY
+        guard contentBottom > 40 else { return "the note has no height" }
+        func check(_ label: String, _ caret: Int) -> String? {
+            textView.setSelectedRange(NSRange(location: caret, length: 0))
+            pump(0.15)
+            let rows = textView.visibleTextRows(in: textView.bounds)
+            guard let band = textView.currentLineBandRect(in: textView.bounds) else {
+                return "\(label): no caret band for caret \(caret) rows=\(rows.count)"
+            }
+            guard band.height <= 44 else {
+                return "\(label): caret band is \(Int(band.height))pt tall at y=\(Int(band.minY))"
+            }
+            guard band.minY >= -1, band.minY < contentBottom + 1 else {
+                return "\(label): caret band y=\(Int(band.minY)) outside text bottom=\(Int(contentBottom))"
+            }
+            let caretLine = EditorScrollAnchor.lineNumber(at: caret, in: textView.string)
+            print("CARET_BAND label=\(label) caret=\(caret) line=\(caretLine) band=\(NSStringFromRect(band)) rows=\(rows.map { Int($0.rect.minY) }) lines=\(rows.map(\.line))")
+            fflush(stdout)
+            if let row = rows.first(where: { $0.line == caretLine }) {
+                guard abs(row.rect.minY - band.minY) < 3 else {
+                    return "\(label): band y=\(Int(band.minY)) but line row y=\(Int(row.rect.minY))"
+                }
+            }
+            return nil
+        }
+        let ns = textView.string as NSString
+        var failures: [String] = []
+        for probe in [
+            ("doc-start", 0),
+            ("line-3", ns.range(of: "\"cloud_interval\"").location),
+            ("line-5", ns.range(of: "\"servers\"").location),
+            ("doc-end", ns.length),
+            ("just-before-end", max(0, ns.length - 1)),
+        ] {
+            if let failure = check(probe.0, probe.1) {
+                failures.append(failure)
+                break
+            }
+        }
+        if let image = shownImage(of: window, content: host) {
+            saveShot(image, name: "caret-band-unfolded.png")
+        }
+        // Fold, repeat the end-of-document probe, unfold, repeat again: the report came
+        // after opening and closing folds, where stale attributes would show up.
+        if let fold = textView.foldableRanges.first(where: { $0.lineCount >= 3 }) {
+            textView.toggleFold(atLine: fold.headerLine)
+            pump(0.4)
+            if let failure = check("folded-doc-end", ns.length) {
+                failures.append(failure)
+            }
+            textView.unfoldAll()
+            pump(0.4)
+            if let failure = check("unfolded-doc-end", ns.length) {
+                failures.append(failure)
+            }
+            if let failure = check("unfolded-line-14", ns.range(of: "\"tail\"").location) {
+                failures.append(failure)
+            }
+        }
+        guard failures.isEmpty else { return failures.joined(separator: " | ") }
+
+        // Exact replay of the reported flow: fold the servers block, click its chevron to
+        // unfold, then click at the end of the note.
+        if let servers = textView.foldableRanges.first(where: { fold in
+            let line = fold.headerLine
+            let ns = textView.string as NSString
+            guard let index = textView.cachedLineIndex(), line <= index.count else { return false }
+            let start = index.starts[line - 1]
+            let end = line < index.count ? index.starts[line] : ns.length
+            return ns.substring(with: NSRange(location: start, length: max(0, end - start))).contains("servers")
+        }) {
+            textView.toggleFold(atLine: servers.headerLine)
+            pump(0.4)
+            textView.toggleFold(atLine: servers.headerLine)
+            pump(0.4)
+            textView.setSelectedRange(NSRange(location: ns.length, length: 0))
+            pump(0.3)
+            let band = textView.currentLineBandRect(in: textView.bounds)
+            print("CARET_REPLAY band=\(band.map(NSStringFromRect) ?? "nil") rows=\(textView.visibleTextRows(in: textView.bounds).map { Int($0.rect.minY) }) selection=\(NSStringFromRange(textView.selectedRange()))")
+            fflush(stdout)
+            if let image = shownImage(of: window, content: host) {
+                saveShot(image, name: "caret-after-unfold.png")
+            }
+            let replayBand = band
+            guard let replayBand, replayBand.height <= 44 else {
+                return "after unfolding, the caret band is \(band.map { Int($0.height) } ?? -1)pt"
+            }
+        }
+        return nil
+    }
+
     private static func runAcceptanceGestures() -> String? {
         let failures = MainActor.assumeIsolated { () -> [String] in
             var failed: [String] = []
@@ -1948,6 +2065,7 @@ enum GutterSnapshotCheck {
             record("code-folding", acceptCodeFolding())
             record("editor-folding", acceptEditorFolding())
             record("editor-folding-caret", acceptFoldingCaret())
+            record("editor-caret-band", acceptCaretBand())
             if failed.isEmpty {
                 print("ACCEPTANCE_OK")
             } else {
@@ -2296,7 +2414,9 @@ enum GutterSnapshotCheck {
         } catch {
             return nil
         }
-        let session = WorkspaceSession(rootURL: root, bookmark: nil)
+        // Without a bookmark every file opens read-only: the gutter and the fold chevrons
+        // never mount, and an editable-window bug cannot be reproduced here.
+        let session = WorkspaceSession(rootURL: root, bookmark: WorkspaceBookmarks.capture(root))
         let controller = WorkspaceWindowController(session: session)
         guard let window = controller.window, let host = window.contentView else {
             session.shutdown()
