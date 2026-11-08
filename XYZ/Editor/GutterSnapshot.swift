@@ -1707,6 +1707,13 @@ enum GutterSnapshotCheck {
             clickCount: 1,
             pressure: 1
         ) else { return "could not build a TextKit 1 gutter click" }
+        // The click goes through the gutter's own hit test in the app; verify it answers.
+        if let superview = gutter.superview {
+            let windowPoint = gutter.convert(pointInGutter, to: superview)
+            guard gutter.hitTest(windowPoint) === gutter else {
+                return "the gutter chevron is not in the hit-test area"
+            }
+        }
         gutter.mouseDown(with: event)
         pump(0.3)
         guard !textView.foldedHeaderLines.isEmpty else { return "a TextKit 1 gutter click did not fold" }
