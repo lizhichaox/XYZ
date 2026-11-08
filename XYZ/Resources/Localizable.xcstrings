@@ -2937,6 +2937,196 @@
           }
         }
       }
+    },
+    "XYZ Help": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "XYZ 帮助"
+          }
+        }
+      }
+    },
+    "Open": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开"
+          }
+        }
+      }
+    },
+    "Reading and Editing": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "阅读与编辑"
+          }
+        }
+      }
+    },
+    "Tabs": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "标签页"
+          }
+        }
+      }
+    },
+    "Terminal": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "终端"
+          }
+        }
+      }
+    },
+    "Open a folder": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开文件夹"
+          }
+        }
+      }
+    },
+    "Quick open": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "快速打开"
+          }
+        }
+      }
+    },
+    "Search notes": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜索笔记"
+          }
+        }
+      }
+    },
+    "Switch Reading and Editing": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换阅读与编辑"
+          }
+        }
+      }
+    },
+    "Toggle sidebar": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示/隐藏边栏"
+          }
+        }
+      }
+    },
+    "Toggle outline": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示/隐藏大纲"
+          }
+        }
+      }
+    },
+    "Zoom in, out, actual size": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "放大、缩小、实际大小"
+          }
+        }
+      }
+    },
+    "Next and previous match": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "下一个/上一个匹配"
+          }
+        }
+      }
+    },
+    "Go to line": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "跳转到行"
+          }
+        }
+      }
+    },
+    "Switch tab": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换标签页"
+          }
+        }
+      }
+    },
+    "Close tab": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭标签页"
+          }
+        }
+      }
+    },
+    "Reopen closed tab": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "重新打开关闭的标签页"
+          }
+        }
+      }
+    },
+    "Text size, line spacing, appearance, language, remote images, word count, and hidden files are in Settings.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "字号、行距、外观、语言、远程图片、字数统计和隐藏文件都在设置中。"
+          }
+        }
+      }
+    },
+    "Manage 'xyz' Command… installs or removes the terminal shortcut. The app is sandboxed, so it writes only to your Homebrew or local bin folder.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "“管理 'xyz' 命令…”可安装或移除终端命令。应用在沙盒中，只会写入 Homebrew 或本地 bin 文件夹。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

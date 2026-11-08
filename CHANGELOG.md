@@ -1,5 +1,56 @@
 # Changelog
 
+## 0.5.39
+
+Build 55. Developer ID signed, notarized and stapled. Published as a GitHub release
+(`XYZ-0.5.39.dmg` and `XYZ-0.5.39.zip`).
+
+### What changed
+
+- **Theme system.** Every color is theme data in `XYZTheme`: `XYZColor` light/dark pairs,
+  shared contrast math, a syntax palette, and one set of display metrics for radii,
+  hovers, and disabled tint. No view picks a raw color any more.
+- **Fixed bilingual typography.** Bundled Sarasa Gothic SC for prose and headings and
+  Sarasa Mono SC for code (1.0.43, unmodified, OFL). Latin and Chinese come from the same
+  face, so mixed sentences no longer look like two fonts. The font pickers are gone; old
+  Latin/CJK/monospace preferences are ignored. Syntax highlighting keeps the face and
+  changes only the color. Text size (11–24 pt) and line spacing (1.0–2.0) remain settings;
+  code sits a fixed 0.15 step tighter than prose.
+- **Reading rhythm.** Reading keeps the full pane width and its original insets, a 1.75
+  line height, and 0.3em list spacing. Reading and Editing share the line-spacing value.
+  Fenced code renders at the full code size in Reading, not 0.92.
+- **Reading fonts load offline.** A `xyz-font://` scheme serves the bundled TTFs to the
+  page through an exact-name allowlist, so WebKit stays offline and the page no longer
+  carries megabytes of base64. Registered per process, never installed into Font Book.
+- **Settings polish.** Appearance and Language share one pop-up style. Size and Line
+  spacing values line up in one column. Every hint is one short line. Settings centers
+  over the window in use.
+- **About and Help.** About is sized to its three rows instead of a fixed frame, centers
+  over the current window, and uses the new icon. Help → XYZ Help (⌘?) is a short page of
+  shortcuts and settings, replacing the system "Help isn't available" alert.
+- **New app icon.** Light and dark variants generated from the owner's SVG through the
+  macOS rounded-square template; the asset catalog carries both appearances.
+- **Linked notes open.** A wiki link such as `[[ST/AGENTS]]` names a workspace-root path.
+  When the note-relative file does not exist, the same path under the root opens instead
+  of a Quick Look placeholder. A text file that really was removed opens an empty editor
+  with the existing "removed" banner.
+- **One `xyz` command window.** Manage 'xyz' Command… replaces the two Install/Uninstall
+  menu items and command-palette rows. Install writes the symlink itself into
+  `/opt/homebrew/bin` or `/usr/local/bin`, whichever exists and is writable, under a
+  sandbox temporary exception; no folder picker, no password. Uninstall removes it;
+  Copy Command stays as the Terminal fallback.
+
+### Where this was checked
+
+- `swift test --package-path XYZCore`: 259 tests, 0 failures.
+- `sh Scripts/xyz-test.sh`: 8 checks, all ok.
+- `-XYZCheckGutter`: typography, bundled-fonts, theme-colors, code-folding,
+  editor-folding, editor-folding-caret, editor-caret-band, editor-viewport-line,
+  sidebar-arrows, refresh, and the file creation cases pass; `GUTTER_OK`.
+- Release 0.5.39 (55): archive, Developer ID export, app and DMG notarized and stapled;
+  `spctl` accepted. Installed over `/Applications/XYZ.app`; one app on the machine.
+- Published as GitHub release `v0.5.39` with the notarized DMG and ZIP.
+
 ## 0.5.38
 
 Build 54. Installed on this Mac, Developer ID signed, notarized and stapled. Tagged `v0.5.38`; no GitHub release page.

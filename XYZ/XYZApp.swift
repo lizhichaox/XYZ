@@ -1,3 +1,6 @@
+#if os(macOS)
+import AppKit
+#endif
 import SwiftUI
 import XYZCore
 
@@ -167,6 +170,12 @@ private struct AboutCommands: Commands {
                 XYZCommandInstall.showManage()
             }
         }
+        CommandGroup(replacing: .help) {
+            Button("XYZ Help") {
+                HelpWindow.show()
+            }
+            .keyboardShortcut("?", modifiers: .command)
+        }
         // A Settings scene builds a hidden 500×500 window at launch. This item creates the
         // window only when the user asks for it.
         CommandGroup(replacing: .appSettings) {
@@ -175,6 +184,105 @@ private struct AboutCommands: Commands {
             }
             .keyboardShortcut(",", modifiers: .command)
         }
+    }
+}
+
+/// One short Help window. Replaces the system help item, which otherwise says the app
+/// has no help book.
+@MainActor
+enum HelpWindow {
+    private static var panel: NSPanel?
+
+    static func show() {
+        let panel = self.panel ?? make()
+        self.panel = panel
+        AppPanelPlacement.center(panel)
+        panel.makeKeyAndOrderFront(nil)
+        NSApp.activate()
+    }
+
+    private static func make() -> NSPanel {
+        let panel = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 440, height: 520),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        panel.title = String(localized: "XYZ Help")
+        panel.isReleasedWhenClosed = false
+        panel.hidesOnDeactivate = false
+        EscapeKey.register(panel)
+        let host = NSHostingController(rootView: HelpView())
+        panel.contentViewController = host
+        panel.setContentSize(NSSize(width: 440, height: 520))
+        return panel
+    }
+}
+
+private struct HelpView: View {
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                section("Open") {
+                    row("Open a folder", "⌘O")
+                    row("Quick open", "⌘P")
+                    row("Search notes", "⌘K")
+                }
+                section("Reading and Editing") {
+                    row("Switch Reading and Editing", "⌘/")
+                    row("Toggle sidebar", "⌘B")
+                    row("Toggle outline", "⌥⌘B")
+                    row("Zoom in, out, actual size", "⌘+   ⌘−   ⌘0")
+                }
+                section("Find") {
+                    row("Find in note", "⌘F")
+                    row("Replace", "⌥⌘F")
+                    row("Next and previous match", "⌘G   ⇧⌘G")
+                    row("Go to line", "⌃G")
+                }
+                section("Tabs") {
+                    row("Switch tab", "⌘1–⌘9")
+                    row("Close tab", "⌘W")
+                    row("Reopen closed tab", "⇧⌘T")
+                }
+                section("Settings") {
+                    paragraph("Text size, line spacing, appearance, language, remote images, word count, and hidden files are in Settings.")
+                }
+                section("Terminal") {
+                    paragraph("Manage 'xyz' Command… installs or removes the terminal shortcut. The app is sandboxed, so it writes only to your Homebrew or local bin folder.")
+                }
+            }
+            .padding(22)
+        }
+        .frame(width: 440)
+    }
+
+    @ViewBuilder
+    private func section(_ title: LocalizedStringKey, @ViewBuilder content: () -> some View) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.headline)
+            VStack(alignment: .leading, spacing: 6) {
+                content()
+            }
+        }
+    }
+
+    private func row(_ label: LocalizedStringKey, _ shortcut: String) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(label)
+            Spacer(minLength: 8)
+            Text(shortcut)
+                .font(.callout.monospaced())
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func paragraph(_ text: LocalizedStringKey) -> some View {
+        Text(text)
+            .font(.callout)
+            .foregroundStyle(.secondary)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 #endif
