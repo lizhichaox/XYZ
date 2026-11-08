@@ -196,7 +196,10 @@ opening a folder patches the index in place instead of walking the vault). Same 
   `spctl -a -t open --context context:primary-signature -vv` **accepted**.
 - Installed over `/Applications/XYZ.app`; `mdfind` lists only that bundle. The owner had
   already tried the equivalent test build and called the performance "差不多了".
-- Not touched: tag, upload, GitHub release.
+- Tagged `v0.5.37` (annotated, on commit `55d5ccb`) and published:
+  <https://github.com/lizhichaox/XYZ/releases/tag/v0.5.37> with `XYZ-0.5.37.dmg` and
+  `XYZ-0.5.37.zip` as assets. The branch `fix/priority-fixes` (22 commits ahead of
+  `main`) was pushed so the tag exists on the remote; `main` was not touched.
 
 ## 0.5.37 on 2026-11-08
 
@@ -214,4 +217,7 @@ The title-bar, sidebar-toggle and width-memory round. Same path:
 - Tests before the build: `swift test --package-path XYZCore` 220/0 and
   `sh Scripts/xyz-test.sh` 8/8. `-XYZCheckGutter`: `refresh` passes; the other five cases
   still fail on this Mac for the inactive-window reason.
-- Not touched: tag, upload, GitHub release.
+- Tagged `v0.5.37` (annotated, on commit `55d5ccb`) and published:
+  <https://github.com/lizhichaox/XYZ/releases/tag/v0.5.37> with `XYZ-0.5.37.dmg` and
+  `XYZ-0.5.37.zip` as assets. The branch `fix/priority-fixes` (22 commits ahead of
+  `main`) was pushed so the tag exists on the remote; `main` was not touched.

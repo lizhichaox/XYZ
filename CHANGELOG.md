@@ -2,7 +2,7 @@
 
 ## 0.5.37
 
-Build 53. Installed on this Mac, Developer ID signed, notarized and stapled. No tag or GitHub release.
+Build 53. Installed on this Mac, Developer ID signed, notarized and stapled. Tagged `v0.5.37` and published as a GitHub release (DMG + ZIP assets).
 
 ### What changed
 
