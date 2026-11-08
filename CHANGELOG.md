@@ -46,7 +46,11 @@ Build 55. Developer ID signed, notarized and stapled. Published as a GitHub rele
 - `sh Scripts/xyz-test.sh`: 8 checks, all ok.
 - `-XYZCheckGutter`: typography, bundled-fonts, theme-colors, code-folding,
   editor-folding, editor-folding-caret, editor-caret-band, editor-viewport-line,
-  sidebar-arrows, refresh, and the file creation cases pass; `GUTTER_OK`.
+  sidebar-arrows, refresh, and the file creation cases pass. The window-picture OCR
+  probes (`window-switch`, `dark-nowrap-body`) misread the fixture on this Mac during
+  two release runs; the same source produced `GUTTER_OK` earlier in the day. The five
+  older window-gesture cases still fail because the window is inactive while the
+  harness runs.
 - Release 0.5.39 (55): archive, Developer ID export, app and DMG notarized and stapled;
   `spctl` accepted. Installed over `/Applications/XYZ.app`; one app on the machine.
 - Published as GitHub release `v0.5.39` with the notarized DMG and ZIP.
