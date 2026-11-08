@@ -2848,16 +2848,6 @@
         }
       }
     },
-    "Choose the folder once. macOS only lets XYZ write to a folder you choose.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "选择一次文件夹。macOS 只允许 XYZ 写入你选择的文件夹。"
-          }
-        }
-      }
-    },
     "Status:": {
       "localizations": {
         "zh-Hans": {
@@ -2908,42 +2898,12 @@
         }
       }
     },
-    "Choose": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "选择"
-          }
-        }
-      }
-    },
-    "Choose the folder where the xyz command should be created.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "选择要创建 xyz 命令的文件夹。"
-          }
-        }
-      }
-    },
     "Copy Command": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "复制命令"
-          }
-        }
-      }
-    },
-    "That folder could not be written. Try /opt/homebrew/bin.": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "无法写入该文件夹，可尝试 /opt/homebrew/bin。"
           }
         }
       }
@@ -2964,6 +2924,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "已复制"
+          }
+        }
+      }
+    },
+    "No writable bin folder was found.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "找不到可写的 bin 文件夹。"
           }
         }
       }

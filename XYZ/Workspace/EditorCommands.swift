@@ -1905,8 +1905,8 @@ enum XYZCommandInstall {
     }
 }
 
-/// Install state for the command window, backed by a security-scoped bookmark for the
-/// folder the user chose once.
+/// Install state for the command window. The app is sandboxed with a narrow exception
+/// for the two standard bin folders, so Install writes the link without asking.
 @MainActor
 final class XYZCommandModel: ObservableObject {
     enum InstallState: Equatable {
@@ -1915,9 +1915,11 @@ final class XYZCommandModel: ObservableObject {
     }
 
     @Published private(set) var state: InstallState = .notInstalled
-    @Published private(set) var folderPath = "/usr/local/bin"
+    @Published private(set) var folderPath = XYZCommandModel.standardFolders[0]
 
-    private static let bookmarkKey = "xyz.cli.folderBookmark"
+    /// The standard bin folders, tried in order. Homebrew on Apple silicon uses the
+    /// first; Intel Homebrew and /usr/local installs use the second.
+    static let standardFolders = ["/opt/homebrew/bin", "/usr/local/bin"]
 
     init() {
         refresh()
@@ -1930,67 +1932,56 @@ final class XYZCommandModel: ObservableObject {
     }
 
     func refresh() {
-        guard let folder = Self.resolveBookmark() else {
-            state = .notInstalled
+        if let folder = Self.installedFolder() {
+            folderPath = folder
+            state = .installed
             return
         }
-        let access = folder.startAccessingSecurityScopedResource()
-        defer { if access { folder.stopAccessingSecurityScopedResource() } }
-        folderPath = folder.path
-        let link = folder.appendingPathComponent("xyz").path
-        if let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: link),
-           Self.samePath(destination, XYZCommandInstall.launcherTarget) {
-            state = .installed
-        } else {
-            state = .notInstalled
-        }
+        state = .notInstalled
+        folderPath = Self.writableFolders().first ?? Self.standardFolders[0]
     }
 
     func install() {
-        guard let folder = folderForInstall() else { return }
-        let access = folder.startAccessingSecurityScopedResource()
-        defer { if access { folder.stopAccessingSecurityScopedResource() } }
-        folderPath = folder.path
-        let link = folder.appendingPathComponent("xyz")
-        if let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: link.path) {
-            guard Self.samePath(destination, XYZCommandInstall.launcherTarget) else {
-                Self.report(String(localized: "That file is not the XYZ command."))
-                return
+        var foundForeignFile = false
+        for folder in Self.writableFolders() {
+            let link = (folder as NSString).appendingPathComponent("xyz")
+            if let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: link) {
+                guard Self.samePath(destination, XYZCommandInstall.launcherTarget) else {
+                    foundForeignFile = true
+                    continue
+                }
+                try? FileManager.default.removeItem(atPath: link)
+            } else if FileManager.default.fileExists(atPath: link) {
+                foundForeignFile = true
+                continue
             }
-            try? FileManager.default.removeItem(at: link)
-        } else if FileManager.default.fileExists(atPath: link.path) {
-            Self.report(String(localized: "That file is not the XYZ command."))
-            return
+            do {
+                try FileManager.default.createSymbolicLink(
+                    atPath: link,
+                    withDestinationPath: XYZCommandInstall.launcherTarget
+                )
+                refresh()
+                return
+            } catch {
+                continue
+            }
         }
-        do {
-            try FileManager.default.createSymbolicLink(
-                at: link,
-                withDestinationURL: URL(fileURLWithPath: XYZCommandInstall.launcherTarget)
-            )
-            Self.storeBookmark(folder)
-        } catch {
-            Self.report(String(localized: "That folder could not be written. Try /opt/homebrew/bin."))
-        }
+        Self.report(String(localized: foundForeignFile
+            ? "That file is not the XYZ command."
+            : "No writable bin folder was found."))
         refresh()
     }
 
     func uninstall() {
-        guard let folder = folderForInstall() else { return }
-        let access = folder.startAccessingSecurityScopedResource()
-        defer { if access { folder.stopAccessingSecurityScopedResource() } }
-        folderPath = folder.path
-        let link = folder.appendingPathComponent("xyz")
-        guard let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: link.path),
-              Self.samePath(destination, XYZCommandInstall.launcherTarget) else {
-            Self.report(String(localized: "That file is not the XYZ command."))
+        guard let folder = Self.installedFolder() else {
             refresh()
             return
         }
+        let link = (folder as NSString).appendingPathComponent("xyz")
         do {
-            try FileManager.default.removeItem(at: link)
-            Self.storeBookmark(folder)
+            try FileManager.default.removeItem(atPath: link)
         } catch {
-            Self.report(String(localized: "That folder could not be written. Try /opt/homebrew/bin."))
+            Self.report(String(localized: "That file is not the XYZ command."))
         }
         refresh()
     }
@@ -2000,60 +1991,29 @@ final class XYZCommandModel: ObservableObject {
         NSPasteboard.general.setString(installCommand, forType: .string)
     }
 
-    private static func report(_ message: String) {
-        let alert = NSAlert()
-        alert.messageText = message
-        alert.addButton(withTitle: String(localized: "OK"))
-        alert.runModalClosingOnEscape()
-    }
-
-    /// The saved folder, or one the user picks now. macOS grants access only to the
-    /// folder chosen in this panel, so the first install always asks once.
-    private func folderForInstall() -> URL? {
-        if let folder = Self.resolveBookmark() {
+    private static func installedFolder() -> String? {
+        for folder in standardFolders {
+            let link = (folder as NSString).appendingPathComponent("xyz")
+            guard let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: link),
+                  samePath(destination, XYZCommandInstall.launcherTarget) else { continue }
             return folder
         }
-        let panel = NSOpenPanel()
-        panel.canChooseFiles = false
-        panel.canChooseDirectories = true
-        panel.allowsMultipleSelection = false
-        panel.canCreateDirectories = false
-        panel.prompt = String(localized: "Choose")
-        panel.message = String(localized: "Choose the folder where the xyz command should be created.")
-        panel.directoryURL = URL(fileURLWithPath: Self.preferredFolder())
-        guard panel.runModal() == .OK, let url = panel.url else { return nil }
-        return url
+        return nil
     }
 
-    private static func preferredFolder() -> String {
-        for candidate in ["/usr/local/bin", "/opt/homebrew/bin"] where FileManager.default.fileExists(atPath: candidate) {
-            return candidate
-        }
-        return "/usr/local/bin"
+    private static func writableFolders() -> [String] {
+        standardFolders.filter { FileManager.default.fileExists(atPath: $0) && FileManager.default.isWritableFile(atPath: $0) }
     }
 
     private static func samePath(_ destination: String, _ target: String) -> Bool {
         (destination as NSString).standardizingPath == (target as NSString).standardizingPath
     }
 
-    private static func storeBookmark(_ folder: URL) {
-        guard let data = try? folder.bookmarkData(
-            options: .withSecurityScope,
-            includingResourceValuesForKeys: nil,
-            relativeTo: nil
-        ) else { return }
-        UserDefaults.standard.set(data, forKey: bookmarkKey)
-    }
-
-    private static func resolveBookmark() -> URL? {
-        guard let data = UserDefaults.standard.data(forKey: bookmarkKey) else { return nil }
-        var stale = false
-        return try? URL(
-            resolvingBookmarkData: data,
-            options: .withSecurityScope,
-            relativeTo: nil,
-            bookmarkDataIsStale: &stale
-        )
+    private static func report(_ message: String) {
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.addButton(withTitle: String(localized: "OK"))
+        alert.runModalClosingOnEscape()
     }
 }
 
@@ -2084,11 +2044,6 @@ private struct XYZCommandCard: View {
                     .textSelection(.enabled)
                     .fixedSize(horizontal: false, vertical: true)
             }
-
-            Text("Choose the folder once. macOS only lets XYZ write to a folder you choose.")
-                .font(.callout)
-                .foregroundStyle(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
 
             VStack(spacing: 8) {
                 Button {
