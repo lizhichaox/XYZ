@@ -3,6 +3,9 @@ import SwiftUI
 
 /// XYZ → Settings…: one pane, grouped like System Settings.
 struct SettingsView: View {
+    /// One trailing value column, so "12 pt" and "1.0" line up above one another.
+    private static let valueColumnWidth: CGFloat = 34
+
     @AppStorage(AppAppearance.key) private var appearance = AppAppearance.system
     @AppStorage(AppLanguage.key) private var language = AppLanguage.system
     @AppStorage(XYZEditorStyle.fontSizeKey) private var fontSize = XYZEditorStyle.defaultFontSize
@@ -49,6 +52,7 @@ struct SettingsView: View {
                     Stepper(value: $fontSize, in: XYZEditorStyle.fontSizes, step: 1) {
                         Text("\(Int(XYZEditorStyle.clampedFontSize(fontSize))) pt")
                             .monospacedDigit()
+                            .frame(width: Self.valueColumnWidth, alignment: .trailing)
                     }
                 }
 
@@ -56,12 +60,14 @@ struct SettingsView: View {
                     Stepper(value: $lineSpacing, in: XYZEditorStyle.lineSpacings, step: 0.1) {
                         Text(String(format: "%.1f", XYZEditorStyle.clampedLineSpacing(lineSpacing)))
                             .monospacedDigit()
+                            .frame(width: Self.valueColumnWidth, alignment: .trailing)
                     }
                 }
 
                 Toggle(isOn: $wordWrap) {
                     Text("Wrap lines")
-                    Text("Breaks long lines to the width of the editor. Turn this off to scroll sideways.")
+                    Text("Long lines break at the editor width.")
+                        .lineLimit(1)
                 }
             } header: {
                 Text("Text")
@@ -70,19 +76,22 @@ struct SettingsView: View {
             Section("Reading") {
                 Toggle(isOn: $loadsRemoteImages) {
                     Text("Load remote images")
-                    Text("A note that links to a picture on the internet shows it. Off by default, so reading a note does not contact another server.")
+                    Text("Off by default. Local pictures still load.")
+                        .lineLimit(1)
                 }
             }
 
             Section("View") {
                 Toggle(isOn: $showsWordCount) {
                     Text("Show word count")
-                    Text("Counts Chinese and Japanese by character, other languages by word.")
+                    Text("Chinese and Japanese by character, others by word.")
+                        .lineLimit(1)
                 }
 
                 Toggle(isOn: $showsHiddenFiles) {
                     Text("Show hidden files")
-                    Text("Lists names that start with a dot in the folder sidebar.")
+                    Text("Lists names that start with a dot.")
+                        .lineLimit(1)
                 }
             }
         }

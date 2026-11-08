@@ -269,12 +269,12 @@
         }
       }
     },
-    "Counts Chinese and Japanese by character, other languages by word.": {
+    "Chinese and Japanese by character, others by word.": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "中文和日文按字计数，其他语言按词计数。"
+            "value": "中文和日文按字符计数，其他语言按词计数。"
           }
         }
       }
@@ -1792,12 +1792,12 @@
         }
       }
     },
-    "Breaks long lines to the width of the editor. Turn this off to scroll sideways.": {
+    "Long lines break at the editor width.": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "按编辑器宽度折行。关闭后可横向滚动查看长行。"
+            "value": "长行在编辑区宽度处换行。"
           }
         }
       }
@@ -1812,12 +1812,12 @@
         }
       }
     },
-    "Lists names that start with a dot in the folder sidebar.": {
+    "Lists names that start with a dot.": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在文件夹边栏中列出以点开头的名称。"
+            "value": "列出以点开头的名称。"
           }
         }
       }
@@ -2768,12 +2768,12 @@
         }
       }
     },
-    "A note that links to a picture on the internet shows it. Off by default, so reading a note does not contact another server.": {
+    "Off by default. Local pictures still load.": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "笔记里如果链接到网络上的图片，会把它显示出来。默认关闭，因此阅读笔记时不会连接其他服务器。"
+            "value": "默认关闭，笔记旁的图片仍会显示。"
           }
         }
       }
