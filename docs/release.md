@@ -218,3 +218,20 @@ The title-bar, sidebar-toggle and width-memory round. Same path:
   `XYZ-0.5.37.zip` as assets. The branch `fix/priority-fixes` was pushed, then merged
   fast-forward into `main`; the GitHub Actions workflow was disabled (and then removed)
   at the owner's request, so pushes no longer start a run.
+
+## 0.5.38 on 2026-11-08
+
+The editor reading aids, code folding and product-boundary round. Local install only —
+no tag, no GitHub release (the owner chose B).
+
+- Archive `build/XYZ.xcarchive` (54) and Developer ID export to `build/export/XYZ.app`.
+- App zip notarized: submission `8fa6f52b-6de1-45ce-be4e-2dc4b64d6b03`, **Accepted**;
+  stapled and validated; `spctl -a -vv --type execute` **accepted**,
+  `source=Notarized Developer ID`, `origin=Developer ID Application: Zhichao Li (Z4FMG2KTPM)`.
+- Installed over `/Applications/XYZ.app`; `mdfind` lists only that bundle. Hidden launch
+  (`open -j`), process up, quit — clean.
+- Tests before the build: `swift test --package-path XYZCore` 246/0 and
+  `sh Scripts/xyz-test.sh` 8/8. `-XYZCheckGutter`: the new editor/folding/sidebar cases
+  pass; the five older cases still fail on this Mac for the inactive-window reason.
+- Merged `feat/editor-code-viewing` fast-forward into `main`; old DMG/ZIP artifacts
+  removed, `build/` holds only `XYZ-0.5.38.zip`. GitHub Actions stays disabled.
