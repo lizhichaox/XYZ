@@ -41,6 +41,25 @@ rules below more than once; follow them without being asked.
 - The app is sandboxed with iCloud and security-scoped bookmarks; the unsigned CI build
   has no entitlements, so a green cloud run does not prove the sandboxed app works.
 
+## Product boundaries (owner decisions; do not re-add)
+
+These are product decisions, not missing features. Ask the owner before adding any of
+them back:
+
+- **No terminal.** The app never embeds a shell.
+- **No spelling or grammar checking.** Removed from the whole app: the macOS editor runs
+  with continuous spell and grammar checking off and strips the Spelling/Grammar items
+  from the context menu; iOS sets `spellCheckingType = .no`. Do not turn any of this back
+  on, and do not add a "check spelling" command, setting, or underline.
+- **No diff view.**
+- **No split editor panes.**
+- **No LSP / semantic services** (go to definition, hover, diagnostics, completion).
+- **No Git integration** (no blame, no source-control panel).
+- **No extensions marketplace and no remote development.**
+- **No code outline panel.** The right-hand outline is Markdown headings only; code and
+  JSON do not get symbol breadcrumbs or a section list.
+- Deferred, not forbidden: manual language mode and the minimap ("先不做").
+
 ## AppKit sidebar: what not to repeat
 
 This project spent a long round on a sidebar that could not open folders. The causes,

@@ -199,8 +199,6 @@ struct XYZEditor: View {
     var scrollLink: EditorScrollLink
     /// Markdown styling and list continuation. Other files are plain text.
     var markup: Bool = true
-    /// Continuous spell checking, for prose rather than config files and code.
-    var spellCheck: Bool = true
     /// Plain coloring for code and structured text. Markdown keeps `markup`.
     var syntax: SyntaxLanguage = .plain
     /// Code uses a fixed-width face even when the prose setting is proportional.
@@ -244,7 +242,6 @@ struct XYZEditor: View {
             ),
             scrollLink: scrollLink,
             markup: markup,
-            spellCheck: spellCheck,
             syntax: syntax,
             lineNumbers: lineNumbersVisible ?? false,
             find: find,

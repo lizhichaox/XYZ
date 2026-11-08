@@ -216,7 +216,7 @@ struct XYZIOSEditor: UIViewRepresentable {
         textView.isSelectable = true
         textView.allowsEditingTextAttributes = false
         textView.autocorrectionType = .default
-        textView.spellCheckingType = .yes
+        textView.spellCheckingType = .no
         textView.autocapitalizationType = .sentences
         textView.smartQuotesType = .no
         textView.smartDashesType = .no

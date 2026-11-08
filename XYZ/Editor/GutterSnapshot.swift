@@ -103,7 +103,6 @@ enum GutterSnapshotCheck {
             style: style,
             scrollLink: EditorScrollLink(),
             markup: false,
-            spellCheck: false,
             syntax: .plain,
             lineNumbers: lineNumbers,
             find: nil,

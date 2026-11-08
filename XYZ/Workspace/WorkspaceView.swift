@@ -2227,7 +2227,6 @@ private struct WorkspaceDetail: View {
             reloadToken: session.buffer?.editorToken ?? 0,
             scrollLink: session.scrollLink,
             markup: format.language == .markdown,
-            spellCheck: format.isProse,
             syntax: format.language,
             forcesMonospace: format.usesCodeFont,
             onSelection: {

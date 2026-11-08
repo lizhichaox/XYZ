@@ -68,6 +68,25 @@ final class XYZMacTextView: NSTextView {
         pasteAsPlainText(sender)
     }
 
+    /// XYZ does not do spelling or grammar. The system context menu still offers its
+    /// Spelling and Grammar entries, so they are taken out of this view's menu.
+    override func menu(for event: NSEvent) -> NSMenu? {
+        guard let menu = super.menu(for: event) else { return nil }
+        Self.removeSpellingItems(from: menu)
+        return menu
+    }
+
+    private static func removeSpellingItems(from menu: NSMenu) {
+        for item in menu.items.reversed() {
+            let title = item.title.lowercased()
+            if title.contains("spelling") || title.contains("grammar") {
+                menu.removeItem(item)
+            } else if let submenu = item.submenu {
+                removeSpellingItems(from: submenu)
+            }
+        }
+    }
+
     override func shouldChangeText(in affectedCharRange: NSRange, replacementString: String?) -> Bool {
         unfoldFolds(intersecting: affectedCharRange)
         return super.shouldChangeText(in: affectedCharRange, replacementString: replacementString)
@@ -1454,7 +1473,6 @@ struct XYZMacEditor: NSViewRepresentable {
     var style: XYZEditorStyle
     var scrollLink: EditorScrollLink
     var markup: Bool
-    var spellCheck: Bool
     var syntax: SyntaxLanguage
     var lineNumbers: Bool
     var find: EditorFindModel?
@@ -1476,8 +1494,9 @@ struct XYZMacEditor: NSViewRepresentable {
         textView.isAutomaticDataDetectionEnabled = false
         textView.isAutomaticLinkDetectionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
+        // XYZ does not spell check: the app is for notes and code, not prose review.
         textView.isAutomaticSpellingCorrectionEnabled = false
-        textView.isContinuousSpellCheckingEnabled = spellCheck
+        textView.isContinuousSpellCheckingEnabled = false
         textView.isGrammarCheckingEnabled = false
         textView.usesFindBar = false
         textView.isIncrementalSearchingEnabled = true
@@ -1557,9 +1576,6 @@ struct XYZMacEditor: NSViewRepresentable {
         }
         let markupChanged = textView.allowsMarkup != markup
         textView.allowsMarkup = markup
-        if textView.isContinuousSpellCheckingEnabled != spellCheck {
-            textView.isContinuousSpellCheckingEnabled = spellCheck
-        }
         textView.syncLineNumbers(lineNumbers)
         textView.textContainer?.lineFragmentPadding = 0
         scrollView.automaticallyAdjustsContentInsets = false
