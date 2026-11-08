@@ -1981,28 +1981,6 @@ private struct WorkspaceDetail: View {
                         session.revealCrumb(crumb)
                     }
                 }
-                if let sticky = stickyEntry {
-                    HStack(spacing: 6) {
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 9, weight: .semibold))
-                            .foregroundStyle(.tertiary)
-                        Text(sticky.title)
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(Color.xyzSecondaryText)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.horizontal, 10)
-                    .frame(height: 22)
-                    .background(Color.editorBackground)
-                    .overlay(alignment: .bottom) {
-                        Rectangle().fill(Color.xyzDivider).frame(height: 1)
-                    }
-                    .contentShape(Rectangle())
-                    .onTapGesture { session.scrollLink.revealLine(sticky.line) }
-                    .accessibilityLabel(String(localized: "Current Section"))
-                }
             }
             if let status = banner {
                 bannerView(status)
@@ -2089,23 +2067,6 @@ private struct WorkspaceDetail: View {
     /// declaration is not a section the reader scrolls through.
     private var markdownSymbols: [OutlineEntry] {
         format.language == .markdown ? outline.entries : []
-    }
-
-    /// The heading whose body is on screen while the heading itself has scrolled above the
-    /// viewport. Showing it whenever the caret is below the heading pinned a line that was
-    /// still visible, which read as a stray duplicate.
-    private var stickyEntry: OutlineEntry? {
-        guard !markdownSymbols.isEmpty else { return nil }
-        let top = max(1, session.viewportLine)
-        guard top > 1 else { return nil }
-        var chain: [OutlineEntry] = []
-        for entry in markdownSymbols where entry.line < top {
-            while let last = chain.last, last.depth >= entry.depth {
-                chain.removeLast()
-            }
-            chain.append(entry)
-        }
-        return chain.last
     }
 
     private var statusSnapshot: EditorStatusSnapshot {
