@@ -196,10 +196,6 @@ opening a folder patches the index in place instead of walking the vault). Same 
   `spctl -a -t open --context context:primary-signature -vv` **accepted**.
 - Installed over `/Applications/XYZ.app`; `mdfind` lists only that bundle. The owner had
   already tried the equivalent test build and called the performance "差不多了".
-- Tagged `v0.5.37` (annotated, on commit `55d5ccb`) and published:
-  <https://github.com/lizhichaox/XYZ/releases/tag/v0.5.37> with `XYZ-0.5.37.dmg` and
-  `XYZ-0.5.37.zip` as assets. The branch `fix/priority-fixes` (22 commits ahead of
-  `main`) was pushed so the tag exists on the remote; `main` was not touched.
 
 ## 0.5.37 on 2026-11-08
 
@@ -219,5 +215,6 @@ The title-bar, sidebar-toggle and width-memory round. Same path:
   still fail on this Mac for the inactive-window reason.
 - Tagged `v0.5.37` (annotated, on commit `55d5ccb`) and published:
   <https://github.com/lizhichaox/XYZ/releases/tag/v0.5.37> with `XYZ-0.5.37.dmg` and
-  `XYZ-0.5.37.zip` as assets. The branch `fix/priority-fixes` (22 commits ahead of
-  `main`) was pushed so the tag exists on the remote; `main` was not touched.
+  `XYZ-0.5.37.zip` as assets. The branch `fix/priority-fixes` was pushed, then merged
+  fast-forward into `main`; the GitHub Actions workflow was disabled (and then removed)
+  at the owner's request, so pushes no longer start a run.
