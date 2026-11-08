@@ -2040,6 +2040,45 @@ enum GutterSnapshotCheck {
         return nil
     }
 
+
+    /// Sticky sections depend on the first visible source line. TextKit 1 has no viewport
+    /// controller, so scrolling must still report a line.
+    @MainActor
+    private static func acceptViewportLine() -> String? {
+        let code = (1...80).map { index -> String in
+            if index == 1 { return "func long() {" }
+            if index == 80 { return "}" }
+            return "    step\(index)()"
+        }.joined(separator: "\n") + "\n"
+        guard let opened = acceptanceWindow(["code/long.swift": code]) else {
+            return "could not open the scrolling window"
+        }
+        defer { closeAcceptance(opened) }
+        let (_, session, _, host) = opened
+        session.openRelative("code/long.swift")
+        guard waitUntil(5, { session.buffer?.relativePath == "code/long.swift" }) else {
+            return "the long file did not open"
+        }
+        session.selectViewMode(.source, source: "check")
+        guard waitUntil(5, { findEditor(in: host) != nil }) else { return "no editor" }
+        pump(0.5)
+        guard let pane = findPane(in: host), let textView = pane.scrollView.documentView as? XYZMacTextView else {
+            return "the editor is missing"
+        }
+        guard let scroll = textView.enclosingScrollView else { return "no scroll view" }
+        let top = scroll.contentView.bounds
+        scroll.contentView.scroll(to: NSPoint(x: top.minX, y: top.minY + 420))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        pump(0.5)
+        guard let line = textView.viewportLine(), line > 5 else {
+            return "viewportLine() did not follow the scroll (line=\(String(describing: textView.viewportLine())))"
+        }
+        guard session.viewportLine == line else {
+            return "the session kept viewportLine=\(session.viewportLine) while the editor reports \(line)"
+        }
+        return nil
+    }
+
     private static func runAcceptanceGestures() -> String? {
         let failures = MainActor.assumeIsolated { () -> [String] in
             var failed: [String] = []
@@ -2066,6 +2105,7 @@ enum GutterSnapshotCheck {
             record("editor-folding", acceptEditorFolding())
             record("editor-folding-caret", acceptFoldingCaret())
             record("editor-caret-band", acceptCaretBand())
+            record("editor-viewport-line", acceptViewportLine())
             if failed.isEmpty {
                 print("ACCEPTANCE_OK")
             } else {

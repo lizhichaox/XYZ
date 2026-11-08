@@ -1974,7 +1974,7 @@ private struct WorkspaceDetail: View {
                         rootName: session.displayName,
                         relativePath: path,
                         siblings: { session.siblingNodes(of: $0) },
-                        symbols: outline.entries,
+                        symbols: markdownSymbols,
                         currentLine: followedLine,
                         chooseSymbol: { line in session.scrollLink.revealLine(line) }
                     ) { crumb in
@@ -2085,19 +2085,27 @@ private struct WorkspaceDetail: View {
         )
     }
 
-    /// The heading/declaration whose body the page is in while its own line is already
-    /// scrolled past the top. Nil when there is nothing to pin.
+    /// Headings are the only sections the app treats as one; a JSON key or a code
+    /// declaration is not a section the reader scrolls through.
+    private var markdownSymbols: [OutlineEntry] {
+        format.language == .markdown ? outline.entries : []
+    }
+
+    /// The heading whose body is on screen while the heading itself has scrolled above the
+    /// viewport. Showing it whenever the caret is below the heading pinned a line that was
+    /// still visible, which read as a stray duplicate.
     private var stickyEntry: OutlineEntry? {
-        guard followedLine > 1, !outline.entries.isEmpty else { return nil }
+        guard !markdownSymbols.isEmpty else { return nil }
+        let top = max(1, session.viewportLine)
+        guard top > 1 else { return nil }
         var chain: [OutlineEntry] = []
-        for entry in outline.entries where entry.line <= followedLine {
+        for entry in markdownSymbols where entry.line < top {
             while let last = chain.last, last.depth >= entry.depth {
                 chain.removeLast()
             }
             chain.append(entry)
         }
-        guard let deepest = chain.last, deepest.line < followedLine else { return nil }
-        return deepest
+        return chain.last
     }
 
     private var statusSnapshot: EditorStatusSnapshot {

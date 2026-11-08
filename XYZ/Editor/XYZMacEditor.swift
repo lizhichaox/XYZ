@@ -1305,11 +1305,27 @@ private struct FindScan {
 
     /// The first source line already in the viewport. Does not lay out the rest of the file.
     func viewportLine() -> Int? {
-        guard let manager = textLayoutManager,
-              let content = manager.textContentManager,
-              let location = manager.textViewportLayoutController.viewportRange?.location,
-              let index = lineIndexCache else { return nil }
-        let offset = content.offset(from: content.documentRange.location, to: location)
+        guard let index = lineIndexCache else { return nil }
+        if let manager = textLayoutManager,
+           let content = manager.textContentManager,
+           let location = manager.textViewportLayoutController.viewportRange?.location {
+            let offset = content.offset(from: content.documentRange.location, to: location)
+            return max(1, index.line(at: max(0, offset)))
+        }
+        // The live editor is TextKit 1, which has no viewport controller; ask the layout
+        // manager for the character at the top of the visible rect instead.
+        guard let layout = layoutManager, let container = textContainer else { return nil }
+        let visible = visibleRect
+        guard visible.height > 1 else { return nil }
+        let point = NSPoint(
+            x: max(0, visible.minX - textContainerOrigin.x),
+            y: max(0, visible.minY - textContainerOrigin.y)
+        )
+        let offset = layout.characterIndex(
+            for: point,
+            in: container,
+            fractionOfDistanceBetweenInsertionPoints: nil
+        )
         return max(1, index.line(at: max(0, offset)))
     }
 }
