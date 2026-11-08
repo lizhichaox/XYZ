@@ -1973,10 +1973,35 @@ private struct WorkspaceDetail: View {
                     EditorBreadcrumb(
                         rootName: session.displayName,
                         relativePath: path,
-                        siblings: { session.siblingNodes(of: $0) }
+                        siblings: { session.siblingNodes(of: $0) },
+                        symbols: outline.entries,
+                        currentLine: followedLine,
+                        chooseSymbol: { line in session.scrollLink.revealLine(line) }
                     ) { crumb in
                         session.revealCrumb(crumb)
                     }
+                }
+                if let sticky = stickyEntry {
+                    HStack(spacing: 6) {
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 9, weight: .semibold))
+                            .foregroundStyle(.tertiary)
+                        Text(sticky.title)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(Color.xyzSecondaryText)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.horizontal, 10)
+                    .frame(height: 22)
+                    .background(Color.editorBackground)
+                    .overlay(alignment: .bottom) {
+                        Rectangle().fill(Color.xyzDivider).frame(height: 1)
+                    }
+                    .contentShape(Rectangle())
+                    .onTapGesture { session.scrollLink.revealLine(sticky.line) }
+                    .accessibilityLabel(String(localized: "Current Section"))
                 }
             }
             if let status = banner {
@@ -2051,6 +2076,30 @@ private struct WorkspaceDetail: View {
         }
     }
 
+    /// The line the page follows, the same rule as the outline pane.
+    private var followedLine: Int {
+        FileOutline.followedLine(
+            reading: session.viewMode == .reading,
+            viewportLine: session.viewportLine,
+            caretLine: caret.line
+        )
+    }
+
+    /// The heading/declaration whose body the page is in while its own line is already
+    /// scrolled past the top. Nil when there is nothing to pin.
+    private var stickyEntry: OutlineEntry? {
+        guard followedLine > 1, !outline.entries.isEmpty else { return nil }
+        var chain: [OutlineEntry] = []
+        for entry in outline.entries where entry.line <= followedLine {
+            while let last = chain.last, last.depth >= entry.depth {
+                chain.removeLast()
+            }
+            chain.append(entry)
+        }
+        guard let deepest = chain.last, deepest.line < followedLine else { return nil }
+        return deepest
+    }
+
     private var statusSnapshot: EditorStatusSnapshot {
         guard session.buffer != nil else { return .empty }
         let caretValue: EditorCaret? = isEditing ? caret : nil
@@ -2081,11 +2130,13 @@ private struct WorkspaceDetail: View {
     }
 
     private func refreshOutline(immediate: Bool) {
-        guard format.language == .markdown, let text = session.buffer?.text else {
+        // Every language with an outline parser feeds the breadcrumb and the sticky
+        // header; only Markdown shows it in the right-hand panel.
+        guard let text = session.buffer?.text else {
             outline.clear()
             return
         }
-        outline.update(text: text, language: .markdown)
+        outline.update(text: text, language: format.language)
         _ = immediate
     }
 

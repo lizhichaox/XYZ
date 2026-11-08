@@ -2914,6 +2914,16 @@
           }
         }
       }
+    },
+    "Current Section": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "当前章节"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

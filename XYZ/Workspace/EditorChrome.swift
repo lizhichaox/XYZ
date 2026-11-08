@@ -858,6 +858,10 @@ struct EditorBreadcrumb: View {
     var rootName: String
     var relativePath: String
     var siblings: (String) -> [WorkspaceNode] = { _ in [] }
+    var symbols: [OutlineEntry] = []
+    /// The source line the caret or viewport is on, used to pick the symbol chain.
+    var currentLine: Int = 0
+    var chooseSymbol: ((Int) -> Void)? = nil
     var choose: (String) -> Void
 
     var body: some View {
@@ -875,6 +879,20 @@ struct EditorBreadcrumb: View {
                     }
                     crumbMenu(crumb, emphasized: index == crumbs.count - 1)
                 }
+                let chain = symbolChain
+                if !chain.isEmpty {
+                    Text("›")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                    ForEach(Array(chain.enumerated()), id: \.offset) { index, entry in
+                        if index > 0 {
+                            Text("›")
+                                .font(.caption)
+                                .foregroundStyle(.tertiary)
+                        }
+                        symbolCrumb(entry, emphasized: index == chain.count - 1)
+                    }
+                }
             }
             .padding(.horizontal, 10)
         }
@@ -882,6 +900,32 @@ struct EditorBreadcrumb: View {
         .frame(height: 22)
         .background(Color.editorBackground)
         .background(ScrollElasticityNone())
+    }
+
+    /// The heading/declaration chain that contains `currentLine`, outermost first.
+    private var symbolChain: [OutlineEntry] {
+        guard currentLine > 0, !symbols.isEmpty else { return [] }
+        var chain: [OutlineEntry] = []
+        for entry in symbols where entry.line <= currentLine {
+            while let last = chain.last, last.depth >= entry.depth {
+                chain.removeLast()
+            }
+            chain.append(entry)
+        }
+        return Array(chain.suffix(4))
+    }
+
+    private func symbolCrumb(_ entry: OutlineEntry, emphasized: Bool) -> some View {
+        Button {
+            chooseSymbol?(entry.line)
+        } label: {
+            Text(entry.title)
+                .font(.system(size: 12, weight: emphasized ? .medium : .regular))
+                .foregroundStyle(emphasized ? Color.xyzInk : Color.xyzSecondaryText)
+                .lineLimit(1)
+        }
+        .buttonStyle(.plain)
+        .disabled(chooseSymbol == nil)
     }
 
     private func crumbMenu(_ crumb: WorkspaceCrumb, emphasized: Bool) -> some View {
