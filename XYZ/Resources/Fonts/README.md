@@ -16,5 +16,5 @@ No network, no note-folder access, and no megabytes of base64 injected into HTML
 
 There are no font or line-spacing choices. Legacy Latin/CJK/monospaced/spacing
 preferences are ignored; saved text size is retained. Reading uses 1.75 line height,
-a centered 50em article and 0.3em list-item spacing. Source uses 1.7 for prose and
+the full pane width with original insets and 0.3em list-item spacing. Source uses 1.7 for prose and
 1.55 for code, subject to natural glyph height (never a clipping maximum).

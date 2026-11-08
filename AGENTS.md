@@ -65,8 +65,10 @@ rules below more than once; follow them without being asked.
   bundled Sarasa Gothic SC for prose/headings, Sarasa Mono SC for code. Both languages
   use the same face; do not reintroduce separately selected Latin/CJK fonts. UI stays native.
 - Only text size/zoom remains configurable. Ignore retired font, monospace and spacing
-  preference keys; retain saved size. Reading uses 1.75 line height and a centered 50em
-  article; source uses 1.7 prose / 1.55 code. Fonts load offline, per process, never into
+  preference keys; retain saved size. Reading uses 1.75 line height and the full pane
+  width with its original insets. **Fixed fonts do not authorize narrowing or centering
+  the content column.** Do not add a maximum reading width or a width setting.
+  Source uses 1.7 prose / 1.55 code. Fonts load offline, per process, never into
   Font Book. Include the unmodified font license and source checksums.
 - Syntax highlighting changes color, not font family/weight. A keyword keeps the code
   face and cell width. Chinese headings use the same actual weight as Latin.

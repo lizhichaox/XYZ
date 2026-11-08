@@ -81,10 +81,8 @@ body {
 }
 
 article {
-  width: 100%;
-  max-width: 50em;
-  margin: 0 auto;
-  padding: 20px clamp(20px, 3vw, 40px) 64px;
+  margin: 0;
+  padding: 10px clamp(16px, 4vw, 56px) 40px;
   hanging-punctuation: first last;
 }
 

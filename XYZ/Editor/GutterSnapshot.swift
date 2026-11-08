@@ -2275,8 +2275,16 @@ enum GutterSnapshotCheck {
             if (!code.includes('XYZ Code') || !prose.includes('XYZ Prose')) return 'font role mismatch';
             const body = getComputedStyle(document.body);
             if (Math.abs(parseFloat(body.lineHeight) / parseFloat(body.fontSize) - 1.75) > 0.01) return 'incorrect reading rhythm';
-            const article = document.querySelector('article').getBoundingClientRect();
-            if (article.width > 801 || article.left < 100) return 'article is too wide or not centered';
+            // Typography must not introduce a reading-column width cap, at any zoom.
+            for (const size of [11, 16, 24]) {
+              setPrefs(size);
+              const article = document.querySelector('article').getBoundingClientRect();
+              const viewport = document.documentElement.clientWidth;
+              if (Math.abs(article.width - viewport) > 1 || Math.abs(article.left) > 1) return 'reading width was capped or centered';
+              const padding = parseFloat(getComputedStyle(document.querySelector('article')).paddingLeft);
+              if (Math.abs(padding - Math.min(56, Math.max(16, window.innerWidth * 0.04))) > 1) return 'original content inset changed';
+            }
+            setPrefs(16);
             if (parseFloat(getComputedStyle(document.querySelector('li')).marginBottom) < 4) return 'list spacing too tight';
             const c = document.createElement('canvas').getContext('2d');
             c.font = '16px "XYZ Code"';
