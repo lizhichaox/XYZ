@@ -1,10 +1,11 @@
 # Releasing XYZ
 
-A checklist plus the record of what has been run. On 2026-11-07 the full signing and
-notarization path was run on the owner's Mac: a Developer ID certificate exists, a
-notary credential is in the keychain, and a signed, notarized, stapled DMG was accepted
-by Gatekeeper. Nothing is tagged or published yet. The cloud check is still unsigned on
-purpose (`CODE_SIGNING_ALLOWED=NO`), so it cannot replace the checks below.
+A checklist plus the record of what has been run. The full signing and notarization path
+runs on the owner's Mac: a Developer ID certificate exists, a notary credential is in the
+keychain, and the app plus DMG are signed, notarized, stapled, and accepted by Gatekeeper.
+The releases from 0.5.36 on are published; see the dated records at the end. The cloud
+check is unsigned on purpose (`CODE_SIGNING_ALLOWED=NO`), so it cannot replace the checks
+below.
 
 ## What the cloud check does not cover
 
@@ -112,12 +113,19 @@ acceptance gate has never passed (0/7); the failures are recorded in `CHANGELOG.
 10. iOS goes through TestFlight with the same team. The document browser needs the iCloud
     container entitlement, which an unsigned build does not carry.
 
-## What still blocks a release
+## Current state
 
-- No tag, no GitHub release, and no release workflow: everything above is run by hand.
-- The acceptance gate has not passed, so the window checks are evidence, not a pass.
-- The installed build is 0.5.27 (build 43), signed with an Apple Development
-  certificate; the notarized 0.5.29 build exists only as a local artifact.
+- Direct download is Developer ID plus notarization. There is no Mac App Store build: the
+  sandbox temporary exception for the two bin folders would have to be removed first.
+- Everything above is still run by hand. GitHub Actions stays disabled at the owner's
+  request, so a push starts no workflow.
+- `-XYZCheckGutter` passes its functional cases (typography, fonts, folding, gutter,
+  sidebar arrows, refresh, file creation). The five older window-gesture cases
+  (`nested-file`, `collapse-header`, `dividers`, `mode-labels`, `empty-line-prefs`) still
+  fail on this Mac because the window is inactive while the harness runs, and the
+  window-picture OCR probes (`window-switch`, `dark-nowrap-body`) misread the mixed
+  Chinese/emoji fixture on some runs. Those checks are evidence, not a pass.
+- Step 7 (folder panel, quit alert, iCloud, real input method) still needs the owner.
 - No manual verification on a real screen has been recorded for this build.
 
 ## Record: 2026-11-07
@@ -235,3 +243,28 @@ tagged `v0.5.38`; no GitHub release page (the owner chose B).
   pass; the five older cases still fail on this Mac for the inactive-window reason.
 - Merged `feat/editor-code-viewing` fast-forward into `main`; old DMG/ZIP artifacts
   removed, `build/` holds only `XYZ-0.5.38.zip`. GitHub Actions stays disabled.
+
+## 0.5.39 on 2026-11-08
+
+The theme, fixed bilingual typography, settings/About/Help, new icon, linked notes and
+`xyz` command round.
+
+- Archive `build/XYZ.xcarchive` (55) and Developer ID export to `build/export/XYZ.app`.
+- App zip notarized: submission `d8d57e96-0f65-4790-a592-c6c3e987c43e`, **Accepted**;
+  stapled and validated; `spctl -a -vv --type execute` **accepted**,
+  `source=Notarized Developer ID`, `origin=Developer ID Application: Zhichao Li (Z4FMG2KTPM)`.
+- DMG `build/XYZ-0.5.39.dmg`: signed with the Developer ID identity, notarized
+  (submission `9e5757e6-58d0-43d8-b459-4ace7df99fac`, **Accepted**), stapled;
+  `spctl -a -t open --context context:primary-signature -vv` **accepted**.
+  SHA-256 `0094bf7f019f51948f28dfd13dbdcb9902f9c9e6597a6f7378ec7c5853e60690`.
+- Zip asset `build/XYZ-0.5.39.zip` (stapled app), SHA-256
+  `53a13c71b4d8730e5080a7f090c0a5a41da07c0436a7e792322b0f28e8f6489a`.
+- Installed over `/Applications/XYZ.app`; `mdfind` lists only that bundle. Hidden launch
+  (`open -j`), process up, quit — clean.
+- Tests before the build: `swift test --package-path XYZCore` 259/0 and
+  `sh Scripts/xyz-test.sh` 8/8. `-XYZCheckGutter` on the exported build: every functional
+  case passes; two release runs misread the window-picture probes as described above.
+- Merged `fix/editor-typography` fast-forward into `main`; tagged `v0.5.39` (annotated,
+  on `d9f1557`) and published:
+  <https://github.com/lizhichaox/XYZ/releases/tag/v0.5.39> with `XYZ-0.5.39.dmg` and
+  `XYZ-0.5.39.zip` as assets.
