@@ -2078,6 +2078,33 @@ enum GutterSnapshotCheck {
         return nil
     }
 
+
+    /// The root collapse arrow and the first row's disclosure arrow must share a column.
+    @MainActor
+    private static func acceptSidebarArrows() -> String? {
+        guard let opened = acceptanceWindow(["Folder/inside.md": "Note\n"]) else {
+            return "could not open the sidebar window"
+        }
+        defer { closeAcceptance(opened) }
+        let (_, _, _, host) = opened
+        pump(0.5)
+        host.layoutSubtreeIfNeeded()
+        _ = waitUntil(4) { SidebarArrowCheck.measure(host: host).row != nil }
+        let measured = SidebarArrowCheck.measure(host: host)
+        print("SIDEBAR_ARROWS \(measured.text)")
+        fflush(stdout)
+        guard let header = measured.header, let row = measured.row else {
+            return measured.text
+        }
+        guard abs(header - row) <= 2 else {
+            return "the root arrow is \(Int(header))pt but row arrows sit at \(Int(row))pt"
+        }
+        if let image = shownImage(of: opened.2, content: host) {
+            saveShot(image, name: "sidebar-arrows.png")
+        }
+        return nil
+    }
+
     private static func runAcceptanceGestures() -> String? {
         let failures = MainActor.assumeIsolated { () -> [String] in
             var failed: [String] = []
@@ -2105,6 +2132,7 @@ enum GutterSnapshotCheck {
             record("editor-folding-caret", acceptFoldingCaret())
             record("editor-caret-band", acceptCaretBand())
             record("editor-viewport-line", acceptViewportLine())
+            record("sidebar-arrows", acceptSidebarArrows())
             if failed.isEmpty {
                 print("ACCEPTANCE_OK")
             } else {

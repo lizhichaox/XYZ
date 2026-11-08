@@ -963,6 +963,34 @@ enum SidebarColumnFitCheck {
     }
 }
 
+
+/// Checks that the root arrow and the first-level disclosure arrows share a column.
+@MainActor
+enum SidebarArrowCheck {
+    static func measure(host: NSView) -> (header: CGFloat?, row: CGFloat?, text: String) {
+        guard let column = findColumn(in: host) else {
+            return (nil, nil, "no sidebar column")
+        }
+        let outline = column.outline
+        guard outline.numberOfRows > 0 else {
+            return (nil, nil, "no rows")
+        }
+        let cellFrame = outline.frameOfOutlineCell(atRow: 0)
+        let cellInColumn = column.convert(outline.convert(cellFrame, to: nil), from: nil)
+        let header = column.header.arrowCenterX
+        let text = "header=\(Int(header.rounded())) row=\(Int(cellInColumn.midX.rounded()))"
+        return (header, cellInColumn.midX, text)
+    }
+
+    private static func findColumn(in view: NSView) -> SidebarColumnView? {
+        if let column = view as? SidebarColumnView { return column }
+        for child in view.subviews {
+            if let found = findColumn(in: child) { return found }
+        }
+        return nil
+    }
+}
+
 fileprivate final class SidebarColumnView: NSView {
     let header = SidebarRootHeader()
     let scroll = NSScrollView()
@@ -1214,6 +1242,12 @@ fileprivate final class SidebarRootHeader: NSView {
     )
     private let chevron = NSImageView()
     private let label = NSTextField(labelWithString: "")
+
+    /// Centre of the collapse arrow, for the sidebar geometry check.
+    fileprivate var arrowCenterX: CGFloat {
+        guard chevron.superview != nil else { return 0 }
+        return convert(chevron.bounds, from: chevron).midX
+    }
     private let actions = NSStackView()
     private var expanded = true
 
@@ -1255,11 +1289,11 @@ fileprivate final class SidebarRootHeader: NSView {
         addSubview(label)
         addSubview(actions)
         NSLayoutConstraint.activate([
-            chevron.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            chevron.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 2),
             chevron.centerYAnchor.constraint(equalTo: centerYAnchor),
             chevron.widthAnchor.constraint(equalToConstant: 12),
             chevron.heightAnchor.constraint(equalToConstant: 12),
-            label.leadingAnchor.constraint(equalTo: chevron.trailingAnchor, constant: 4),
+            label.leadingAnchor.constraint(equalTo: chevron.trailingAnchor, constant: 10),
             label.trailingAnchor.constraint(lessThanOrEqualTo: actions.leadingAnchor, constant: -6),
             label.centerYAnchor.constraint(equalTo: centerYAnchor),
             actions.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -4),
