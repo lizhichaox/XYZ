@@ -94,7 +94,6 @@ enum GutterSnapshotCheck {
         style.wraps = wraps
         style.fontSize = 16
         style.monospaced = true
-        style.latin = "menlo"
         return XYZMacEditor(
             text: text,
             isEditable: lineNumbers,
@@ -1295,7 +1294,6 @@ enum GutterSnapshotCheck {
         style.wraps = wraps
         style.fontSize = 16
         style.monospaced = true
-        style.latin = "menlo"
         style.lineHeight = 1.2
         textView.style = style
         pane.attach(textView)
@@ -1330,7 +1328,9 @@ enum GutterSnapshotCheck {
         let html = MarkdownHTML.render(markdown)
         let sourceLines = LineIndex(markdown).count
         let page = PreviewPage.shell(css: PreviewStyles.load(), html: html, theme: "light", prefs: PreviewPrefs(lineNumbers: true))
-        let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 280, height: 640))
+        let config = WKWebViewConfiguration()
+        config.setURLSchemeHandler(BundledFontSchemeHandler(), forURLScheme: AppFonts.scheme)
+        let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 280, height: 640), configuration: config)
         let window = NSWindow(
             contentRect: web.frame,
             styleMask: [.borderless],
@@ -1668,7 +1668,6 @@ enum GutterSnapshotCheck {
         var style = XYZEditorStyle()
         style.fontSize = 15
         style.monospaced = true
-        style.latin = "menlo"
         textView.style = style
         textView.font = NSFont.monospacedSystemFont(ofSize: 15, weight: .regular)
         textView.textContainerInset = NSSize(width: 13, height: 8)
@@ -2167,11 +2166,10 @@ enum GutterSnapshotCheck {
     private static func acceptTypography() -> String? {
         let source = "let value = 123\n\tvalue\n  value\n \tvalue\n中文 English 😀\n"
         for size: CGFloat in [11, 16, 24] {
-            for latin in ["system", "sfmono", "menlo", "jetbrains"] {
+            for mono in [false, true] {
                 var style = XYZEditorStyle()
                 style.fontSize = size
-                style.latin = latin
-                style.monospaced = true
+                style.monospaced = mono
                 style.lineHeight = 1.0 // Stress CJK metrics without clipping tall glyphs.
                 let view = XYZMacTextView(usingTextLayoutManager: false)
                 view.frame = NSRect(x: 0, y: 0, width: 700, height: 500)
@@ -2190,7 +2188,7 @@ enum GutterSnapshotCheck {
                     guard let font = value as? NSFont else { mismatched = true; return }
                     if font.fontName != expected.fontName || font.pointSize != size { mismatched = true }
                 }
-                guard !mismatched else { return "syntax changed the face/size: \(latin) \(size)" }
+                guard !mismatched else { return "syntax changed the face/size: mono=\(mono) \(size)" }
                 guard view.string == source else { return "typography changed source text" }
                 let paragraph = storage.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as! NSParagraphStyle
                 let step = ("  " as NSString).size(withAttributes: [.font: expected]).width
@@ -2208,7 +2206,7 @@ enum GutterSnapshotCheck {
                         + manager.location(forGlyphAt: glyph).x
                 }
                 guard positions.allSatisfy({ abs($0 - positions[0]) < 0.1 }) else {
-                    return "tab/space grid differs for \(latin) \(size): \(positions)"
+                    return "tab/space grid differs for mono=\(mono) \(size): \(positions)"
                 }
                 // Fence blocks retain full source size and their own measured tab stops.
                 view.string = "```swift\n\tlet value = 123\n```\n"
@@ -2218,18 +2216,18 @@ enum GutterSnapshotCheck {
                 guard let actual = storage.attribute(.font, at: body.location, effectiveRange: nil) as? NSFont,
                       actual.pointSize == size, actual.fontName == code.fontName,
                       let blockParagraph = storage.attribute(.paragraphStyle, at: body.location, effectiveRange: nil) as? NSParagraphStyle,
+                      abs(blockParagraph.minimumLineHeight - max(EditorTypography.naturalLineHeight(code), ceil(size * XYZEditorStyle.codeLineHeight))) < 0.01,
                       abs(blockParagraph.defaultTabInterval - ("  " as NSString).size(withAttributes: [.font: code]).width) < 0.01 else {
                     return "fenced code has a different size/tab grid"
                 }
             }
         }
-        for (id, expectedName) in [("pingfang", "PingFangSC-Semibold"), ("songti", "STSongti-SC-Bold"), ("heiti", "STHeitiSC-Medium")] {
-            var style = XYZEditorStyle()
-            style.cjk = id
+        for mono in [false, true] {
+            let style = XYZEditorStyle(monospaced: mono)
             let font = EditorTypography.headingFont(style, level: 2)
             let resolved = CTFontCreateForString(font as CTFont, "中文" as CFString, CFRange(location: 0, length: 2))
-            guard CTFontCopyPostScriptName(resolved) as String == expectedName else {
-                return "Chinese heading lost its weight: \(id)"
+            guard CTFontCopyPostScriptName(resolved) as String == font.fontName else {
+                return "Chinese heading differs from Latin face/weight"
             }
         }
         guard XYZMacTextView.indentLevels(" \t \tvalue") == 2 else { return "mixed-indent tab stops drift" }
@@ -2240,46 +2238,49 @@ enum GutterSnapshotCheck {
     private static func acceptBundledFonts() -> String? {
         AppFonts.register()
         for face in AppFonts.faces {
-            guard let font = NSFont(name: "JetBrainsMono-\(face.name)", size: 16),
+            guard let font = NSFont(name: face.postScript, size: 16),
                   let actual = CTFontCopyAttribute(font as CTFont, kCTFontURLAttribute) as? URL,
-                  let expected = AppFonts.url(face.name, extension: "ttf"),
+                  let expected = AppFonts.url(face.file),
                   actual.standardizedFileURL == expected.standardizedFileURL else {
-                return "\(face.name) did not resolve to the bundled font"
+                return "bundled face missing: \(face.file)"
+            }
+            let cjk = CTFontCreateForString(font as CTFont, "中文" as CFString, CFRange(location: 0, length: 2))
+            guard CTFontCopyPostScriptName(cjk) as String == face.postScript else {
+                return "mixed text fell back to a different family: \(face.file)"
             }
         }
-        var automatic = XYZEditorStyle()
-        automatic.monospaced = true
-        guard EditorTypography.baseFont(automatic).fontName == "JetBrainsMono-Regular",
-              EditorTypography.codeFont(.markdown).fontName == "JetBrainsMono-Regular" else {
-            return "automatic code did not use JetBrains Mono"
+        guard EditorTypography.baseFont(.markdown).fontName == AppFonts.name(monospaced: false),
+              EditorTypography.codeFont(.markdown).fontName == AppFonts.name(monospaced: true) else {
+            return "fixed font roles did not resolve"
         }
-        guard !EditorTypography.baseFont(.markdown).fontName.contains("JetBrains") else {
-            return "automatic prose became monospaced"
-        }
-        automatic.latin = "menlo"
-        guard EditorTypography.baseFont(automatic).fontName == "Menlo-Regular" else {
-            return "explicit font choice was replaced"
-        }
-        let native = EditorTypography.codeFont(.markdown)
-        let cjk = CTFontCreateForString(native as CTFont, "中文" as CFString, CFRange(location: 0, length: 2))
-        guard CTFontCopyPostScriptName(cjk) as String == "PingFangSC-Regular" else {
-            return "Chinese code did not fall back to PingFang"
+        for address in ["xyz-font://bundled/../../etc/passwd", "xyz-font://other/SarasaGothicSC-Regular.ttf", "xyz-font://bundled/SarasaGothicSC-Regular.ttf?file=secret"] {
+            guard AppFonts.resource(for: URL(string: address)!) == nil else { return "font resource escaped the allowlist" }
         }
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
-        let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 640, height: 480), configuration: configuration)
-        web.loadHTMLString(PreviewPage.shell(css: PreviewStyles.load(), html: "<p>中文 prose</p><pre><code>let value = 123</code></pre>", theme: "light", prefs: PreviewPrefs()), baseURL: nil)
+        configuration.setURLSchemeHandler(BundledFontSchemeHandler(), forURLScheme: AppFonts.scheme)
+        let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 1200, height: 480), configuration: configuration)
+        web.loadHTMLString(PreviewPage.shell(css: PreviewStyles.load(), html: "<p>中文 prose</p><ul><li>Mixed 中英文列表</li></ul><pre><code>let value = 123</code></pre>", theme: "light", prefs: PreviewPrefs()), baseURL: nil)
         guard waitUntil(8, { !web.isLoading && web.url != nil }) else { return "Reading font page did not load" }
         var result: String?
         web.callAsyncJavaScript("""
-            for (const spec of ['400', '500', '600', '700', 'italic 400', 'italic 700']) {
-              const faces = await document.fonts.load(spec + ' 16px "XYZ JetBrains Mono"', 'let value = 123');
-              if (!faces.length || faces.some(f => f.status !== 'loaded')) return 'missing web face: ' + spec;
+            for (const family of ['XYZ Prose', 'XYZ Code']) {
+              for (const weight of ['400', '600']) {
+                const faces = await document.fonts.load(weight + ' 16px "' + family + '"', '中文 English');
+                if (!faces.length || faces.some(f => f.status !== 'loaded')) return 'missing face: ' + family + weight;
+              }
             }
             const code = getComputedStyle(document.querySelector('pre code')).fontFamily;
             const prose = getComputedStyle(document.querySelector('p')).fontFamily;
-            if (!code.startsWith('"XYZ JetBrains Mono"') && !code.startsWith('XYZ JetBrains Mono')) return 'code fell back: ' + code;
-            if (prose.includes('JetBrains')) return 'prose became monospaced';
+            if (!code.includes('XYZ Code') || !prose.includes('XYZ Prose')) return 'font role mismatch';
+            const body = getComputedStyle(document.body);
+            if (Math.abs(parseFloat(body.lineHeight) / parseFloat(body.fontSize) - 1.75) > 0.01) return 'incorrect reading rhythm';
+            const article = document.querySelector('article').getBoundingClientRect();
+            if (article.width > 801 || article.left < 100) return 'article is too wide or not centered';
+            if (parseFloat(getComputedStyle(document.querySelector('li')).marginBottom) < 4) return 'list spacing too tight';
+            const c = document.createElement('canvas').getContext('2d');
+            c.font = '16px "XYZ Code"';
+            if (Math.abs(c.measureText('中').width - c.measureText('MM').width) > 0.1) return 'bilingual code columns differ';
             return 'pass';
             """, arguments: [:], in: nil, in: .page) { completion in
                 switch completion {

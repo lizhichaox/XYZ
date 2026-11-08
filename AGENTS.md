@@ -61,16 +61,21 @@ rules below more than once; follow them without being asked.
 
 ## Typography
 
-- Syntax highlighting changes color, not font family/weight. A keyword must keep the
-  selected code face and cell width (Menlo must not silently turn into system mono).
-- CJK fallback must follow the requested weight; a semibold Latin heading with regular
-  Chinese is not a coherent heading. Use actual available faces, not synthetic bold.
+- **No font pickers or line-spacing setting (owner decision).** Typography is fixed:
+  bundled Sarasa Gothic SC for prose/headings, Sarasa Mono SC for code. Both languages
+  use the same face; do not reintroduce separately selected Latin/CJK fonts. UI stays native.
+- Only text size/zoom remains configurable. Ignore retired font, monospace and spacing
+  preference keys; retain saved size. Reading uses 1.75 line height and a centered 50em
+  article; source uses 1.7 prose / 1.55 code. Fonts load offline, per process, never into
+  Font Book. Include the unmodified font license and source checksums.
+- Syntax highlighting changes color, not font family/weight. A keyword keeps the code
+  face and cell width. Chinese headings use the same actual weight as Latin.
 - Tabs repeat at two measured space advances, matching Reading and indent guides.
   Clear AppKit's default 28pt stops; mixed space/tab indentation advances to the next
   stop. Fenced blocks measure their own code font. Never rewrite the buffer for display.
-- Keep minimum line height only (no clipping maximum). Include the chosen CJK fallback
-  metrics so tight Latin/CJK rows stay stable. Do not override saved font/size/spacing
-  preferences as part of visual tuning.
+- Keep minimum line height only (no clipping maximum). Measure the complete bilingual
+  face so Chinese glyphs cannot clip. Preserve the saved text size; retired font/spacing
+  choices must not influence the fixed typography.
 - `-XYZCheckGutter`'s `typography` case checks actual font runs, CJK weight and tab layout
   at 11/16/24pt. Visual preference still needs the owner's review.
 

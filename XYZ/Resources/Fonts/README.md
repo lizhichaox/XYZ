@@ -1,21 +1,20 @@
-# Bundled fonts
+# Fixed bilingual typography
 
-XYZ includes unmodified JetBrains Mono 2.304 from
-https://github.com/JetBrains/JetBrainsMono/tree/v2.304 .
+XYZ bundles unmodified Sarasa Gothic SC and Sarasa Mono SC 1.0.43 (unhinted TTF)
+from https://github.com/be5invis/Sarasa-Gothic/releases/tag/v1.0.43 .
+The full SIL Open Font License 1.1 and copyright notices are in OFL.txt.
+Archive SHA-256 digests were checked against the upstream release metadata;
+sources.json records those digests, archive members, and extracted-file hashes.
 
-Copyright 2020 The JetBrains Mono Project Authors.
-The fonts are distributed under the SIL Open Font License 1.1; see OFL.txt.
-Exact download URLs and SHA-256 hashes are recorded in sources.json.
+Prose: Gothic SC Regular, SemiBold, Italic, SemiBoldItalic.
+Code: Mono SC Regular, SemiBold.
+Both Latin and Chinese come from the same face. System UI stays native.
+Fonts are registered per process, not installed into Font Book.
 
-Included styles: Regular, Medium, SemiBold, Bold, Italic, BoldItalic.
-TTF files serve the native editor. WOFF2 files serve Reading through embedded
-CSS data URLs, without network requests or access to the note's folder.
+Reading loads the same TTFs through an exact-name xyz-font://bundled allowlist.
+No network, no note-folder access, and no megabytes of base64 injected into HTML.
 
-Fonts are registered only within the XYZ process, not installed system-wide.
-Automatic typography uses JetBrains Mono for code and the system font for prose.
-Chinese uses the selected CJK fallback (PingFang SC by default); Apple fonts are
-provided by macOS and are not redistributed in this bundle.
-
-Explicit font, size, spacing and CJK preferences are not migrated or overwritten.
-To use the recommended combination, choose Automatic + PingFang SC in Settings.
-Choosing JetBrains Mono explicitly also applies it to prose.
+There are no font or line-spacing choices. Legacy Latin/CJK/monospaced/spacing
+preferences are ignored; saved text size is retained. Reading uses 1.75 line height,
+a centered 50em article and 0.3em list-item spacing. Source uses 1.7 for prose and
+1.55 for code, subject to natural glyph height (never a clipping maximum).

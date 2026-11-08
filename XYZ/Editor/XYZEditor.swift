@@ -23,21 +23,16 @@ import UIKit
 
 /// Visual defaults for the Markdown editor.
 ///
-/// The default face is the system font (SF Pro, with PingFang SC for Chinese).
-/// Settings choose a monospaced face (`monospacedKey`) and the text size (`fontSizeKey`,
-/// shared with Reading).
+/// One fixed bilingual family: Sarasa Gothic for prose, Sarasa Mono for code.
+/// Only text size is user-configurable; retired font/spacing preferences are ignored.
 struct XYZEditorStyle: Equatable {
     var fontSize: CGFloat = 16
     /// Line box height relative to the font size. Markdown source stores a hard return
     /// on every line, so this is a minimum line height rather than spacing between wraps.
-    var lineHeight: CGFloat = 1.7
+    var lineHeight: CGFloat = XYZEditorStyle.proseLineHeight
     var horizontalInset: CGFloat = 13
     var verticalInset: CGFloat = 8
     var monospaced: Bool = false
-    /// `system`, `sfmono`, `menlo`, or `jetbrains`.
-    var latin: String = "system"
-    /// `pingfang`, `songti`, or `heiti`.
-    var cjk: String = "pingfang"
     /// Long lines break to the editor width. Off scrolls sideways.
     var wraps: Bool = true
     /// Gutter numbers count from the caret line instead of from the top.
@@ -51,11 +46,7 @@ struct XYZEditorStyle: Equatable {
         return 13
     }
 
-    static let monospacedKey = "xyz.editor.monospaced"
     static let fontSizeKey = "xyz.text.size"
-    static let lineSpacingKey = "xyz.text.lineSpacing"
-    static let latinFontKey = "xyz.text.font.latin"
-    static let cjkFontKey = "xyz.text.font.cjk"
     /// Line numbers beside Source. On unless turned off.
     static let lineNumbersKey = "xyz.editor.lineNumbers"
     /// Old Reading line-number preference. It is not read. Reading has no gutter.
@@ -68,21 +59,12 @@ struct XYZEditorStyle: Equatable {
     static let showWhitespaceKey = "xyz.editor.showWhitespace"
     static let defaultFontSize: Double = 16
     static let fontSizes: ClosedRange<Double> = 11...24
-    static let defaultLineSpacing: Double = 1.7
-    static let lineSpacings: ClosedRange<Double> = 1.0...2.0
+    static let proseLineHeight: CGFloat = 1.7
+    static let codeLineHeight: CGFloat = 1.55
     static let markdown = XYZEditorStyle()
 
     static func clampedFontSize(_ size: Double) -> Double {
         min(fontSizes.upperBound, max(fontSizes.lowerBound, size.rounded()))
-    }
-
-    static func clampedLineSpacing(_ spacing: Double) -> Double {
-        let tenths = (spacing * 10).rounded() / 10
-        return min(lineSpacings.upperBound, max(lineSpacings.lowerBound, tenths))
-    }
-
-    static func latinIsMono(_ id: String) -> Bool {
-        id == "sfmono" || id == "menlo" || id == "jetbrains"
     }
 
     func paragraphStyle(naturalLineHeight: CGFloat, spaceAdvance: CGFloat? = nil) -> NSMutableParagraphStyle {
@@ -217,11 +199,7 @@ struct XYZEditor: View {
     var find: EditorFindModel? = nil
     #endif
 
-    @AppStorage(XYZEditorStyle.monospacedKey) private var monospaced = false
     @AppStorage(XYZEditorStyle.fontSizeKey) private var fontSize = XYZEditorStyle.defaultFontSize
-    @AppStorage(XYZEditorStyle.lineSpacingKey) private var lineSpacing = XYZEditorStyle.defaultLineSpacing
-    @AppStorage(XYZEditorStyle.latinFontKey) private var latinFont = "system"
-    @AppStorage(XYZEditorStyle.cjkFontKey) private var cjkFont = "pingfang"
     @AppStorage(XYZEditorStyle.lineNumbersKey) private var lineNumbers = true
     #if os(macOS)
     @AppStorage(XYZEditorStyle.wordWrapKey) private var wordWrap = true
@@ -238,10 +216,8 @@ struct XYZEditor: View {
             reloadToken: reloadToken,
             style: XYZEditorStyle(
                 fontSize: CGFloat(XYZEditorStyle.clampedFontSize(fontSize)),
-                lineHeight: CGFloat(XYZEditorStyle.clampedLineSpacing(lineSpacing)),
-                monospaced: monospaced || forcesMonospace || XYZEditorStyle.latinIsMono(latinFont),
-                latin: latinFont == "system" && monospaced ? "sfmono" : latinFont,
-                cjk: cjkFont,
+                lineHeight: forcesMonospace ? XYZEditorStyle.codeLineHeight : XYZEditorStyle.proseLineHeight,
+                monospaced: forcesMonospace,
                 wraps: wordWrap,
                 relativeLineNumbers: relativeLineNumbers,
                 showsWhitespace: showsWhitespace
@@ -260,7 +236,7 @@ struct XYZEditor: View {
             isEditable: isEditable,
             undoManager: undoManager,
             reloadToken: reloadToken,
-            monospaced: monospaced || forcesMonospace,
+            monospaced: forcesMonospace,
             scrollLink: scrollLink,
             markup: markup,
             onTextChange: onTextChange

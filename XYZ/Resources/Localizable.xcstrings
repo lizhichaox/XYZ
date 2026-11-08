@@ -1,12 +1,6 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "Automatic": {
-      "localizations": { "zh-Hans": { "stringUnit": { "state": "translated", "value": "自动" } } }
-    },
-    "Automatic uses system fonts for prose and bundled JetBrains Mono for code.": {
-      "localizations": { "zh-Hans": { "stringUnit": { "state": "translated", "value": "自动模式：正文使用系统字体，代码使用内置 JetBrains Mono。" } } }
-    },
     "%lld min read": {
       "localizations": {
         "zh-Hans": {
@@ -2401,16 +2395,6 @@
         }
       }
     },
-    "Chinese": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "中文"
-          }
-        }
-      }
-    },
     "Close All": {
       "localizations": {
         "zh-Hans": {
@@ -2531,16 +2515,6 @@
         }
       }
     },
-    "Heiti SC": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Heiti SC"
-          }
-        }
-      }
-    },
     "Install 'xyz' Command in PATH": {
       "localizations": {
         "zh-Hans": {
@@ -2561,52 +2535,12 @@
         }
       }
     },
-    "JetBrains Mono": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "JetBrains Mono"
-          }
-        }
-      }
-    },
-    "Latin": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "拉丁文"
-          }
-        }
-      }
-    },
-    "Line spacing": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "行距"
-          }
-        }
-      }
-    },
     "Ln %lld": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
             "value": "第 %lld 行"
-          }
-        }
-      }
-    },
-    "Menlo": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Menlo"
           }
         }
       }
@@ -2637,16 +2571,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "固定"
-          }
-        }
-      }
-    },
-    "PingFang SC": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "PingFang SC"
           }
         }
       }
@@ -2711,16 +2635,6 @@
         }
       }
     },
-    "SF Mono": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "SF Mono"
-          }
-        }
-      }
-    },
     "Search Notes": {
       "localizations": {
         "zh-Hans": {
@@ -2757,16 +2671,6 @@
           "stringUnit": {
             "state": "translated",
             "value": "设置…"
-          }
-        }
-      }
-    },
-    "Songti SC": {
-      "localizations": {
-        "zh-Hans": {
-          "stringUnit": {
-            "state": "translated",
-            "value": "Songti SC"
           }
         }
       }

@@ -1631,8 +1631,6 @@ struct XYZMacEditor: NSViewRepresentable {
             let metrics = previous.fontSize != style.fontSize
                 || previous.monospaced != style.monospaced
                 || previous.lineHeight != style.lineHeight
-                || previous.latin != style.latin
-                || previous.cjk != style.cjk
                 || previous.wraps != style.wraps
             if metrics {
                 context.coordinator.applyMetrics()
@@ -1956,10 +1954,7 @@ enum EditorTypography {
 
     static func codeFont(_ style: XYZEditorStyle, inline: Bool = true) -> NSFont {
         var code = style
-        if !XYZEditorStyle.latinIsMono(style.latin) {
-            code.latin = "jetbrains"
-            code.monospaced = true
-        }
+        code.monospaced = true
         // Only inline code is optically smaller. A fenced block is a full editor row.
         let size = inline ? (style.fontSize * 0.92).rounded() : style.fontSize
         return face(code, size: size, weight: .regular)
@@ -1981,61 +1976,13 @@ enum EditorTypography {
         )
     }
 
-    /// Latin face, with the chosen CJK face for characters the Latin font does not cover.
+    /// The same face owns Latin and CJK glyphs; no manually assembled cascade.
     static func face(_ style: XYZEditorStyle, size: CGFloat, weight: NSFont.Weight) -> NSFont {
-        let latin = latinFont(style, size: size, weight: weight)
-        let cjkName: String
-        switch style.cjk {
-        case "songti": cjkName = weight >= .semibold ? "STSongti-SC-Bold" : "STSongti-SC-Regular"
-        case "heiti": cjkName = weight >= .semibold ? "STHeitiSC-Medium" : "STHeitiSC-Light"
-        default:
-            cjkName = weight >= .semibold ? "PingFangSC-Semibold"
-                : weight >= .medium ? "PingFangSC-Medium" : "PingFangSC-Regular"
-        }
-        guard let cjk = NSFont(name: cjkName, size: size) else { return latin }
-        let descriptor = latin.fontDescriptor.addingAttributes([
-            .cascadeList: [cjk.fontDescriptor],
-        ])
-        return NSFont(descriptor: descriptor, size: size) ?? latin
-    }
-
-    private static func latinFont(_ style: XYZEditorStyle, size: CGFloat, weight: NSFont.Weight) -> NSFont {
-        if style.latin == "sfmono" {
-            // SF Mono is not necessarily registered under a public family name.
-            return NSFont.monospacedSystemFont(ofSize: size, weight: weight)
-        }
-        if style.latin == "jetbrains" || (style.latin == "system" && style.monospaced) {
-            AppFonts.register()
-            let face = weight >= .semibold ? "SemiBold" : weight >= .medium ? "Medium" : "Regular"
-            return NSFont(name: "JetBrainsMono-\(face)", size: size)
-                ?? NSFont.monospacedSystemFont(ofSize: size, weight: weight)
-        }
-        let names: [String]
-        switch style.latin {
-        case "menlo": names = ["Menlo"]
-        default: names = []
-        }
-        if names.isEmpty {
-            if style.monospaced {
-                return NSFont.monospacedSystemFont(ofSize: size, weight: weight)
-            }
-            return NSFont.systemFont(ofSize: size, weight: weight)
-        }
-        for name in names {
-            if let font = NSFont(name: name, size: size) {
-                if weight == .regular { return font }
-                let managerWeight = weight >= .semibold ? 8 : 6
-                return font.familyName.flatMap {
-                    NSFontManager.shared.font(withFamily: $0, traits: [], weight: managerWeight, size: size)
-                } ?? font
-            }
-        }
-        return NSFont.monospacedSystemFont(ofSize: size, weight: weight)
-    }
-
-    /// SF Pro for Latin, PingFang SC when the primary face has no glyph.
-    static func proportional(size: CGFloat, weight: NSFont.Weight) -> NSFont {
-        face(XYZEditorStyle(), size: size, weight: weight)
+        AppFonts.register()
+        let name = AppFonts.name(monospaced: style.monospaced, emphasized: weight >= .medium)
+        return NSFont(name: name, size: size)
+            ?? (style.monospaced ? NSFont.monospacedSystemFont(ofSize: size, weight: weight)
+                                : NSFont.systemFont(ofSize: size, weight: weight))
     }
 
     /// Base font and line height everywhere; heading sizes and tinted markers only when `markup` is on.
@@ -2298,7 +2245,9 @@ enum EditorTypography {
         fenceColor: NSColor
     ) {
         let codeFace = codeFont(style, inline: false)
-        let paragraph = paragraphStyle(style, font: codeFace)
+        var codeStyle = style
+        codeStyle.lineHeight = XYZEditorStyle.codeLineHeight
+        let paragraph = paragraphStyle(codeStyle, font: codeFace)
         let lineRanges = [block.openingLine, block.closingLine].compactMap { $0 }
         for line in lineRanges {
             let content = contentRange(ns, line)

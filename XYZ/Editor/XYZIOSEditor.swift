@@ -283,7 +283,7 @@ struct XYZIOSEditor: UIViewRepresentable {
     }
 
     private func applyTypingStyle(to textView: UITextView, monospaced: Bool, restyleStorage: Bool) {
-        let style = XYZEditorStyle(monospaced: monospaced)
+        let style = XYZEditorStyle(lineHeight: monospaced ? XYZEditorStyle.codeLineHeight : XYZEditorStyle.proseLineHeight, monospaced: monospaced)
         let base = Self.face(style)
         let font = UIFontMetrics(forTextStyle: .body).scaledFont(for: base)
         let paragraph = style.paragraphStyle(naturalLineHeight: font.lineHeight)
@@ -310,17 +310,10 @@ struct XYZIOSEditor: UIViewRepresentable {
         storage.endEditing()
     }
 
-    /// System font for Latin, PingFang SC for Chinese.
     private static func face(_ style: XYZEditorStyle) -> UIFont {
-        if style.monospaced {
-            return UIFont.monospacedSystemFont(ofSize: style.fontSize, weight: .regular)
-        }
-        let base = UIFont.systemFont(ofSize: style.fontSize, weight: .regular)
-        let fallback = UIFontDescriptor(fontAttributes: [.name: "PingFang SC"])
-        let descriptor = base.fontDescriptor.addingAttributes([
-            .cascadeList: [fallback],
-        ])
-        return UIFont(descriptor: descriptor, size: style.fontSize)
+        AppFonts.register()
+        return UIFont(name: AppFonts.name(monospaced: style.monospaced), size: style.fontSize)
+            ?? UIFont.systemFont(ofSize: style.fontSize)
     }
 
     final class Coordinator: NSObject, UITextViewDelegate, XYZTextEditing {

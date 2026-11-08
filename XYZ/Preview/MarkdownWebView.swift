@@ -57,9 +57,6 @@ final class PreviewWebHost {
 /// shared with the editor.
 struct PreviewPrefs: Equatable {
     var fontSize: Double = XYZEditorStyle.defaultFontSize
-    var lineSpacing: Double = XYZEditorStyle.defaultLineSpacing
-    var latin = "system"
-    var cjk = "pingfang"
     var lineNumbers = false
     /// `<base href>` for the note's folder. Set before the content, so its pictures resolve.
     var baseHref = ""
@@ -68,36 +65,8 @@ struct PreviewPrefs: Equatable {
 
     var script: String {
         let size = Int(XYZEditorStyle.clampedFontSize(fontSize))
-        let spacing = XYZEditorStyle.clampedLineSpacing(lineSpacing)
-        let latinCSS = PreviewPage.javaScriptLiteral(PreviewFontCSS.latin(latin))
-        let cjkCSS = PreviewPage.javaScriptLiteral(PreviewFontCSS.cjk(cjk))
-        let monoCSS = PreviewPage.javaScriptLiteral(PreviewFontCSS.mono(latin))
         _ = lineNumbers
-        return "setPrefs(\(size), \(spacing), \(latinCSS), \(cjkCSS), \(monoCSS)); setLineNumbers(false);"
-    }
-}
-
-enum PreviewFontCSS {
-    static func latin(_ id: String) -> String {
-        switch id {
-        case "sfmono": return "\"SF Mono\", ui-monospace, Menlo"
-        case "menlo": return "Menlo, \"SF Mono\", ui-monospace"
-        case "jetbrains": return "\"XYZ JetBrains Mono\", ui-monospace, Menlo"
-        default: return "-apple-system, BlinkMacSystemFont, \"SF Pro Text\""
-        }
-    }
-
-    static func cjk(_ id: String) -> String {
-        switch id {
-        case "songti": return "\"Songti SC\", \"STSong\""
-        case "heiti": return "\"Heiti SC\", \"STHeiti\""
-        default: return "\"PingFang SC\", \"Hiragino Sans GB\""
-        }
-    }
-
-    static func mono(_ latinID: String) -> String {
-        if XYZEditorStyle.latinIsMono(latinID) { return latin(latinID) }
-        return latin("jetbrains")
+        return "setPrefs(\(size)); setLineNumbers(false);"
     }
 }
 
@@ -109,16 +78,10 @@ struct MarkdownWebView: View {
     var scrollLink: EditorScrollLink
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage(XYZEditorStyle.fontSizeKey) private var fontSize = XYZEditorStyle.defaultFontSize
-    @AppStorage(XYZEditorStyle.lineSpacingKey) private var lineSpacing = XYZEditorStyle.defaultLineSpacing
-    @AppStorage(XYZEditorStyle.latinFontKey) private var latinFont = "system"
-    @AppStorage(XYZEditorStyle.cjkFontKey) private var cjkFont = "pingfang"
 
     var body: some View {
         let prefs = PreviewPrefs(
             fontSize: fontSize,
-            lineSpacing: lineSpacing,
-            latin: latinFont,
-            cjk: cjkFont,
             lineNumbers: false,
             baseHref: LocalAssets.baseHref(for: baseDirectory),
             rootPath: baseDirectory?.standardizedFileURL.resolvingSymlinksInPath().path ?? ""
@@ -451,6 +414,7 @@ private enum PreviewWebViewFactory {
         let configuration = WKWebViewConfiguration()
         configuration.defaultWebpagePreferences.allowsContentJavaScript = true
         configuration.setURLSchemeHandler(schemeHandler, forURLScheme: LocalAssets.scheme)
+        configuration.setURLSchemeHandler(BundledFontSchemeHandler(), forURLScheme: AppFonts.scheme)
         #if os(macOS)
         let webView = XYZPreviewWebView(frame: .zero, configuration: configuration)
         #else
@@ -1177,14 +1141,10 @@ enum PreviewPage {
         function setTheme(theme) {
           document.documentElement.setAttribute("data-theme", theme);
         }
-        function setPrefs(size, spacing, latin, cjk, mono) {
+        function setPrefs(size) {
           var kept = xyzTop();
           var root = document.documentElement;
           root.style.setProperty("--text-size", (size | 0) + "px");
-          if (spacing) root.style.setProperty("--line-height", String(spacing));
-          if (latin) root.style.setProperty("--font-latin", latin);
-          if (cjk) root.style.setProperty("--font-cjk", cjk);
-          if (mono) root.style.setProperty("--font-mono", mono);
           if (kept && kept.line) xyzRevealLine(kept.line);
           if (typeof xyzLayoutGutter === "function") xyzLayoutGutter();
         }

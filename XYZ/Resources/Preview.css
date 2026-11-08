@@ -70,8 +70,8 @@ html, body {
 
 body {
   font-size: var(--text-size, 16px);
-  line-height: var(--line-height, 1.7);
-  font-family: var(--font-latin, -apple-system, BlinkMacSystemFont, "SF Pro Text"), var(--font-cjk, "PingFang SC"), "Helvetica Neue", sans-serif;
+  line-height: 1.75;
+  font-family: "XYZ Prose", sans-serif;
   line-break: strict;
   hanging-punctuation: first last;
   text-spacing-trim: space-first;
@@ -81,8 +81,10 @@ body {
 }
 
 article {
-  margin: 0;
-  padding: 10px clamp(16px, 4vw, 56px) 40px;
+  width: 100%;
+  max-width: 50em;
+  margin: 0 auto;
+  padding: 20px clamp(20px, 3vw, 40px) 64px;
   hanging-punctuation: first last;
 }
 
@@ -125,7 +127,8 @@ del {
 }
 
 code, kbd, pre {
-  font-family: var(--font-mono, "XYZ JetBrains Mono", ui-monospace, Menlo), var(--font-cjk, "PingFang SC"), monospace;
+  font-family: "XYZ Code", monospace;
+  font-variant-ligatures: none;
   color: var(--text);
 }
 
@@ -212,7 +215,7 @@ ul, ol {
   padding-left: 1.35em;
 }
 
-li { margin: 0.18em 0; }
+li { margin: 0.3em 0; }
 li > p { margin: 0.2em 0; }
 li > ul, li > ol { margin: 0.15em 0 0.35em; }
 
