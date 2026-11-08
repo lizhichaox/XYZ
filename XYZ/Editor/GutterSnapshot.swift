@@ -2216,10 +2216,33 @@ enum GutterSnapshotCheck {
                 guard let actual = storage.attribute(.font, at: body.location, effectiveRange: nil) as? NSFont,
                       actual.pointSize == size, actual.fontName == code.fontName,
                       let blockParagraph = storage.attribute(.paragraphStyle, at: body.location, effectiveRange: nil) as? NSParagraphStyle,
-                      abs(blockParagraph.minimumLineHeight - max(EditorTypography.naturalLineHeight(code), ceil(size * XYZEditorStyle.codeLineHeight))) < 0.01,
+                      abs(blockParagraph.minimumLineHeight - max(EditorTypography.naturalLineHeight(code), ceil(size * XYZEditorStyle.codeLineHeight(forProse: style.lineHeight)))) < 0.01,
                       abs(blockParagraph.defaultTabInterval - ("  " as NSString).size(withAttributes: [.font: code]).width) < 0.01 else {
                     return "fenced code has a different size/tab grid"
                 }
+            }
+        }
+        // Line spacing is the one typographic preference: prose follows it exactly,
+        // and fenced code keeps a fixed step tighter.
+        for spacing: CGFloat in [1.0, 1.3, 1.7, 2.0] {
+            var style = XYZEditorStyle()
+            style.lineHeight = spacing
+            let view = XYZMacTextView(usingTextLayoutManager: false)
+            view.frame = NSRect(x: 0, y: 0, width: 700, height: 500)
+            view.style = style
+            view.string = "prose line\n```swift\nlet value = 123\n```\n"
+            EditorTypography.apply(to: view, style: style, markup: true, edited: nil)
+            guard let storage = view.textStorage else { return "missing storage for line spacing" }
+            let ns = view.string as NSString
+            let prose = storage.attribute(.paragraphStyle, at: 0, effectiveRange: nil) as? NSParagraphStyle
+            let expectedProse = max(EditorTypography.naturalLineHeight(EditorTypography.baseFont(style)), ceil(style.fontSize * spacing))
+            let codeLine = XYZEditorStyle.codeLineHeight(forProse: spacing)
+            let expectedCode = max(EditorTypography.naturalLineHeight(EditorTypography.codeFont(style, inline: false)), ceil(style.fontSize * codeLine))
+            let bodyIndex = ns.range(of: "let").location
+            let fence = storage.attribute(.paragraphStyle, at: bodyIndex, effectiveRange: nil) as? NSParagraphStyle
+            guard let prose, abs(prose.minimumLineHeight - expectedProse) < 0.01,
+                  let fence, abs(fence.minimumLineHeight - expectedCode) < 0.01 else {
+                return "line spacing preference was not applied at \(spacing)"
             }
         }
         for mono in [false, true] {
@@ -2273,18 +2296,21 @@ enum GutterSnapshotCheck {
             const code = getComputedStyle(document.querySelector('pre code')).fontFamily;
             const prose = getComputedStyle(document.querySelector('p')).fontFamily;
             if (!code.includes('XYZ Code') || !prose.includes('XYZ Prose')) return 'font role mismatch';
-            const body = getComputedStyle(document.body);
-            if (Math.abs(parseFloat(body.lineHeight) / parseFloat(body.fontSize) - 1.75) > 0.01) return 'incorrect reading rhythm';
+            const ratio = () => parseFloat(getComputedStyle(document.body).lineHeight) / parseFloat(getComputedStyle(document.body).fontSize);
+            if (Math.abs(ratio() - 1.7) > 0.01) return 'incorrect default reading rhythm';
+            setPrefs(16, 1.35);
+            if (Math.abs(ratio() - 1.35) > 0.01) return 'reading ignored the line spacing preference';
+            setPrefs(16, 1.7);
             // Typography must not introduce a reading-column width cap, at any zoom.
             for (const size of [11, 16, 24]) {
-              setPrefs(size);
+              setPrefs(size, 1.7);
               const article = document.querySelector('article').getBoundingClientRect();
               const viewport = document.documentElement.clientWidth;
               if (Math.abs(article.width - viewport) > 1 || Math.abs(article.left) > 1) return 'reading width was capped or centered';
               const padding = parseFloat(getComputedStyle(document.querySelector('article')).paddingLeft);
               if (Math.abs(padding - Math.min(56, Math.max(16, window.innerWidth * 0.04))) > 1) return 'original content inset changed';
             }
-            setPrefs(16);
+            setPrefs(16, 1.7);
             if (parseFloat(getComputedStyle(document.querySelector('li')).marginBottom) < 4) return 'list spacing too tight';
             const c = document.createElement('canvas').getContext('2d');
             c.font = '16px "XYZ Code"';

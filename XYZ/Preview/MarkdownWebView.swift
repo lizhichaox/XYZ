@@ -57,6 +57,8 @@ final class PreviewWebHost {
 /// shared with the editor.
 struct PreviewPrefs: Equatable {
     var fontSize: Double = XYZEditorStyle.defaultFontSize
+    /// Line box height as a multiple of the text size, shared with Editing.
+    var lineSpacing: Double = XYZEditorStyle.defaultLineSpacing
     var lineNumbers = false
     /// `<base href>` for the note's folder. Set before the content, so its pictures resolve.
     var baseHref = ""
@@ -65,8 +67,9 @@ struct PreviewPrefs: Equatable {
 
     var script: String {
         let size = Int(XYZEditorStyle.clampedFontSize(fontSize))
+        let spacing = XYZEditorStyle.clampedLineSpacing(lineSpacing)
         _ = lineNumbers
-        return "setPrefs(\(size)); setLineNumbers(false);"
+        return "setPrefs(\(size), \(spacing)); setLineNumbers(false);"
     }
 }
 
@@ -78,10 +81,12 @@ struct MarkdownWebView: View {
     var scrollLink: EditorScrollLink
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage(XYZEditorStyle.fontSizeKey) private var fontSize = XYZEditorStyle.defaultFontSize
+    @AppStorage(XYZEditorStyle.lineSpacingKey) private var lineSpacing = XYZEditorStyle.defaultLineSpacing
 
     var body: some View {
         let prefs = PreviewPrefs(
             fontSize: fontSize,
+            lineSpacing: lineSpacing,
             lineNumbers: false,
             baseHref: LocalAssets.baseHref(for: baseDirectory),
             rootPath: baseDirectory?.standardizedFileURL.resolvingSymlinksInPath().path ?? ""
@@ -1141,10 +1146,11 @@ enum PreviewPage {
         function setTheme(theme) {
           document.documentElement.setAttribute("data-theme", theme);
         }
-        function setPrefs(size) {
+        function setPrefs(size, spacing) {
           var kept = xyzTop();
           var root = document.documentElement;
           root.style.setProperty("--text-size", (size | 0) + "px");
+          if (spacing) root.style.setProperty("--line-height", String(spacing));
           if (kept && kept.line) xyzRevealLine(kept.line);
           if (typeof xyzLayoutGutter === "function") xyzLayoutGutter();
         }

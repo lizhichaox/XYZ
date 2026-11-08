@@ -6,6 +6,7 @@ struct SettingsView: View {
     @AppStorage(AppAppearance.key) private var appearance = AppAppearance.system
     @AppStorage(AppLanguage.key) private var language = AppLanguage.system
     @AppStorage(XYZEditorStyle.fontSizeKey) private var fontSize = XYZEditorStyle.defaultFontSize
+    @AppStorage(XYZEditorStyle.lineSpacingKey) private var lineSpacing = XYZEditorStyle.defaultLineSpacing
     @AppStorage(XYZEditorStyle.wordWrapKey) private var wordWrap = true
     @AppStorage(WordCountSetting.key) private var showsWordCount = false
     @AppStorage(HiddenFilesSetting.key) private var showsHiddenFiles = true
@@ -47,6 +48,13 @@ struct SettingsView: View {
                 LabeledContent("Size") {
                     Stepper(value: $fontSize, in: XYZEditorStyle.fontSizes, step: 1) {
                         Text("\(Int(XYZEditorStyle.clampedFontSize(fontSize))) pt")
+                            .monospacedDigit()
+                    }
+                }
+
+                LabeledContent("Line spacing") {
+                    Stepper(value: $lineSpacing, in: XYZEditorStyle.lineSpacings, step: 0.1) {
+                        Text(String(format: "%.1f", XYZEditorStyle.clampedLineSpacing(lineSpacing)))
                             .monospacedDigit()
                     }
                 }

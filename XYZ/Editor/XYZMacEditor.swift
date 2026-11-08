@@ -2246,7 +2246,7 @@ enum EditorTypography {
     ) {
         let codeFace = codeFont(style, inline: false)
         var codeStyle = style
-        codeStyle.lineHeight = XYZEditorStyle.codeLineHeight
+        codeStyle.lineHeight = XYZEditorStyle.codeLineHeight(forProse: style.lineHeight)
         let paragraph = paragraphStyle(codeStyle, font: codeFace)
         let lineRanges = [block.openingLine, block.closingLine].compactMap { $0 }
         for line in lineRanges {

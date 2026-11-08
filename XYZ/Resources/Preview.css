@@ -70,7 +70,7 @@ html, body {
 
 body {
   font-size: var(--text-size, 16px);
-  line-height: 1.75;
+  line-height: var(--line-height, 1.7);
   font-family: "XYZ Prose", sans-serif;
   line-break: strict;
   hanging-punctuation: first last;

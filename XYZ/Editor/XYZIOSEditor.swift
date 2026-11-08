@@ -202,6 +202,8 @@ struct XYZIOSEditor: UIViewRepresentable {
     var undoManager: UndoManager?
     var reloadToken: Int
     var monospaced: Bool
+    /// Line box height as a multiple of the text size; the editor fixes fonts, not rhythm.
+    var lineHeight: CGFloat
     var scrollLink: EditorScrollLink
     var markup: Bool
     var onTextChange: (String) -> Void
@@ -237,14 +239,15 @@ struct XYZIOSEditor: UIViewRepresentable {
         textView.setContentHuggingPriority(.defaultLow, for: .horizontal)
         textView.setContentHuggingPriority(.defaultLow, for: .vertical)
         textView.accessibilityLabel = String(localized: "Markdown editor")
-        applyTypingStyle(to: textView, monospaced: monospaced, restyleStorage: false)
+        applyTypingStyle(to: textView, monospaced: monospaced, lineHeight: lineHeight, restyleStorage: false)
         textView.text = text
-        applyTypingStyle(to: textView, monospaced: monospaced, restyleStorage: true)
+        applyTypingStyle(to: textView, monospaced: monospaced, lineHeight: lineHeight, restyleStorage: true)
 
         textView.allowsMarkup = markup
         context.coordinator.textView = textView
         context.coordinator.onTextChange = onTextChange
         context.coordinator.monospaced = monospaced
+        context.coordinator.lineHeight = lineHeight
         textView.delegate = context.coordinator
         textView.documentUndoManager = undoManager
         assert(textView.textLayoutManager != nil, "XYZEditor requires TextKit 2")
@@ -261,8 +264,10 @@ struct XYZIOSEditor: UIViewRepresentable {
             textView?.scrollAnchor() ?? EditorScrollAnchor(fraction: 0, probe: "", line: 1)
         }
         let styleChanged = context.coordinator.monospaced != monospaced
+            || context.coordinator.lineHeight != lineHeight
         if styleChanged {
             context.coordinator.monospaced = monospaced
+            context.coordinator.lineHeight = lineHeight
         }
         var replaced = false
         if context.coordinator.reloadToken != reloadToken {
@@ -272,7 +277,7 @@ struct XYZIOSEditor: UIViewRepresentable {
                 replaced = true
             }
         }
-        applyTypingStyle(to: textView, monospaced: monospaced, restyleStorage: styleChanged || replaced)
+        applyTypingStyle(to: textView, monospaced: monospaced, lineHeight: lineHeight, restyleStorage: styleChanged || replaced)
         if let anchor = scrollLink.take(for: .source) {
             textView.reveal(anchor)
         }
@@ -282,8 +287,13 @@ struct XYZIOSEditor: UIViewRepresentable {
         Coordinator()
     }
 
-    private func applyTypingStyle(to textView: UITextView, monospaced: Bool, restyleStorage: Bool) {
-        let style = XYZEditorStyle(lineHeight: monospaced ? XYZEditorStyle.codeLineHeight : XYZEditorStyle.proseLineHeight, monospaced: monospaced)
+    private func applyTypingStyle(
+        to textView: UITextView,
+        monospaced: Bool,
+        lineHeight: CGFloat,
+        restyleStorage: Bool
+    ) {
+        let style = XYZEditorStyle(lineHeight: lineHeight, monospaced: monospaced)
         let base = Self.face(style)
         let font = UIFontMetrics(forTextStyle: .body).scaledFont(for: base)
         let paragraph = style.paragraphStyle(naturalLineHeight: font.lineHeight)
@@ -322,6 +332,7 @@ struct XYZIOSEditor: UIViewRepresentable {
         var scrollLink: EditorScrollLink?
         var reloadToken = 0
         var monospaced = false
+        var lineHeight: CGFloat = XYZEditorStyle.defaultLineSpacing
         private var isApplyingExternalText = false
 
         var text: String {

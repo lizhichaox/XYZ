@@ -14,7 +14,7 @@ Fonts are registered per process, not installed into Font Book.
 Reading loads the same TTFs through an exact-name xyz-font://bundled allowlist.
 No network, no note-folder access, and no megabytes of base64 injected into HTML.
 
-There are no font or line-spacing choices. Legacy Latin/CJK/monospaced/spacing
-preferences are ignored; saved text size is retained. Reading uses 1.75 line height,
-the full pane width with original insets and 0.3em list-item spacing. Source uses 1.7 for prose and
-1.55 for code, subject to natural glyph height (never a clipping maximum).
+There are no font choices. Legacy Latin/CJK/monospaced preferences are ignored.
+Text size and line spacing are settings (spacing 1.0–2.0, default 1.7); code renders
+0.15 tighter than prose. Reading uses the full pane width with its original insets and
+0.3em list-item spacing.

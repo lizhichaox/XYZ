@@ -24,12 +24,12 @@ import UIKit
 /// Visual defaults for the Markdown editor.
 ///
 /// One fixed bilingual family: Sarasa Gothic for prose, Sarasa Mono for code.
-/// Only text size is user-configurable; retired font/spacing preferences are ignored.
+/// Text size and line spacing are configurable; font choices are not.
 struct XYZEditorStyle: Equatable {
     var fontSize: CGFloat = 16
     /// Line box height relative to the font size. Markdown source stores a hard return
     /// on every line, so this is a minimum line height rather than spacing between wraps.
-    var lineHeight: CGFloat = XYZEditorStyle.proseLineHeight
+    var lineHeight: CGFloat = CGFloat(XYZEditorStyle.defaultLineSpacing)
     var horizontalInset: CGFloat = 13
     var verticalInset: CGFloat = 8
     var monospaced: Bool = false
@@ -47,6 +47,8 @@ struct XYZEditorStyle: Equatable {
     }
 
     static let fontSizeKey = "xyz.text.size"
+    /// Line box height as a multiple of the text size, shared by Editing and Reading.
+    static let lineSpacingKey = "xyz.text.lineSpacing"
     /// Line numbers beside Source. On unless turned off.
     static let lineNumbersKey = "xyz.editor.lineNumbers"
     /// Old Reading line-number preference. It is not read. Reading has no gutter.
@@ -59,12 +61,23 @@ struct XYZEditorStyle: Equatable {
     static let showWhitespaceKey = "xyz.editor.showWhitespace"
     static let defaultFontSize: Double = 16
     static let fontSizes: ClosedRange<Double> = 11...24
-    static let proseLineHeight: CGFloat = 1.7
-    static let codeLineHeight: CGFloat = 1.55
+    static let defaultLineSpacing: Double = 1.7
+    static let lineSpacings: ClosedRange<Double> = 1.0...2.0
     static let markdown = XYZEditorStyle()
 
     static func clampedFontSize(_ size: Double) -> Double {
         min(fontSizes.upperBound, max(fontSizes.lowerBound, size.rounded()))
+    }
+
+    static func clampedLineSpacing(_ spacing: Double) -> Double {
+        let tenths = (spacing * 10).rounded() / 10
+        return min(lineSpacings.upperBound, max(lineSpacings.lowerBound, tenths))
+    }
+
+    /// Code sits a fixed step tighter than prose, so the reader never has to
+    /// choose two line heights. Clamped so code never becomes tighter than solid.
+    static func codeLineHeight(forProse height: CGFloat) -> CGFloat {
+        max(lineSpacings.lowerBound, height - 0.15)
     }
 
     func paragraphStyle(naturalLineHeight: CGFloat, spaceAdvance: CGFloat? = nil) -> NSMutableParagraphStyle {
@@ -200,6 +213,7 @@ struct XYZEditor: View {
     #endif
 
     @AppStorage(XYZEditorStyle.fontSizeKey) private var fontSize = XYZEditorStyle.defaultFontSize
+    @AppStorage(XYZEditorStyle.lineSpacingKey) private var lineSpacing = XYZEditorStyle.defaultLineSpacing
     @AppStorage(XYZEditorStyle.lineNumbersKey) private var lineNumbers = true
     #if os(macOS)
     @AppStorage(XYZEditorStyle.wordWrapKey) private var wordWrap = true
@@ -208,6 +222,7 @@ struct XYZEditor: View {
     #endif
 
     var body: some View {
+        let spacing = CGFloat(XYZEditorStyle.clampedLineSpacing(lineSpacing))
         #if os(macOS)
         XYZMacEditor(
             text: text,
@@ -216,7 +231,9 @@ struct XYZEditor: View {
             reloadToken: reloadToken,
             style: XYZEditorStyle(
                 fontSize: CGFloat(XYZEditorStyle.clampedFontSize(fontSize)),
-                lineHeight: forcesMonospace ? XYZEditorStyle.codeLineHeight : XYZEditorStyle.proseLineHeight,
+                lineHeight: forcesMonospace
+                    ? XYZEditorStyle.codeLineHeight(forProse: spacing)
+                    : spacing,
                 monospaced: forcesMonospace,
                 wraps: wordWrap,
                 relativeLineNumbers: relativeLineNumbers,
@@ -237,6 +254,9 @@ struct XYZEditor: View {
             undoManager: undoManager,
             reloadToken: reloadToken,
             monospaced: forcesMonospace,
+            lineHeight: forcesMonospace
+                ? XYZEditorStyle.codeLineHeight(forProse: spacing)
+                : spacing,
             scrollLink: scrollLink,
             markup: markup,
             onTextChange: onTextChange
