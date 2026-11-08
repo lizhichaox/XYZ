@@ -19,7 +19,7 @@ Reading is an HTML page in one `WKWebView` per window. The view stays with the w
 
 The View menu lists Source and Reading. ⌘/ is Source Code Mode, as in [Typora's shortcut list](https://support.typora.io/Shortcut-Keys/). It switches Source and Reading. ⌘E is Edit → Use Selection for Find. In a folder window, ⌘1 through ⌘8 select those tabs and ⌘9 selects the last. ⌘W closes the current tab. Find in the open note is ⌘F, the same compact bar in Reading and in Editing. It highlights every match. ⌥⌘F adds replace, and that row is for Editing. ⌘G and ⇧⌘G move through the matches. ⌘K searches the folder: file names first, then lines inside notes. Esc or ⌘K closes it. ⌘P stays commands and go to file, and does not search note text. Replace across files is Edit → Replace in Folder…, only in Editing, and Replace All still asks before it changes anything. XYZ has no print command; Print is ⌘⇧⌥P.
 
-`xyz` from the terminal opens a folder or a file, like `code .`. The command is `XYZ.app/Contents/Resources/bin/xyz`. XYZ → Manage 'xyz' Command… opens one small window that shows the command, the launcher target, and copies either line for Terminal, because the app is sandboxed and cannot write `/usr/local/bin` itself:
+`xyz` from the terminal opens a folder or a file, like `code .`. The command is `XYZ.app/Contents/Resources/bin/xyz`. XYZ → Manage 'xyz' Command… opens one small window: Install asks once for the bin folder (macOS gives XYZ write access only to a folder you choose, and remembers it), Uninstall removes the shortcut, and Copy Command keeps the Terminal fallback for a folder the app cannot write. The line it copies is:
 
 ```sh
 ln -sf /Applications/XYZ.app/Contents/Resources/bin/xyz /usr/local/bin/xyz

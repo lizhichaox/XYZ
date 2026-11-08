@@ -2848,42 +2848,122 @@
         }
       }
     },
-    "XYZ is sandboxed, so run the command in Terminal. Homebrew users can use /opt/homebrew/bin instead.": {
+    "Choose the folder once. macOS only lets XYZ write to a folder you choose.": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "XYZ 处于沙盒中，请在终端中运行命令。使用 Homebrew 的用户可改用 /opt/homebrew/bin。"
+            "value": "选择一次文件夹。macOS 只允许 XYZ 写入你选择的文件夹。"
           }
         }
       }
     },
-    "Copy Install Command": {
+    "Status:": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "复制安装命令"
+            "value": "状态："
           }
         }
       }
     },
-    "Copy Uninstall Command": {
+    "Installed": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "复制卸载命令"
+            "value": "已安装"
           }
         }
       }
     },
-    "Copied to clipboard.": {
+    "Not installed": {
       "localizations": {
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "已复制到剪贴板。"
+            "value": "未安装"
+          }
+        }
+      }
+    },
+    "Install": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "安装"
+          }
+        }
+      }
+    },
+    "Uninstall": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "卸载"
+          }
+        }
+      }
+    },
+    "Choose": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择"
+          }
+        }
+      }
+    },
+    "Choose the folder where the xyz command should be created.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "选择要创建 xyz 命令的文件夹。"
+          }
+        }
+      }
+    },
+    "Copy Command": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "复制命令"
+          }
+        }
+      }
+    },
+    "That folder could not be written. Try /opt/homebrew/bin.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法写入该文件夹，可尝试 /opt/homebrew/bin。"
+          }
+        }
+      }
+    },
+    "That file is not the XYZ command.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该文件不是 XYZ 的命令。"
+          }
+        }
+      }
+    },
+    "Copied": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已复制"
           }
         }
       }

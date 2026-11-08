@@ -1856,9 +1856,9 @@ private final class PaletteCell: NSTableCellView {
     }
 }
 
-/// One dialog for the terminal command: the sandbox cannot write `/usr/local/bin`,
-/// so the app shows the exact line and copies it. The window sizes itself and is
-/// placed over the window the user is working in.
+/// One window for the terminal command. The app is sandboxed, so it cannot write a
+/// system folder on its own: the user picks the bin folder once and macOS grants XYZ
+/// write access to that folder. The choice is remembered as a security-scoped bookmark.
 @MainActor
 enum XYZCommandInstall {
     private static var panel: NSPanel?
@@ -1877,17 +1877,17 @@ enum XYZCommandInstall {
             .path
     }
 
-    static var installCommand: String {
-        "ln -sf \(shellQuoted(launcherTarget)) /usr/local/bin/xyz"
+    static func installCommand(folder: String) -> String {
+        "ln -sf \(shellQuoted(launcherTarget)) \(shellQuoted(folder + "/xyz"))"
     }
 
-    static var uninstallCommand: String {
-        "rm -f /usr/local/bin/xyz"
+    static func shellQuoted(_ path: String) -> String {
+        "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     private static func make() -> NSPanel {
         let panel = NSPanel(
-            contentRect: NSRect(x: 0, y: 0, width: 360, height: 300),
+            contentRect: NSRect(x: 0, y: 0, width: 380, height: 320),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -1900,25 +1900,179 @@ enum XYZCommandInstall {
         host.view.layoutSubtreeIfNeeded()
         let fitted = host.view.fittingSize
         panel.contentViewController = host
-        panel.setContentSize(NSSize(width: 360, height: fitted.height > 1 ? fitted.height : 300))
+        panel.setContentSize(NSSize(width: 380, height: fitted.height > 1 ? fitted.height : 320))
         return panel
     }
+}
 
-    private static func shellQuoted(_ path: String) -> String {
-        "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
+/// Install state for the command window, backed by a security-scoped bookmark for the
+/// folder the user chose once.
+@MainActor
+final class XYZCommandModel: ObservableObject {
+    enum InstallState: Equatable {
+        case notInstalled
+        case installed
+    }
+
+    @Published private(set) var state: InstallState = .notInstalled
+    @Published private(set) var folderPath = "/usr/local/bin"
+
+    private static let bookmarkKey = "xyz.cli.folderBookmark"
+
+    init() {
+        refresh()
+    }
+
+    var commandPath: String { folderPath + "/xyz" }
+
+    var installCommand: String {
+        XYZCommandInstall.installCommand(folder: folderPath)
+    }
+
+    func refresh() {
+        guard let folder = Self.resolveBookmark() else {
+            state = .notInstalled
+            return
+        }
+        let access = folder.startAccessingSecurityScopedResource()
+        defer { if access { folder.stopAccessingSecurityScopedResource() } }
+        folderPath = folder.path
+        let link = folder.appendingPathComponent("xyz").path
+        if let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: link),
+           Self.samePath(destination, XYZCommandInstall.launcherTarget) {
+            state = .installed
+        } else {
+            state = .notInstalled
+        }
+    }
+
+    func install() {
+        guard let folder = folderForInstall() else { return }
+        let access = folder.startAccessingSecurityScopedResource()
+        defer { if access { folder.stopAccessingSecurityScopedResource() } }
+        folderPath = folder.path
+        let link = folder.appendingPathComponent("xyz")
+        if let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: link.path) {
+            guard Self.samePath(destination, XYZCommandInstall.launcherTarget) else {
+                Self.report(String(localized: "That file is not the XYZ command."))
+                return
+            }
+            try? FileManager.default.removeItem(at: link)
+        } else if FileManager.default.fileExists(atPath: link.path) {
+            Self.report(String(localized: "That file is not the XYZ command."))
+            return
+        }
+        do {
+            try FileManager.default.createSymbolicLink(
+                at: link,
+                withDestinationURL: URL(fileURLWithPath: XYZCommandInstall.launcherTarget)
+            )
+            Self.storeBookmark(folder)
+        } catch {
+            Self.report(String(localized: "That folder could not be written. Try /opt/homebrew/bin."))
+        }
+        refresh()
+    }
+
+    func uninstall() {
+        guard let folder = folderForInstall() else { return }
+        let access = folder.startAccessingSecurityScopedResource()
+        defer { if access { folder.stopAccessingSecurityScopedResource() } }
+        folderPath = folder.path
+        let link = folder.appendingPathComponent("xyz")
+        guard let destination = try? FileManager.default.destinationOfSymbolicLink(atPath: link.path),
+              Self.samePath(destination, XYZCommandInstall.launcherTarget) else {
+            Self.report(String(localized: "That file is not the XYZ command."))
+            refresh()
+            return
+        }
+        do {
+            try FileManager.default.removeItem(at: link)
+            Self.storeBookmark(folder)
+        } catch {
+            Self.report(String(localized: "That folder could not be written. Try /opt/homebrew/bin."))
+        }
+        refresh()
+    }
+
+    func copyCommand() {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(installCommand, forType: .string)
+    }
+
+    private static func report(_ message: String) {
+        let alert = NSAlert()
+        alert.messageText = message
+        alert.addButton(withTitle: String(localized: "OK"))
+        alert.runModalClosingOnEscape()
+    }
+
+    /// The saved folder, or one the user picks now. macOS grants access only to the
+    /// folder chosen in this panel, so the first install always asks once.
+    private func folderForInstall() -> URL? {
+        if let folder = Self.resolveBookmark() {
+            return folder
+        }
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.canCreateDirectories = false
+        panel.prompt = String(localized: "Choose")
+        panel.message = String(localized: "Choose the folder where the xyz command should be created.")
+        panel.directoryURL = URL(fileURLWithPath: Self.preferredFolder())
+        guard panel.runModal() == .OK, let url = panel.url else { return nil }
+        return url
+    }
+
+    private static func preferredFolder() -> String {
+        for candidate in ["/usr/local/bin", "/opt/homebrew/bin"] where FileManager.default.fileExists(atPath: candidate) {
+            return candidate
+        }
+        return "/usr/local/bin"
+    }
+
+    private static func samePath(_ destination: String, _ target: String) -> Bool {
+        (destination as NSString).standardizingPath == (target as NSString).standardizingPath
+    }
+
+    private static func storeBookmark(_ folder: URL) {
+        guard let data = try? folder.bookmarkData(
+            options: .withSecurityScope,
+            includingResourceValuesForKeys: nil,
+            relativeTo: nil
+        ) else { return }
+        UserDefaults.standard.set(data, forKey: bookmarkKey)
+    }
+
+    private static func resolveBookmark() -> URL? {
+        guard let data = UserDefaults.standard.data(forKey: bookmarkKey) else { return nil }
+        var stale = false
+        return try? URL(
+            resolvingBookmarkData: data,
+            options: .withSecurityScope,
+            relativeTo: nil,
+            bookmarkDataIsStale: &stale
+        )
     }
 }
 
 private struct XYZCommandCard: View {
+    @StateObject private var model = XYZCommandModel()
     @State private var copied = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text("Status:")
+                        .foregroundStyle(.secondary)
+                    Text(model.state == .installed ? "Installed" : "Not installed")
+                }
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
                     Text("Command:")
                         .foregroundStyle(.secondary)
-                    Text("/usr/local/bin/xyz")
+                    Text(model.commandPath)
                         .font(.system(.body, design: .monospaced))
                         .textSelection(.enabled)
                 }
@@ -1931,46 +2085,41 @@ private struct XYZCommandCard: View {
                     .fixedSize(horizontal: false, vertical: true)
             }
 
-            Text("XYZ is sandboxed, so run the command in Terminal. Homebrew users can use /opt/homebrew/bin instead.")
+            Text("Choose the folder once. macOS only lets XYZ write to a folder you choose.")
                 .font(.callout)
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
             VStack(spacing: 8) {
                 Button {
-                    copy(XYZCommandInstall.installCommand)
+                    if model.state == .installed {
+                        model.uninstall()
+                    } else {
+                        model.install()
+                    }
                 } label: {
-                    Text("Copy Install Command").frame(maxWidth: .infinity)
+                    Text(model.state == .installed ? "Uninstall" : "Install")
+                        .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
 
                 Button {
-                    copy(XYZCommandInstall.uninstallCommand)
+                    model.copyCommand()
+                    withAnimation(.easeOut(duration: 0.12)) { copied = true }
+                    Task {
+                        try? await Task.sleep(for: .seconds(1.5))
+                        withAnimation(.easeOut(duration: 0.12)) { copied = false }
+                    }
                 } label: {
-                    Text("Copy Uninstall Command").frame(maxWidth: .infinity)
+                    Text(copied ? "Copied" : "Copy Command").frame(maxWidth: .infinity)
                 }
                 .controlSize(.large)
             }
-
-            if copied {
-                Text("Copied to clipboard.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .transition(.opacity)
-            }
         }
         .padding(20)
-        .frame(width: 360)
+        .frame(width: 380)
         .fixedSize(horizontal: false, vertical: true)
-    }
-
-    private func copy(_ command: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(command, forType: .string)
-        withAnimation(.easeOut(duration: 0.15)) {
-            copied = true
-        }
     }
 }
 
