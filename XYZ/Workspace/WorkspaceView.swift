@@ -990,14 +990,12 @@ enum SidebarContentMeasure {
 
 private enum SidebarDividerColor {
     static func separator(for appearance: NSAppearance) -> NSColor {
-        if appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua {
-            return NSColor(srgbRed: 43 / 255, green: 43 / 255, blue: 43 / 255, alpha: 1)
-        }
-        return NSColor(srgbRed: 229 / 255, green: 229 / 255, blue: 229 / 255, alpha: 1)
+        let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+        return NSColor(xyz: XYZTheme.resolved(dark: dark).divider)
     }
 
-    /// Same blue as `NSColor.xyzAccent` (`#0078D4`).
-    static let accent = NSColor(srgbRed: 0, green: 120 / 255, blue: 212 / 255, alpha: 1)
+    /// The sash blue, from the theme.
+    static var accent: NSColor { .xyzAccent }
 }
 
 /// A 5pt grab strip. The resting mark is one pixel. Hover and drag thicken it in the sash blue.

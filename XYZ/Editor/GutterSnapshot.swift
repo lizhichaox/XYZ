@@ -1304,7 +1304,7 @@ enum GutterSnapshotCheck {
         let font = NSFont.monospacedSystemFont(ofSize: 16, weight: .regular)
         textView.textStorage?.setAttributes([
             .font: font,
-            .foregroundColor: NSColor.labelColor,
+            .foregroundColor: NSColor.xyzInk,
         ], range: NSRange(location: 0, length: storage.length))
         textView.syncLineNumbers(true)
         let window = NSWindow(
@@ -1422,13 +1422,13 @@ enum GutterSnapshotCheck {
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         pane.attach(textView)
         textView.font = .systemFont(ofSize: 16)
-        textView.textColor = .labelColor
+        textView.textColor = .xyzInk
         textView.textContainerInset = NSSize(width: 48, height: 8)
         textView.string = "alpha\nbeta\ngamma\ndelta\nepsilon\n"
         let storage = textView.string as NSString
         textView.textStorage?.setAttributes([
             .font: NSFont.systemFont(ofSize: 16),
-            .foregroundColor: NSColor.labelColor,
+            .foregroundColor: NSColor.xyzInk,
         ], range: NSRange(location: 0, length: storage.length))
 
         let window = NSWindow(
@@ -2105,6 +2105,56 @@ enum GutterSnapshotCheck {
         return nil
     }
 
+
+    /// The theme wiring: every semantic color resolves, light and dark differ where they
+    /// must, and the ink stays readable on the canvas in both appearances.
+    @MainActor
+    private static func acceptThemeColors() -> String? {
+        func resolved(_ appearance: NSAppearance, _ role: KeyPath<XYZTheme, XYZColor>) -> NSColor {
+            let dark = appearance.bestMatch(from: [.darkAqua, .aqua]) == .darkAqua
+            return NSColor(xyz: XYZTheme.resolved(dark: dark)[keyPath: role])
+        }
+        func sample(_ appearance: NSAppearance) -> [NSColor] {
+            var out: [NSColor] = []
+            appearance.performAsCurrentDrawingAppearance {
+                out = [NSColor.xyzEditor, NSColor.xyzSidebar, NSColor.xyzInk,
+                       NSColor.xyzSecondaryText, NSColor.xyzTertiaryText, NSColor.xyzAccent,
+                       NSColor.xyzSelection, NSColor.xyzSelectionText, NSColor.xyzCurrentLine,
+                       NSColor.xyzDivider, NSColor.xyzHover, NSColor.xyzDisabledTint,
+                       NSColor.xyzFindMatch, NSColor.xyzFindCurrent, NSColor.xyzFindToggleFill,
+                       NSColor.xyzFindToggleInk, NSColor.xyzSyntax(.keyword), NSColor.xyzSyntax(.string)]
+            }
+            return out
+        }
+        guard let light = NSAppearance(named: .aqua), let dark = NSAppearance(named: .darkAqua) else {
+            return "the two appearances do not exist"
+        }
+        let lightColors = sample(light)
+        let darkColors = sample(dark)
+        let modelLight = XYZTheme.light
+        let modelDark = XYZTheme.dark
+        guard lightColors.count == darkColors.count, lightColors.count == 18 else {
+            return "expected 18 sampled colors, got \(lightColors.count)/\(darkColors.count)"
+        }
+        // The dynamic colors must resolve to the model values.
+        guard resolved(light, \.editor).isClose(to: NSColor(xyz: modelLight.editor)),
+              resolved(dark, \.editor).isClose(to: NSColor(xyz: modelDark.editor)) else {
+            return "xyzEditor does not follow the model"
+        }
+        // Canvas and ink must differ across variants.
+        guard NSColor(xyz: modelLight.editor).isDifferent(from: NSColor(xyz: modelDark.editor)) else {
+            return "light and dark editors are identical"
+        }
+        guard NSColor(xyz: modelLight.ink).isDifferent(from: NSColor(xyz: modelDark.ink)) else {
+            return "light and dark ink are identical"
+        }
+        // Syntax colors differ between variants.
+        guard NSColor(xyz: modelLight.syntax.keyword).isDifferent(from: NSColor(xyz: modelDark.syntax.keyword)) else {
+            return "light and dark keyword colors are identical"
+        }
+        return nil
+    }
+
     private static func runAcceptanceGestures() -> String? {
         let failures = MainActor.assumeIsolated { () -> [String] in
             var failed: [String] = []
@@ -2133,6 +2183,7 @@ enum GutterSnapshotCheck {
             record("editor-caret-band", acceptCaretBand())
             record("editor-viewport-line", acceptViewportLine())
             record("sidebar-arrows", acceptSidebarArrows())
+            record("theme-colors", acceptThemeColors())
             if failed.isEmpty {
                 print("ACCEPTANCE_OK")
             } else {
@@ -2969,3 +3020,18 @@ enum EscapeCrashCheck {
     }
 }
 #endif
+
+extension NSColor {
+    func isClose(to other: NSColor, tolerance: Double = 0.02) -> Bool {
+        guard let first = usingColorSpace(.deviceRGB), let second = other.usingColorSpace(.deviceRGB) else {
+            return false
+        }
+        return abs(first.redComponent - second.redComponent) < tolerance
+            && abs(first.greenComponent - second.greenComponent) < tolerance
+            && abs(first.blueComponent - second.blueComponent) < tolerance
+    }
+
+    func isDifferent(from other: NSColor, tolerance: Double = 0.05) -> Bool {
+        !isClose(to: other, tolerance: tolerance)
+    }
+}
