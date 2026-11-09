@@ -350,25 +350,35 @@ const primitives = {
 /** The stylesheet tag the client half appends, for one boot. */
 const documentStub = {
   tags: [],
+  removed: [],
+  existing: undefined,
   head: {
     appendChild(tag) {
       documentStub.tags.push(tag);
     },
-    removeChild() {}
+    removeChild(tag) {
+      documentStub.removed.push(tag);
+    }
   },
   createElement(tagName) {
     return { tagName, dataset: {}, textContent: '', parentElement: documentStub.head };
   },
   querySelector() {
-    return null;
+    return documentStub.existing ?? null;
   }
 };
 
 /** Swappable fetch implementation for the client half. */
 let activeFetch = () => Promise.reject(new Error('no fetch stub installed'));
 const capturedEntries = [];
+/** Captured client-half logging: the smoke run stays quiet and asserts what was logged. */
+const clientLog = { warnings: [], errors: [] };
 const sandbox = {
-  console,
+  console: {
+    ...console,
+    warn: (...args) => clientLog.warnings.push(args),
+    error: (...args) => clientLog.errors.push(args)
+  },
   setTimeout,
   clearTimeout,
   queueMicrotask,
@@ -392,6 +402,7 @@ assert.equal(entry.id, PLUGIN_ID, 'the client module id is the package name');
 function bootClient() {
   const react = createReactStub();
   documentStub.tags.length = 0;
+  documentStub.removed.length = 0;
   const moduleExports = entry.factory((specifier) => {
     if (specifier === 'react') return react;
     if (specifier === '@deepseek-ai/dsh-client-ui-primitives') return primitives;
@@ -423,10 +434,8 @@ function createClientHarness() {
     slots: {
       inject(key, callback) {
         // The live registry runs the callback as soon as the slot is declared.
-        const disposers = injections.push({ key, callback });
-        const dispose = callback();
-        assert.ok(disposers > 0, 'slot injection recorded');
-        return dispose;
+        injections.push({ key, callback });
+        return callback();
       },
       register(options, component) {
         registrations.push({ options, component });
@@ -520,6 +529,28 @@ function shadowRegistration(harness) {
     css.includes(`[data-slot="${SLOT}"]>span:has(>[data-open-target="directory"]){display:none!important}`),
     'fallback also hides the shipped slot item itself'
   );
+
+  // The stylesheet is an effect, so unloading the plugin (or an HMR replace)
+  // removes the tag instead of stacking a second copy.
+  const stylesheetEffect = harness.effects.find(({ label }) => label === 'open-in-xyz: stylesheet');
+  assert.ok(stylesheetEffect !== undefined, 'stylesheet is a disposable effect');
+  assert.equal(typeof stylesheetEffect.dispose, 'function', 'stylesheet effect exposes its disposer');
+  stylesheetEffect.dispose();
+  assert.deepEqual(documentStub.removed, [tag], 'disposing the plugin removes its stylesheet tag');
+}
+
+// Stylesheet reuse: a tag left by an earlier instance is updated in place, and
+// this instance never removes a tag it did not create.
+{
+  const existing = { tagName: 'style', dataset: {}, textContent: 'stale', parentElement: documentStub.head };
+  documentStub.existing = existing;
+  const harness = installClient();
+  const stylesheetEffect = harness.effects.find(({ label }) => label === 'open-in-xyz: stylesheet');
+  assert.equal(documentStub.tags.length, 0, 'an existing stylesheet tag is reused, not duplicated');
+  assert.ok(existing.textContent.includes('.doix-split{'), "the reused tag carries this build's stylesheet");
+  stylesheetEffect.dispose();
+  assert.deepEqual(documentStub.removed, [], 'a tag this instance did not create is left alone');
+  documentStub.existing = undefined;
 }
 
 // Render contract: same shape as the shipped split button, localized tooltips, live gesture plumbing.
@@ -533,6 +564,7 @@ function shadowRegistration(harness) {
   const stateCalls = [];
   const appsCalls = [];
   let failLaunch = false;
+  let postFailure = null;
   activeFetch = async (url, init) => {
     if (url === ROUTES.state) {
       stateCalls.push(init);
@@ -544,6 +576,7 @@ function shadowRegistration(harness) {
     }
     if (url === ROUTES.open || url === ROUTES.reveal || url === '/open-in-app/open') {
       posts.push({ url, init });
+      if (postFailure !== null) return jsonResponse(postFailure.status, postFailure.body);
       return jsonResponse(failLaunch ? 502 : 200, failLaunch ? { ok: false, code: 'launch_failed' } : { ok: true });
     }
     throw new Error(`unexpected fetch ${url}`);
@@ -597,6 +630,14 @@ function shadowRegistration(harness) {
   assert.equal(chevron.props['aria-expanded'], false);
   assert.equal(chevron.props['aria-label'], '更多打开方式');
 
+  chevron.props.onClick();
+  let menuTree = harness.react.__render(component, props);
+  assert.equal(menuTree.props.open, true, 'the chevron opens the menu');
+  assert.equal(menuTree.props.anchor.props.children[1].props['aria-expanded'], true, 'the chevron reports the open menu');
+  menuTree.props.onClose();
+  menuTree = harness.react.__render(component, props);
+  assert.equal(menuTree.props.open, false, 'closing the menu is a state change');
+
   const items = tree.props.items;
   assert.deepEqual([...items].map((item) => item.id), ['open', 'vscode', 'reveal'], 'menu offers XYZ, VS Code, and Finder');
   assert.equal(items[0].label, '在 XYZ 中打开');
@@ -642,6 +683,72 @@ function shadowRegistration(harness) {
   assert.equal(posts.length, 5);
   assert.equal(harness.notices.length, 2, 'a failed XYZ launch is announced');
   assert.equal(harness.notices[1].text, '打不开该工作目录，请重试', 'failure text is localized');
+
+  postFailure = { status: 409, body: { ok: false, code: 'app_missing' } };
+  tree.props.onSelect('open');
+  await flush();
+  assert.equal(harness.notices.length, 3, 'a missing application is announced');
+  assert.equal(harness.notices[2].text, '未检测到已安装的 XYZ.app', 'the missing-application notice is localized');
+
+  postFailure = { status: 404, body: { ok: false, code: 'no_directory' } };
+  tree.props.onSelect('open');
+  await flush();
+  assert.equal(harness.notices.length, 4, 'a vanished workspace folder is announced');
+  assert.equal(harness.notices[3].text, '工作目录不存在或已被移动', 'the missing-directory notice is localized');
+
+  postFailure = { status: 404, body: { ok: false, code: 'not-found' } };
+  tree.props.onSelect('vscode');
+  await flush();
+  assert.equal(harness.notices.length, 5, 'a vanished folder on the shipped VS Code route is announced');
+  assert.equal(harness.notices[4].text, '工作目录不存在或已被移动', 'the shipped 404 maps to the missing-directory notice');
+  postFailure = null;
+
+  // Repeat clicks while one gesture is in flight are ignored.
+  const postsBefore = posts.length;
+  main.props.onClick();
+  main.props.onClick();
+  await flush();
+  assert.equal(posts.length, postsBefore + 1, 'one gesture absorbs repeat clicks');
+}
+
+// Busy state: while a gesture is in flight the whole control is disabled and the
+// menu cannot open; the control re-enables when the request settles.
+{
+  const harness = installClient();
+  const component = harness.registrations.find(({ options }) => options.id === 'open-in-xyz').component;
+  let settle;
+  activeFetch = async (url) => {
+    if (url === ROUTES.state) return jsonResponse(200, { ok: true, available: true });
+    if (url === '/open-in-app/apps') return jsonResponse(200, { ok: true, apps: ['vscode'] });
+    return new Promise((resolve) => {
+      settle = resolve;
+    });
+  };
+  const props = {
+    sessionId: 's',
+    useSessions: (selector) => selector({ byId: { s: { cwd: tmpdir() } } }),
+    t: (key) => key
+  };
+  harness.react.__render(component, props);
+  await flush();
+  const idleTree = harness.react.__render(component, props);
+  idleTree.props.anchor.props.children[0].props.children.props.onClick();
+  const busyTree = harness.react.__render(component, props);
+  const busyAnchor = busyTree.props.anchor;
+  assert.equal(typeof settle, 'function', 'the gesture started one request');
+  assert.equal(busyAnchor.props['data-state'], 'busy', 'the control reports its busy state');
+  assert.equal(busyAnchor.props['aria-busy'], true, 'the busy state is exposed to assistive technology');
+  assert.equal(busyTree.props.open, false, 'the menu cannot be open while a gesture is in flight');
+  assert.equal(busyAnchor.props.children[0].props.children.props.disabled, true, 'the primary button is disabled while busy');
+  assert.equal(busyAnchor.props.children[1].props.disabled, true, 'the chevron is disabled while busy');
+
+  settle(jsonResponse(200, { ok: true }));
+  await flush();
+  const settledTree = harness.react.__render(component, props);
+  assert.equal(settledTree.props.anchor.props['data-state'], 'idle', 'the control returns to idle');
+  assert.equal(settledTree.props.anchor.props['aria-busy'], false, 'the busy state clears');
+  assert.equal(settledTree.props.anchor.props.children[0].props.children.props.disabled, false, 'the primary button re-enables');
+  assert.equal(settledTree.props.anchor.props.children[1].props.disabled, false, 'the chevron re-enables');
 }
 
 // The button stays out of the header without a workspace cwd, and hides when XYZ is missing.
@@ -688,5 +795,37 @@ function shadowRegistration(harness) {
   noVscodeTree = noVscode.react.__render(noVscodeComponent, noVscodeProps);
   assert.deepEqual([...noVscodeTree.props.items].map((item) => item.id), ['open', 'reveal'], 'VS Code stays out of the menu when the shipped catalog does not resolve it');
 }
+
+// A failed environment probe fails open: the button stays available and the
+// launch attempt reports the real error instead of silently disabling it. A
+// failed VS Code catalog probe only drops VS Code from the menu.
+{
+  const harness = installClient();
+  const component = harness.registrations.find(({ options }) => options.id === 'open-in-xyz').component;
+  activeFetch = async () => {
+    throw new Error('offline');
+  };
+  const props = {
+    sessionId: 's',
+    useSessions: (selector) => selector({ byId: { s: { cwd: tmpdir() } } }),
+    t: (key) => key
+  };
+  harness.react.__render(component, props);
+  await flush();
+  const tree = harness.react.__render(component, props);
+  assert.notEqual(tree, null, 'a failed probe leaves the button available (fail open)');
+  assert.deepEqual([...tree.props.items].map((item) => item.id), ['open', 'reveal'], 'a failed catalog probe only drops VS Code');
+}
+
+// The client half only logs the two handled conditions, and never an error.
+assert.equal(clientLog.errors.length, 0, 'the client half logged no errors');
+assert.ok(
+  clientLog.warnings.some(([message]) => String(message).includes('XYZ is not installed')),
+  'a missing XYZ install is logged as a warning, not thrown'
+);
+assert.ok(
+  clientLog.warnings.some(([message]) => String(message).includes('availability probe failed')),
+  'a failed environment probe is logged as a warning'
+);
 
 console.log('open-in-xyz smoke: all assertions passed');

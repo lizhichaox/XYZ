@@ -5,7 +5,7 @@
  * Session header. It cannot spawn a local application, so this half owns the
  * launch and registers three routes on the composition's `webServer`:
  *
- *   GET  /open-in-xyz/state        -> { ok: true, available, platform, appPath }
+ *   GET  /open-in-xyz/state        -> { ok: true, available, platform, appPath, cliPath }
  *   POST /open-in-xyz/open         -> { ok: true } | { ok: false, code }
  *   POST /open-in-xyz/reveal       -> { ok: true } | { ok: false, code }
  *
@@ -78,9 +78,15 @@ function isExecutable(path) {
 }
 
 /**
+ * One resolved launch handoff: an application bundle for LaunchServices, or the
+ * resolved CLI fallback.
+ * @typedef {{ kind: 'app', bundle: string } | { kind: 'cli', command: string }} Launcher
+ */
+
+/**
  * Resolve how to open a directory in XYZ, auto-detecting the local install.
- * @returns {{ kind: 'app', bundle: string } | { kind: 'cli', command: string } | null}
- *   the preferred launch handoff, or null when XYZ is not installed.
+ * @returns {Launcher | null} the preferred launch handoff, or null when XYZ is
+ *   not installed.
  */
 export function resolveLauncher() {
   for (const bundle of APP_BUNDLE_CANDIDATES) {
@@ -170,15 +176,9 @@ async function runHandoff(command, args) {
 /**
  * Open one existing directory in XYZ.
  * @param {string} directory - absolute path to an existing directory.
- * @param {object | null} [launcher] - one earlier detection result; the route
- *   resolves the launcher once so a request cannot see two different answers.
+ * @param {Launcher} launcher - the request's one detection result.
  */
-async function launchInXyz(directory, launcher = resolveLauncher()) {
-  if (launcher === null) {
-    const error = new Error('XYZ is not installed');
-    error.code = 'app_missing';
-    throw error;
-  }
+async function launchInXyz(directory, launcher) {
   if (launcher.kind === 'app') await internals.runHandoff(OPEN_BIN, ['-a', launcher.bundle, directory]);
   else await internals.runHandoff(launcher.command, [directory]);
 }

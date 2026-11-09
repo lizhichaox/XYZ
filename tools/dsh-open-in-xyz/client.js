@@ -67,8 +67,23 @@ window.__ModuleLoader__.load({
     });
     /** The one extra application this menu offers besides XYZ. */
     const VSCODE_APP_ID = 'vscode';
+    /**
+     * One row per gesture: the route it posts to, the body that route expects,
+     * and the localized failure it reports. Menu item ids are these keys.
+     */
+    const GESTURES = Object.freeze({
+      open: { route: ROUTES.open, body: (cwd) => ({ path: cwd }), failure: 'error.openFailed' },
+      vscode: {
+        route: OFFICIAL_ROUTES.open,
+        body: (cwd) => ({ app: VSCODE_APP_ID, path: cwd }),
+        failure: 'error.vscodeFailed'
+      },
+      reveal: { route: ROUTES.reveal, body: (cwd) => ({ path: cwd }), failure: 'error.revealFailed' }
+    });
     /** Availability answers older than this are re-read on the next mount. */
     const STATUS_TTL_MS = 30_000;
+    /** A POST gesture settles in this long, or it reports a generic failure. */
+    const REQUEST_TIMEOUT_MS = 20_000;
     /** Unique stylesheet key, mirroring the shipped plugins' data-plugin-css convention. */
     const CSS_KEY = 'dsh-open-in-xyz';
 
@@ -125,6 +140,8 @@ window.__ModuleLoader__.load({
     /** Page-lifetime environment probe; a failed read fails open for XYZ and is retried on the next mount. */
     let environmentRead;
     let environmentReadAt = 0;
+    /** A missing XYZ install is reported once per page, not once per header mount. */
+    let warnedMissing = false;
 
     /** GET one JSON route, rejecting on transport or status failure. */
     function readJson(route) {
@@ -260,6 +277,9 @@ window.__ModuleLoader__.load({
       function HeaderButton(props) {
         const { sessionId, useSessions, t } = props;
         const cwd = useSessions((state) => (sessionId === undefined ? undefined : state.byId[sessionId]?.cwd));
+        // Optimistic until the probe answers: an installed XYZ keeps the header
+        // steady, and a missing install hides the button once the local probe
+        // returns. A failed probe deliberately fails open (see readEnvironment).
         const [environment, setEnvironment] = React.useState({ xyz: true, vscode: false });
         const [menuOpen, setMenuOpen] = React.useState(false);
         const [pending, setPending] = React.useState(false);
@@ -269,7 +289,10 @@ window.__ModuleLoader__.load({
           let cancelled = false;
           readEnvironment().then((detected) => {
             if (cancelled) return;
-            if (detected.xyz !== true) console.warn('[open-in-xyz] XYZ is not installed; hiding the header button');
+            if (detected.xyz !== true && !warnedMissing) {
+              warnedMissing = true;
+              console.warn('[open-in-xyz] XYZ is not installed; hiding the header button');
+            }
             setEnvironment(detected);
           });
           return () => {
@@ -277,23 +300,27 @@ window.__ModuleLoader__.load({
           };
         }, []);
 
+        /**
+         * Translate one key. A missing locale seat must never break the header,
+         * so a failure degrades to the key itself.
+         */
+        const translate = (key) => {
+          try {
+            return t(key);
+          } catch (error) {
+            console.error('[open-in-xyz] could not localize:', error);
+            return key;
+          }
+        };
+
         /** Announce one localized failure through the shared notice seat. */
         const notifyFailure = (key) => {
-          let message = key;
           try {
-            message = t(key);
-          } catch (error) {
-            console.error('[open-in-xyz] could not localize a failure message:', error);
-          }
-          try {
-            ctx.contextMenus.notify(message, false);
+            ctx.contextMenus.notify(translate(key), false);
           } catch (error) {
             console.error('[open-in-xyz] could not announce the failure:', error);
           }
         };
-
-        /** @param kind - gesture kind. @returns the localized failure key it reports. */
-        const failureKey = (kind) => (kind === 'reveal' ? 'error.revealFailed' : kind === 'vscode' ? 'error.vscodeFailed' : 'error.openFailed');
 
         /**
          * POST one gesture to the Host half: this plugin's XYZ/reveal routes,
@@ -301,17 +328,21 @@ window.__ModuleLoader__.load({
          * @param kind - `open` (XYZ), `vscode` (VS Code), or `reveal` (Finder).
          */
         const run = (kind) => {
-          if (inFlight.current) return;
+          const gesture = GESTURES[kind];
+          if (gesture === undefined || inFlight.current) return;
           if (typeof cwd !== 'string' || cwd === '') return;
           inFlight.current = true;
           setPending(true);
-          const route = kind === 'reveal' ? ROUTES.reveal : kind === 'vscode' ? OFFICIAL_ROUTES.open : ROUTES.open;
-          const payload = kind === 'vscode' ? { app: VSCODE_APP_ID, path: cwd } : { path: cwd };
-          fetch(route, {
+          const signal =
+            typeof AbortSignal !== 'undefined' && typeof AbortSignal.timeout === 'function'
+              ? AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+              : undefined;
+          fetch(gesture.route, {
             method: 'POST',
             credentials: 'same-origin',
             headers: { 'content-type': 'application/json' },
-            body: JSON.stringify(payload)
+            body: JSON.stringify(gesture.body(cwd)),
+            signal
           })
             .then(async (response) => {
               let data;
@@ -323,12 +354,12 @@ window.__ModuleLoader__.load({
               if (response.ok && data !== null && typeof data === 'object' && data.ok === true) return;
               const code = data !== null && typeof data === 'object' ? data.code : undefined;
               if (code === 'app_missing') notifyFailure('error.appMissing');
-              else if (code === 'no_directory') notifyFailure('error.noDirectory');
-              else notifyFailure(failureKey(kind));
+              else if (code === 'no_directory' || response.status === 404) notifyFailure('error.noDirectory');
+              else notifyFailure(gesture.failure);
             })
             .catch((error) => {
               console.error('[open-in-xyz] request failed:', error);
-              notifyFailure(failureKey(kind));
+              notifyFailure(gesture.failure);
             })
             .finally(() => {
               inFlight.current = false;
@@ -340,14 +371,15 @@ window.__ModuleLoader__.load({
         if (!environment.xyz) return null;
 
         const disabled = pending;
-        const primaryLabel = t('tooltip.open');
+        const primaryLabel = translate('tooltip.open');
         const anchor = h(
           'div',
           {
             className: 'doix-split',
             'data-open-in-xyz': 'directory',
             'data-size': 'compact',
-            'data-state': disabled ? 'busy' : 'idle'
+            'data-state': disabled ? 'busy' : 'idle',
+            'aria-busy': disabled
           },
           h(
             Tooltip,
@@ -375,7 +407,7 @@ window.__ModuleLoader__.load({
               disabled,
               'aria-haspopup': 'menu',
               'aria-expanded': menuOpen && !disabled,
-              'aria-label': t('tooltip.more'),
+              'aria-label': translate('tooltip.more'),
               onClick: () => setMenuOpen((value) => !value)
             },
             h(IconChevronDownOutlineRegular, { size: 10 })
@@ -391,15 +423,15 @@ window.__ModuleLoader__.load({
           align: 'end',
           onClose: () => setMenuOpen(false),
           items: [
-            { id: 'open', icon: h(Wordmark, { ink: WORDMARK_MENU_INK }), label: t('menu.openInXyz') },
+            { id: 'open', icon: h(Wordmark, { ink: WORDMARK_MENU_INK }), label: translate('menu.openInXyz') },
             ...(environment.vscode
-              ? [{ id: 'vscode', icon: h(VscodeIcon, { size: 14 }), label: t('menu.openInVscode') }]
+              ? [{ id: 'vscode', icon: h(VscodeIcon, { size: 14 }), label: translate('menu.openInVscode') }]
               : []),
-            { id: 'reveal', icon: h(IconFolderOpenOutlineRegular, {}), label: t('menu.revealInFinder') }
+            { id: 'reveal', icon: h(IconFolderOpenOutlineRegular, {}), label: translate('menu.revealInFinder') }
           ],
           onSelect: (id) => {
             setMenuOpen(false);
-            run(id === 'reveal' ? 'reveal' : id === 'vscode' ? 'vscode' : 'open');
+            run(id);
           },
           anchor
         });
@@ -422,15 +454,19 @@ window.__ModuleLoader__.load({
           return undefined;
         }
         let tag = document.querySelector(`style[data-plugin-css="${CSS_KEY}"]`);
+        let created = false;
         if (tag === null || tag === undefined) {
           tag = document.createElement('style');
           tag.dataset.plugin = CSS_KEY;
           tag.dataset.pluginCss = CSS_KEY;
           document.head.appendChild(tag);
+          created = true;
         }
         if (tag.textContent !== CSS) tag.textContent = CSS;
         return () => {
-          if (tag.parentElement !== null) tag.parentElement.removeChild(tag);
+          // Remove only the tag this instance created: an existing one may belong
+          // to another live instance during an HMR hand-over.
+          if (created && tag.parentElement !== null) tag.parentElement.removeChild(tag);
         };
       }, 'open-in-xyz: stylesheet');
 

@@ -63,28 +63,27 @@ rules below more than once; follow them without being asked.
 (DSH) plugin: an `_xyz` split Open In button in the DSH Session header. It is maintained
 with this repository and **never published**: the package is `private: true`, it is not on
 npm or in the DSH plugin market, and it is installed only by linking this checkout into a
-DSH profile. The installed DSH app is not ours to change.
-`tools/dsh-open-in-xyz/README.md` has the details; read it before touching the plugin.
+DSH profile. `tools/dsh-open-in-xyz/README.md` has the details; read it before touching
+the plugin.
 
 - **Never modify the installed DSH app.** `/Users/lizhichao/Applications/DeepSeek Harness.app`
   belongs to the DSH distribution: its `Info.plist` carries `ElectronAsarIntegrity` hashes,
   so editing anything inside can stop DSH from launching, and an update replaces it
   anyway. Change the plugin in this checkout, then restart DSH to reload it.
-- **Do not rename or move the plugin, its package, or its loader id.** The
-  `cordis.patch.yml` loader entry name, the `package.json` `name`, and the
-  `window.__ModuleLoader__.load({ id: ... })` id in `client.js` must all stay
-  `dsh-open-in-xyz`. The desktop profile (`~/.dsh/profiles/desktop/package.json`) links
+- **Do not rename or move the plugin, its package, or its loader entry.** Three names are
+  fixed: the `cordis.patch.yml` entry (`id: open-in-xyz`, `name: 'dsh-open-in-xyz'`), the
+  `package.json` `name`, and the `window.__ModuleLoader__.load({ id: 'dsh-open-in-xyz' })`
+  id in `client.js`. The desktop profile (`~/.dsh/profiles/desktop/package.json`) links
   this checkout from `dsh.profile.bundles` + `dependencies`; a rename or move also needs
   that link updated, `pnpm install` in the profile, and a DSH restart.
 - **Keep the DSH plugin contract.** `package.json` must keep the exports `.` / `./client`
   / `./locale/*.json` / `./icon`, `dsh.bundle.patch: ./cordis.patch.yml`, and
   `dsh.client: { platform: 'web', immediately: true }`. `cordis.patch.yml` inserts the host
-  half (`id: open-in-xyz`, `name: 'dsh-open-in-xyz'`), and `client.js` stays a hand-written,
-  build-free bundle (`window.__ModuleLoader__.load` + `factory(require)`) requiring only
-  `react` and `@deepseek-ai/dsh-client-ui-primitives`. The shipped header button is hidden
-  by shadowing its list-slot entry (`id: 'open-in-app', priority: -1`) plus one narrow CSS
-  fallback; keep both mechanisms and keep the shipped `open-in-app` plugins enabled, so
-  file-level Open In and document previews keep working.
+  half, and `client.js` stays a hand-written, build-free bundle
+  (`window.__ModuleLoader__.load` + `factory(require)`) requiring only `react` and
+  `@deepseek-ai/dsh-client-ui-primitives`. The shipped header button is hidden by shadowing
+  its list-slot entry (`id: 'open-in-app', priority: -1`) plus two narrow CSS fallback
+  rules; keep both mechanisms.
 - **The header wordmark tracks the app icon.** The inline `_xyz` SVG in `client.js`
   (`WORDMARK`: path, viewBox, bar; ink heights `WORDMARK_HEADER_INK = 9` and
   `WORDMARK_MENU_INK = 6.3`; accent `#0078D4`) is generated from the icon's small style in
@@ -96,17 +95,20 @@ DSH profile. The installed DSH app is not ours to change.
 - **Leave VS Code to the shipped plugin.** "Open in VS Code" reads the shipped
   `dsh-host-open-in-app` routes (`/open-in-app/apps`, `/open-in-app/icon/vscode`,
   `/open-in-app/open`); do not reimplement app detection or launching, and do not disable
-  that plugin. XYZ and Finder go through this plugin's own routes.
+  that plugin (it keeps file-level Open In and document previews working). XYZ and Finder
+  go through this plugin's own routes.
 - **Keep the host routes closed.** The host half registers exactly three routes —
   `GET /open-in-xyz/state`, `POST /open-in-xyz/open`, `POST /open-in-xyz/reveal` — all
   behind DSH composition's `connection.requestRejection()` trust fence. POST accepts only
-  one JSON object with one non-empty absolute `path` string — any other field is rejected
-  (64 KiB cap, `stat` must confirm an existing directory), so no other input reaches the
-  launcher. The program path is fixed to the host-detected XYZ and starts through
-  `execFile` argv (`/usr/bin/open -a <app> <dir>`), never a shell. Do not add a route that
-  accepts an arbitrary program, extra arguments, or an unvalidated path, and do not relax
-  the directory check. A new application entry should reuse the shipped host's routes or
-  follow the same fence + validation pattern.
+  one JSON object with an `application/json` media type (64 KiB cap): one non-empty
+  absolute `path` string, at most 4096 characters and no NUL. Any other field is rejected,
+  and `stat` must confirm an existing directory, so no other input reaches the launcher.
+  The program is fixed to the host-detected XYZ and starts through `execFile` argv, never a
+  shell: the bundle via `open -a <bundle> <dir>`, the CLI fallback via `xyz <dir>`, and
+  `reveal` via `open -R <dir>`. Do not add a route that accepts an arbitrary program, extra
+  arguments, or an unvalidated path, and do not relax the directory check. A new
+  application entry should reuse the shipped host's routes or follow the same fence +
+  validation pattern.
 - **The plugin adds no App code or settings.** It finds and launches the installed app from
   outside (`/Applications/XYZ.app`, then `~/Applications/XYZ.app`, then the `xyz` CLI), so
   do not couple it to the app feature line, add a settings page, or write user preferences
