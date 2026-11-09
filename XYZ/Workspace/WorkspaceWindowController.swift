@@ -185,6 +185,10 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
         panel.prompt = String(localized: "Open Folder")
         panel.message = String(localized: "Open a folder as a workspace.")
         panel.showsHiddenFiles = true
+        // NSOpenPanel would otherwise reopen wherever it was used last, which can be a
+        // folder with no subfolders (nothing selectable). Start at the current workspace,
+        // or at home from the Welcome page.
+        panel.directoryURL = folderPanelStart()
         panel.begin { response in
             guard response == .OK, let url = panel.url else {
                 WorkspaceLog.panelCancelled(kind: "open-folder")
@@ -209,6 +213,14 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
     }
 
     @discardableResult
+    /// Where the folder panel opens: the key workspace, or home when nothing is open.
+    private static func folderPanelStart() -> URL {
+        if let key = NSApp.keyWindow, let controller = controller(for: key) {
+            return controller.session.rootURL
+        }
+        return FileManager.default.homeDirectoryForCurrentUser
+    }
+
     static func open(bookmark: WorkspaceBookmark, fresh: Bool = false, tabs: WorkspaceWindowState? = nil) -> WorkspaceWindowController? {
         do {
             let url = try WorkspaceBookmarks.resolve(bookmark.data)

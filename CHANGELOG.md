@@ -12,8 +12,9 @@
   document panel on top of the page; that automatic panel is cancelled now, while
   File → Open and the Open Folder picker still work. The page opens at the screen's
   visible frame, the same size a folder window gets; the brand block and Recent Folders
-  are vertically centered, and the recent list keeps up to 20 folders. It uses only
-  `XYZTheme` colors.
+  are vertically centered, and the recent list keeps up to 20 folders. The folder panel
+  starts at the current workspace, or at home from the page, instead of whatever folder
+  was used last. It uses only `XYZTheme` colors.
 
 ### Performance
 
