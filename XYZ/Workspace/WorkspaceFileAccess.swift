@@ -287,7 +287,7 @@ final class WorkspaceLibrary: ObservableObject {
     private let recentsKey = "xyz.workspace.recents"
     private let openKey = "xyz.workspace.open"
     private let windowsKey = "xyz.workspace.windows"
-    private let limit = 10
+    private let limit = 20
 
     private init() {
         recents = Self.load(recentsKey)

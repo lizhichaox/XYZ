@@ -133,8 +133,10 @@ private struct WelcomeView: View {
     }
 
     private var startColumn: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // The mark, version and the same credit line About uses; centered as one block.
+        VStack(spacing: 0) {
+            Spacer(minLength: 24)
+            // The mark, version and the same credit line About uses, then the two actions;
+            // the whole block is centered in the column.
             VStack(spacing: 0) {
                 Image(nsImage: NSApp.applicationIconImage)
                     .resizable()
@@ -150,69 +152,69 @@ private struct WelcomeView: View {
                     .foregroundStyle(Color.xyzSecondaryText)
                     .lineLimit(1)
                     .padding(.top, 3)
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Button(action: model.openFolder) {
+                        Label("Open Folder…", systemImage: "folder")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+                    .tint(Color.xyzAccent)
+                    .keyboardShortcut("o", modifiers: [.command, .shift])
+
+                    Button(action: model.newFile) {
+                        Label("New File", systemImage: "doc.badge.plus")
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                    .keyboardShortcut("n", modifiers: .command)
+                }
+                .padding(.top, 30)
             }
             .frame(maxWidth: .infinity)
-            .padding(.top, 36)
-
-            VStack(alignment: .leading, spacing: 8) {
-                Button(action: model.openFolder) {
-                    Label("Open Folder…", systemImage: "folder")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.large)
-                .tint(Color.xyzAccent)
-                .keyboardShortcut("o", modifiers: [.command, .shift])
-
-                Button(action: model.newFile) {
-                    Label("New File", systemImage: "doc.badge.plus")
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.large)
-                .keyboardShortcut("n", modifiers: .command)
-            }
-            .padding(.top, 30)
-
-            Spacer(minLength: 20)
+            Spacer(minLength: 24)
         }
         .padding(.horizontal, 26)
-        .frame(maxHeight: .infinity, alignment: .top)
+        .frame(maxHeight: .infinity)
     }
 
     private var recentColumn: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Recent Folders")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(Color.xyzInk)
-                .padding(.top, 36)
-                .padding(.horizontal, 26)
+        GeometryReader { geo in
+            ScrollView {
+                VStack(alignment: .leading, spacing: 0) {
+                    Text("Recent Folders")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(Color.xyzInk)
+                        .padding(.leading, 8)
 
-            if model.recents.isEmpty {
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("No recent folders")
-                        .font(.system(size: 13))
-                        .foregroundStyle(Color.xyzSecondaryText)
-                    Text("Open a folder to get started.")
-                        .font(.system(size: 12))
-                        .foregroundStyle(Color.xyzSecondaryText)
-                }
-                .padding(.top, 18)
-                .padding(.horizontal, 26)
-                Spacer(minLength: 0)
-            } else {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 2) {
-                        ForEach(model.recents) { recent in
-                            RecentFolderRow(recent: recent) {
-                                model.open(recent)
+                    if model.recents.isEmpty {
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("No recent folders")
+                                .font(.system(size: 13))
+                                .foregroundStyle(Color.xyzSecondaryText)
+                            Text("Open a folder to get started.")
+                                .font(.system(size: 12))
+                                .foregroundStyle(Color.xyzSecondaryText)
+                        }
+                        .padding(.leading, 8)
+                        .padding(.top, 18)
+                    } else {
+                        LazyVStack(alignment: .leading, spacing: 2) {
+                            ForEach(model.recents) { recent in
+                                RecentFolderRow(recent: recent) {
+                                    model.open(recent)
+                                }
                             }
                         }
+                        .padding(.top, 12)
                     }
-                    .padding(.horizontal, 18)
-                    .padding(.top, 12)
-                    .padding(.bottom, 18)
                 }
+                .padding(.horizontal, 18)
+                .padding(.vertical, 28)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(minHeight: geo.size.height, alignment: .center)
             }
         }
     }

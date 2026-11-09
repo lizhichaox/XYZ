@@ -11,7 +11,9 @@
   page. AppKit's own reopen handler (`_doOpenUntitled`) used to open its Finder-like
   document panel on top of the page; that automatic panel is cancelled now, while
   File → Open and the Open Folder picker still work. The page opens at the screen's
-  visible frame, the same size a folder window gets, and uses only `XYZTheme` colors.
+  visible frame, the same size a folder window gets; the brand block and Recent Folders
+  are vertically centered, and the recent list keeps up to 20 folders. It uses only
+  `XYZTheme` colors.
 
 ### Performance
 

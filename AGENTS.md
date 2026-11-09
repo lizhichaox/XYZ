@@ -53,7 +53,9 @@ rules below more than once; follow them without being asked.
   restore code, or the Welcome page gets covered by the panel again.
 - **The start page fills the screen.** `WelcomeWindow.show()` calls `WindowFill.fill` so a
   fresh page opens at the screen's visible frame, the same size folder windows use. A
-  second `show()` while it is already visible must not resize it.
+  second `show()` while it is already visible must not resize it. The brand block and
+  Recent Folders column are both vertically centered in that height; keep them centered
+  rather than pinned to the top, and keep the recent-folder limit (20) generous.
 
 ## DeepSeek Harness plugin (`tools/dsh-open-in-xyz`)
 
