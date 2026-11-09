@@ -8,7 +8,10 @@
   folder panel: Open Folder… (⇧⌘O), New File (⌘N), and the recent folders. A Dock click
   with no visible window brings the page back; Help → Welcome to XYZ opens it on demand.
   Restored folder windows still open directly, and opening a folder or a note closes the
-  page. The page uses only `XYZTheme` colors and remembers its frame.
+  page. AppKit's own reopen handler (`_doOpenUntitled`) used to open its Finder-like
+  document panel on top of the page; that automatic panel is cancelled now, while
+  File → Open and the Open Folder picker still work. The page uses only `XYZTheme` colors
+  and remembers its frame.
 
 ### Performance
 

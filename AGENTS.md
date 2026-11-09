@@ -45,6 +45,71 @@ rules below more than once; follow them without being asked.
   a Dock click with no visible window shows it again. Restored folder windows still open
   directly, and any workspace or document open closes the page. Do not auto-open the
   folder picker or the last folder at launch.
+- **AppKit's automatic document panel must stay cancelled.** On launch and Dock reopen,
+  AppKit's `_doOpenUntitled` path asks `NSDocumentController` for a Finder-like document
+  open panel even when no document should open. `FolderOpening.suppressAutomaticDocumentOpen`
+  recognises that call-stack path and cancels it, and a short hold covers launch; File →
+  Open and the folder picker are not affected. Keep the guard when changing launch or
+  restore code, or the Welcome page gets covered by the panel again.
+
+## DeepSeek Harness plugin (`tools/dsh-open-in-xyz`)
+
+`tools/dsh-open-in-xyz/` is a local [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness)
+(DSH) plugin: an `_xyz` split Open In button in the DSH Session header. It is maintained
+with this repository and **never published**: the package is `private: true`, it is not on
+npm or in the DSH plugin market, and it is installed only by linking this checkout into a
+DSH profile. The installed DSH app is not ours to change.
+`tools/dsh-open-in-xyz/README.md` has the details; read it before touching the plugin.
+
+- **Never modify the installed DSH app.** `/Users/lizhichao/Applications/DeepSeek Harness.app`
+  belongs to the DSH distribution: its `Info.plist` carries `ElectronAsarIntegrity` hashes,
+  so editing anything inside can stop DSH from launching, and an update replaces it
+  anyway. Change the plugin in this checkout, then restart DSH to reload it.
+- **Do not rename or move the plugin, its package, or its loader id.** The
+  `cordis.patch.yml` loader entry name, the `package.json` `name`, and the
+  `window.__ModuleLoader__.load({ id: ... })` id in `client.js` must all stay
+  `dsh-open-in-xyz`. The desktop profile (`~/.dsh/profiles/desktop/package.json`) links
+  this checkout from `dsh.profile.bundles` + `dependencies`; a rename or move also needs
+  that link updated, `pnpm install` in the profile, and a DSH restart.
+- **Keep the DSH plugin contract.** `package.json` must keep the exports `.` / `./client`
+  / `./locale/*.json` / `./icon`, `dsh.bundle.patch: ./cordis.patch.yml`, and
+  `dsh.client: { platform: 'web', immediately: true }`. `cordis.patch.yml` inserts the host
+  half (`id: open-in-xyz`, `name: 'dsh-open-in-xyz'`), and `client.js` stays a hand-written,
+  build-free bundle (`window.__ModuleLoader__.load` + `factory(require)`) requiring only
+  `react` and `@deepseek-ai/dsh-client-ui-primitives`. The shipped header button is hidden
+  by shadowing its list-slot entry (`id: 'open-in-app', priority: -1`) plus one narrow CSS
+  fallback; keep both mechanisms and keep the shipped `open-in-app` plugins enabled, so
+  file-level Open In and document previews keep working.
+- **The header wordmark tracks the app icon.** The inline `_xyz` SVG in `client.js`
+  (`WORDMARK`: path, viewBox, bar; ink heights `WORDMARK_HEADER_INK = 9` and
+  `WORDMARK_MENU_INK = 6.3`; accent `#0078D4`) is generated from the icon's small style in
+  `tools/make_icons.py`: Inter ExtraBold (wght 800), word width 800/1024, tracking 24,
+  `under_gap` 60, x-height centered at 496. If `make_icons.py`, the app icon, or the `_xyz`
+  wordmark changes, regenerate the geometry and inline it again, keeping the viewBox's
+  extra descender height above the x-height so the mark stays optically centered. The
+  `./icon` export is the separate 256px app icon for the Plugins list, not the header mark.
+- **Leave VS Code to the shipped plugin.** "Open in VS Code" reads the shipped
+  `dsh-host-open-in-app` routes (`/open-in-app/apps`, `/open-in-app/icon/vscode`,
+  `/open-in-app/open`); do not reimplement app detection or launching, and do not disable
+  that plugin. XYZ and Finder go through this plugin's own routes.
+- **Keep the host routes closed.** The host half registers exactly three routes —
+  `GET /open-in-xyz/state`, `POST /open-in-xyz/open`, `POST /open-in-xyz/reveal` — all
+  behind DSH composition's `connection.requestRejection()` trust fence. POST takes one
+  JSON body: an object with a non-empty absolute `path` string (64 KiB cap, `stat` must
+  confirm an existing directory). No other input reaches the launcher. The program
+  path is fixed to the host-detected XYZ and starts through `execFile` argv
+  (`/usr/bin/open -a <app> <dir>`), never a shell. Do not add a route that
+  accepts an arbitrary program, extra arguments, or an unvalidated path, and do not relax
+  the directory check. A new application entry should reuse the shipped host's routes or
+  follow the same fence + validation pattern.
+- **The plugin adds no App code or settings.** It finds and launches the installed app from
+  outside (`/Applications/XYZ.app`, then `~/Applications/XYZ.app`, then the `xyz` CLI), so
+  do not couple it to the app feature line, add a settings page, or write user preferences
+  for it.
+- **Run the plugin's own check.** `cd tools/dsh-open-in-xyz && npm test` (the
+  dependency-free `node --check` + `test/smoke.mjs`, no network, launches no app).
+  Host-half changes need a DSH restart; `client.js`-only changes hot-reload (refresh with
+  Cmd+R if they do not).
 
 ## Theming and display style
 

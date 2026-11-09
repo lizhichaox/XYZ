@@ -649,9 +649,11 @@ final class XYZAppDelegate: NSObject, NSApplicationDelegate {
             MainActor.assumeIsolated {
                 WorkspaceWindowController.closeStrayWindows()
                 WorkspaceWindowController.installPhantomGuard()
-                FolderOpening.allowDocumentOpenPanels()
                 if restored == 0 {
+                    FolderOpening.holdDocumentOpenPanels(seconds: 2)
                     WelcomeWindow.showWhenLaunchCompletes()
+                } else {
+                    FolderOpening.allowDocumentOpenPanels()
                 }
             }
         }
@@ -686,6 +688,7 @@ final class XYZAppDelegate: NSObject, NSApplicationDelegate {
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         if flag { return true }
         MainActor.assumeIsolated {
+            FolderOpening.holdDocumentOpenPanels(seconds: 1.5)
             if let controller = WorkspaceWindowController.controllers.first {
                 if let window = controller.window {
                     if window.isMiniaturized {

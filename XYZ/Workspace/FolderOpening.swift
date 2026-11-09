@@ -23,16 +23,19 @@ enum FolderOpening {
         suppressDocumentOpenPanel = false
     }
 
-    static func suppressNextAutomaticDocumentOpenPanel() {
+    /// SwiftUI's DocumentGroup asks for a document open panel when the app comes back
+    /// without a document. That panel is the Finder-like dialog the Welcome page exists
+    /// to avoid. Keep automatic panels cancelled for a moment around launch/reopen, then
+    /// allow the user's own File → Open.
+    static func holdDocumentOpenPanels(seconds: TimeInterval) {
         suppressDocumentOpenPanel = true
-        for window in NSApp.windows {
-            guard let panel = window as? NSOpenPanel, panel.isVisible, panel.canChooseFiles else { continue }
-            panel.cancel(nil)
-            suppressDocumentOpenPanel = false
-            WorkspaceLog.panelCancelled(kind: "document-open-after-restore")
-            return
-        }
+        releaseDocumentPanelHold?.cancel()
+        let item = DispatchWorkItem { suppressDocumentOpenPanel = false }
+        releaseDocumentPanelHold = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds, execute: item)
     }
+
+    private static var releaseDocumentPanelHold: DispatchWorkItem?
 
     static func installEarly() {
         guard !didInstallEarly else { return }
@@ -276,7 +279,20 @@ enum FolderOpening {
 
     /// True once, for the document Open panel DocumentGroup shows at launch after folder windows were restored.
     private static func suppressAutomaticDocumentOpen(_ panel: NSOpenPanel) -> Bool {
-        guard suppressDocumentOpenPanel, panel.canChooseFiles else { return false }
+        guard panel.canChooseFiles else { return false }
+        // AppKit's own reopen handling (`_doOpenUntitled`) asks the document controller
+        // for an open panel whenever the app is brought back without a document. That is
+        // the Finder-like dialog the Welcome page replaces; File → Open does not come
+        // through this path.
+        if Thread.callStackSymbols.contains(where: {
+            $0.contains("_doOpenUntitled")
+                || $0.contains("_autoreopenDocuments")
+                || $0.contains("_reopenWindowsAsNecessary")
+        }) {
+            WorkspaceLog.panelCancelled(kind: "document-open-autoreopen")
+            return true
+        }
+        guard suppressDocumentOpenPanel else { return false }
         suppressDocumentOpenPanel = false
         WorkspaceLog.panelCancelled(kind: "document-open-after-restore")
         return true
