@@ -134,20 +134,25 @@ private struct WelcomeView: View {
 
     private var startColumn: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Image(nsImage: NSApp.applicationIconImage)
-                .resizable()
-                .interpolation(.high)
-                .frame(width: 74, height: 74)
-                .padding(.top, 36)
-                .accessibilityHidden(true)
-            Text("XYZ")
-                .font(.system(size: 26, weight: .semibold))
-                .foregroundStyle(Color.xyzInk)
-                .padding(.top, 14)
-            Text(versionLine)
-                .font(.system(size: 12))
-                .foregroundStyle(Color.xyzSecondaryText)
-                .padding(.top, 2)
+            // The mark, version and the same credit line About uses; centered as one block.
+            VStack(spacing: 0) {
+                Image(nsImage: NSApp.applicationIconImage)
+                    .resizable()
+                    .interpolation(.high)
+                    .frame(width: 74, height: 74)
+                    .accessibilityHidden(true)
+                Text(versionLine)
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.xyzSecondaryText)
+                    .padding(.top, 12)
+                Text("Made by LIZHICHAO with 💗")
+                    .font(.system(size: 12))
+                    .foregroundStyle(Color.xyzSecondaryText)
+                    .lineLimit(1)
+                    .padding(.top, 3)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.top, 36)
 
             VStack(alignment: .leading, spacing: 8) {
                 Button(action: model.openFolder) {
@@ -167,7 +172,7 @@ private struct WelcomeView: View {
                 .controlSize(.large)
                 .keyboardShortcut("n", modifiers: .command)
             }
-            .padding(.top, 28)
+            .padding(.top, 30)
 
             Spacer(minLength: 20)
         }
