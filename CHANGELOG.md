@@ -10,9 +10,9 @@
   Restored folder windows still open directly, and opening a folder or a note closes the
   page. AppKit's own reopen handler (`_doOpenUntitled`) used to open its Finder-like
   document panel on top of the page; that automatic panel is cancelled now, while
-  File → Open and the Open Folder picker still work. The page is a small window in the
-  screen's top-left corner rather than a full-screen sheet; the brand block and Recent
-  Folders are vertically centered in it, and the recent list keeps up to 20 folders. The folder panel
+  File → Open and the Open Folder picker still work. The page is a small window centered on the
+  screen rather than a full-screen sheet; the brand block and Recent Folders are
+  vertically centered in it, and the recent list keeps up to 20 folders. The folder panel
   starts at the current workspace, or at home from the page, instead of whatever folder
   was used last. It uses only `XYZTheme` colors.
 

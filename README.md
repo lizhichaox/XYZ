@@ -33,7 +33,7 @@ The sidebar has no filter field. ⌘K is Search Notes: names and text in the ope
 
 ## Welcome
 
-Launching with nothing to restore now opens a start page instead of a folder panel. It has **Open Folder…** (⇧⌘O), **New File** (⌘N), and up to 20 folders opened most recently, newest first; a click opens that folder window. Closing every window and clicking the Dock icon brings the same page back, and Help → Welcome to XYZ opens it on demand. It opens as a small window in the top-left corner of the screen, with the brand block and the recent list vertically centered in it. AppKit's automatic document panel is suppressed on launch and Dock reopen, so the page is not covered by a Finder-like dialog; File → Open still shows the normal document panel. When folder windows were open at quit they are restored as before, so the page appears only when there is nothing to bring back.
+Launching with nothing to restore now opens a start page instead of a folder panel. It has **Open Folder…** (⇧⌘O), **New File** (⌘N), and up to 20 folders opened most recently, newest first; a click opens that folder window. Closing every window and clicking the Dock icon brings the same page back, and Help → Welcome to XYZ opens it on demand. It opens as a small window centered on the screen, with the brand block and the recent list vertically centered in it. AppKit's automatic document panel is suppressed on launch and Dock reopen, so the page is not covered by a Finder-like dialog; File → Open still shows the normal document panel. When folder windows were open at quit they are restored as before, so the page appears only when there is nothing to bring back.
 
 ## Settings
 
