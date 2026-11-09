@@ -750,6 +750,11 @@ enum WindowFill {
         }
     }
 
+    /// Fill a window now, without the once-per-window guard document windows use.
+    static func fill(_ window: NSWindow) {
+        apply(window)
+    }
+
     private static func apply(_ window: NSWindow) {
         guard let screen = window.screen ?? NSScreen.main else { return }
         let frame = screen.visibleFrame

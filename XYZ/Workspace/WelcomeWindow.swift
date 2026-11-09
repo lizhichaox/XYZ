@@ -9,12 +9,12 @@ import XYZCore
 @MainActor
 enum WelcomeWindow {
     private static var window: NSWindow?
-    private static let frameName = "xyz.welcome.frame"
 
     static var isVisible: Bool { window?.isVisible == true }
 
     static func show() {
         let window = self.window ?? make()
+        let wasVisible = window.isVisible
         // A fresh view each time keeps the recent list current after folders were opened.
         window.contentView = NSHostingView(rootView: WelcomeView())
         self.window = window
@@ -23,6 +23,10 @@ enum WelcomeWindow {
         }
         window.makeKeyAndOrderFront(nil)
         NSApp.activate()
+        // The page opens at the same size a folder window gets: the screen's visible frame.
+        if !wasVisible {
+            WindowFill.fill(window)
+        }
     }
 
     /// The page is only for "nothing open"; every workspace open says so.
@@ -55,10 +59,6 @@ enum WelcomeWindow {
         window.isExcludedFromWindowsMenu = true
         window.contentMinSize = NSSize(width: 680, height: 440)
         EscapeKey.register(window)
-        if !window.setFrameUsingName(frameName) {
-            window.center()
-        }
-        window.setFrameAutosaveName(frameName)
         return window
     }
 }

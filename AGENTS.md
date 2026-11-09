@@ -51,6 +51,9 @@ rules below more than once; follow them without being asked.
   recognises that call-stack path and cancels it, and a short hold covers launch; File →
   Open and the folder picker are not affected. Keep the guard when changing launch or
   restore code, or the Welcome page gets covered by the panel again.
+- **The start page fills the screen.** `WelcomeWindow.show()` calls `WindowFill.fill` so a
+  fresh page opens at the screen's visible frame, the same size folder windows use. A
+  second `show()` while it is already visible must not resize it.
 
 ## DeepSeek Harness plugin (`tools/dsh-open-in-xyz`)
 
