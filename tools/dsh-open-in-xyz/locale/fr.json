@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "Open in XYZ",
+    "description": "Replaces the Session-header Open In button with one that opens the workspace folder in XYZ."
+  }
+}

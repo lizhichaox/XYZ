@@ -1,0 +1,6 @@
+# Bundle patch: insert this plugin's Host half into the profile tree.
+# The Host half also declares `dsh.client`, so the same Loader entry ships the
+# browser bundle under exports["./client"] to the Web GUI automatically.
+- insert:
+    - id: open-in-xyz
+      name: 'dsh-open-in-xyz'

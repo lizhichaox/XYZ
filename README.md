@@ -132,6 +132,22 @@ DEVELOPMENT_TEAM = YOURTEAMID
 
 Replace `YOURTEAMID` with the id from Xcode Settings → Accounts. `Base.xcconfig` includes that file when it exists, and a later assignment there overrides the empty default. Do not also set Development Team in the target's Build Settings. A value in the project file overrides the xcconfig, and it would be committed.
 
+## DeepSeek Harness plugin
+
+`tools/dsh-open-in-xyz/` is a local plugin for [DeepSeek Harness](https://github.com/deepseek-ai/deepseek-harness) (DSH). It adds an `_xyz` split button to the DSH Session header: the primary button opens the current session's workspace folder in the installed XYZ, and the menu also offers Open in VS Code (only when DSH's shipped host resolves VS Code) and Show in Finder. The header mark is the app icon's own `_xyz` wordmark (the small-size drawing described under App icon), inlined as SVG so it stays sharp and follows the light and dark themes.
+
+The button replaces DSH's own header "Open In" entry by shadowing the same list-slot cell at a lower priority (`id: open-in-app, priority: -1`), with a narrow CSS rule as a fallback. The shipped `open-in-app` plugin stays enabled, so file-level Open In, the document-preview controls, and their context menus are unchanged. Everything runs locally: the plugin's host half auto-detects `/Applications/XYZ.app` (or `~/Applications/XYZ.app`; the `xyz` CLI is the fallback), serves its state and launch routes behind DSH's connection trust fence, accepts only an existing absolute directory, and starts the app with an `execFile` argv array — no shell. There is no settings page and nothing is written to user preferences; when XYZ is not installed the button hides. The plugin is **not published** to npm or the DSH plugin market (the package is `private`); it is installed from this checkout and maintained with the repository.
+
+Install it into the DSH desktop profile (`~/.dsh/profiles/desktop`): add `dsh-open-in-xyz` to `dsh.profile.bundles`, add the link below to `dependencies` (use the absolute path of your checkout), run `pnpm install` in that directory, and restart DSH. The plugin's own `cordis.patch.yml` inserts its host half through `dsh.bundle.patch`.
+
+```json
+"dependencies": {
+  "dsh-open-in-xyz": "link:<path to this checkout>/tools/dsh-open-in-xyz"
+}
+```
+
+To remove it, delete the bundle and the link, run `pnpm install`, and restart DSH; the shipped header button returns. `npm test` inside `tools/dsh-open-in-xyz` runs the plugin's dependency-free smoke test, and `tools/dsh-open-in-xyz/README.md` covers the slot-shadowing, security, and icon details.
+
 ## iCloud Drive
 
 The project already declares the iCloud Documents capability:
