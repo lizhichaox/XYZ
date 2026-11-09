@@ -23,10 +23,20 @@ enum WelcomeWindow {
         }
         window.makeKeyAndOrderFront(nil)
         NSApp.activate()
-        // The page opens at the same size a folder window gets: the screen's visible frame.
+        // A small start page in the top-left corner, not a full-screen empty sheet.
         if !wasVisible {
-            WindowFill.fill(window)
+            placeAtTopLeft(window)
         }
+    }
+
+    private static func placeAtTopLeft(_ window: NSWindow) {
+        guard let screen = window.screen ?? NSScreen.main else { return }
+        let visible = screen.visibleFrame
+        let size = window.frame.size
+        let margin: CGFloat = 24
+        let x = visible.minX + margin
+        let y = max(visible.minY + margin, visible.maxY - size.height - margin)
+        window.setFrameOrigin(NSPoint(x: x, y: y))
     }
 
     /// The page is only for "nothing open"; every workspace open says so.
@@ -58,6 +68,7 @@ enum WelcomeWindow {
         window.isRestorable = false
         window.isExcludedFromWindowsMenu = true
         window.contentMinSize = NSSize(width: 680, height: 440)
+        window.setContentSize(NSSize(width: 820, height: 560))
         EscapeKey.register(window)
         return window
     }
