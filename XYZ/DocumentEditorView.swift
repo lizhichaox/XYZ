@@ -76,6 +76,9 @@ struct DocumentEditorView: View {
         }
         .background(Color.editorBackground)
         .onAppear {
+            #if os(macOS)
+            WelcomeWindow.close()
+            #endif
             if showsWordCount {
                 wordCount.update(bridge.latestText, immediate: true)
             }

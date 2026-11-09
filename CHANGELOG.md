@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Welcome page
+
+- Launching with no restorable folder windows shows a start page instead of an automatic
+  folder panel: Open Folder… (⇧⌘O), New File (⌘N), and the recent folders. A Dock click
+  with no visible window brings the page back; Help → Welcome to XYZ opens it on demand.
+  Restored folder windows still open directly, and opening a folder or a note closes the
+  page. The page uses only `XYZTheme` colors and remembers its frame.
+
 ### Performance
 
 - **The line-number gutter lays out only the visible band.** Every gutter draw used to

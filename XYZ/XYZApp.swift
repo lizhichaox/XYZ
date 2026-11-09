@@ -171,6 +171,9 @@ private struct AboutCommands: Commands {
             }
         }
         CommandGroup(replacing: .help) {
+            Button("Welcome to XYZ") {
+                WelcomeWindow.show()
+            }
             Button("XYZ Help") {
                 HelpWindow.show()
             }

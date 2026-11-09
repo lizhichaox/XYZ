@@ -40,6 +40,11 @@ rules below more than once; follow them without being asked.
   check. Toggling sidebars and other interaction still needs the owner.
 - The app is sandboxed with iCloud and security-scoped bookmarks; the unsigned CI build
   has no entitlements, so a green cloud run does not prove the sandboxed app works.
+- **Launch and the Dock start page.** With no folder window to restore, launch shows
+  `WelcomeWindow` (Open Folder…, New File, recent folders) instead of a folder panel;
+  a Dock click with no visible window shows it again. Restored folder windows still open
+  directly, and any workspace or document open closes the page. Do not auto-open the
+  folder picker or the last folder at launch.
 
 ## Theming and display style
 

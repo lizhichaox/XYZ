@@ -31,6 +31,10 @@ Homebrew users can link into `/opt/homebrew/bin` instead. `xyz .` opens the curr
 
 The sidebar has no filter field. ⌘K is Search Notes: names and text in the open folder. ⌘P is the command palette and go to file. Both, and Go to Line, are white plates in light mode (the editor color in dark), with a hairline and a soft shadow. The selected row is a light accent tint.
 
+## Welcome
+
+Launching with nothing to restore now opens a start page instead of a folder panel. It has **Open Folder…** (⇧⌘O), **New File** (⌘N), and the folders opened most recently, newest first; a click opens that folder window. Closing every window and clicking the Dock icon brings the same page back, and Help → Welcome to XYZ opens it on demand. When folder windows were open at quit they are restored as before, so the page appears only when there is nothing to bring back.
+
 ## Settings
 
 XYZ → Settings… is one pane:
@@ -70,7 +74,7 @@ Markdown files (`.md`, `.markdown`) follow the window's view mode. Other text, i
 
 Open files stay in a tab bar under the title bar, across the editor. A tab shows an icon, the name, and a close button. A single click opens a preview tab (italic) and replaces the previous preview. Double-click the file, double-click the tab, or edit the file to keep it. Pin on the tab menu sticks it: a pin icon in the close slot, and it stays out of preview replacement, Close Others, Close to the Right, and Close All. Click the pin to unpin. Middle-click does not close a pinned tab. A breadcrumb row under the tabs is the path. The status bar runs the full width of the window and shows the caret, encoding, line ending, file type, and Read-only or Editing.
 
-The Mac sandbox already has user-selected read-write and app-scoped bookmark entitlements. Opening a folder stores a security-scoped bookmark in your user defaults (not in the repo) so recent folders can reopen next launch. iPhone and iPad still use the document browser only; the tree model lives in `XYZCore` so a later iOS folder view can reuse it.
+The Mac sandbox already has user-selected read-write and app-scoped bookmark entitlements. Opening a folder stores a security-scoped bookmark in your user defaults (not in the repo) so the Welcome page can list recent folders and the Open Recent Folder menu can reopen them. iPhone and iPad still use the document browser only; the tree model lives in `XYZCore` so a later iOS folder view can reuse it.
 
 ## Build and run
 

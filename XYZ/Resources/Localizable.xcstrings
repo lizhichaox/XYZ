@@ -3127,6 +3127,66 @@
           }
         }
       }
+    },
+    "Welcome": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "欢迎"
+          }
+        }
+      }
+    },
+    "Recent Folders": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "最近文件夹"
+          }
+        }
+      }
+    },
+    "No recent folders": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "暂无最近文件夹"
+          }
+        }
+      }
+    },
+    "Open a folder to get started.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "打开一个文件夹开始使用。"
+          }
+        }
+      }
+    },
+    "Could not open this folder.": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法打开该文件夹。"
+          }
+        }
+      }
+    },
+    "Welcome to XYZ": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "欢迎使用 XYZ"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

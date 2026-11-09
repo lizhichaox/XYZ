@@ -230,6 +230,7 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
             WorkspaceLog.rejected(path: url.path, reason: "not-a-folder")
             return nil
         }
+        WelcomeWindow.close()
         let data = bookmark ?? WorkspaceBookmarks.capture(url)
         let resolved: URL
         if let data {
@@ -285,20 +286,6 @@ final class WorkspaceWindowController: NSWindowController, NSWindowDelegate {
         controller.showWindow(nil)
         NSApp.activate()
         return true
-    }
-
-    /// The last saved folder, when launch has nothing to restore.
-    static func reopenLastFolder() {
-        if let saved = WorkspaceLibrary.shared.windows.first {
-            _ = open(
-                bookmark: saved.bookmark,
-                tabs: WorkspaceWindowState(tabs: saved.tabs, activePath: saved.activePath)
-            )
-            return
-        }
-        if let recent = WorkspaceLibrary.shared.recents.first {
-            _ = open(bookmark: recent)
-        }
     }
 
     /// DocumentGroup can leave an untitled window and a hidden filled window beside the folder windows.
@@ -658,16 +645,14 @@ final class XYZAppDelegate: NSObject, NSApplicationDelegate {
         let restored = MainActor.assumeIsolated {
             WorkspaceWindowController.restore()
         }
-        if restored == 0 {
-            MainActor.assumeIsolated {
-                WorkspaceWindowController.reopenLastFolder()
-            }
-        }
         DispatchQueue.main.async {
             MainActor.assumeIsolated {
                 WorkspaceWindowController.closeStrayWindows()
                 WorkspaceWindowController.installPhantomGuard()
                 FolderOpening.allowDocumentOpenPanels()
+                if restored == 0 {
+                    WelcomeWindow.showWhenLaunchCompletes()
+                }
             }
         }
         FileMenuCheck.finishIfRequested()
@@ -680,6 +665,7 @@ final class XYZAppDelegate: NSObject, NSApplicationDelegate {
         // `open -b com.lizhichao.XYZ <path>` delivers these URLs with a sandbox extension.
         FolderOpening.installLate()
         MainActor.assumeIsolated {
+            WelcomeWindow.close()
             CLIOpen.receive(urls)
         }
     }
@@ -688,7 +674,37 @@ final class XYZAppDelegate: NSObject, NSApplicationDelegate {
         FolderOpening.installLate()
         let url = URL(fileURLWithPath: filename)
         MainActor.assumeIsolated {
+            WelcomeWindow.close()
             CLIOpen.receive([url])
+        }
+        return true
+    }
+
+    /// A Dock click with no visible window brings back the folder windows, or the start
+    /// page when there is nothing to bring back. Returning true keeps AppKit from
+    /// running its own empty-window/document behavior.
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        if flag { return true }
+        MainActor.assumeIsolated {
+            if let controller = WorkspaceWindowController.controllers.first {
+                if let window = controller.window {
+                    if window.isMiniaturized {
+                        window.deminiaturize(nil)
+                    }
+                    window.makeKeyAndOrderFront(nil)
+                }
+                NSApp.activate()
+                return
+            }
+            if let minimized = NSApp.windows.first(where: {
+                !($0 is NSPanel) && !($0 is NSOpenPanel) && $0.isMiniaturized
+            }) {
+                minimized.deminiaturize(nil)
+                minimized.makeKeyAndOrderFront(nil)
+                NSApp.activate()
+                return
+            }
+            WelcomeWindow.show()
         }
         return true
     }
