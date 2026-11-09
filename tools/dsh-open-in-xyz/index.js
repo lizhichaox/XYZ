@@ -3,7 +3,7 @@
  *
  * The browser half (`./client.js`) renders a split button in the conversation
  * Session header. It cannot spawn a local application, so this half owns the
- * launch and registers five routes on the composition's `webServer`:
+ * launch and registers three routes on the composition's `webServer`:
  *
  *   GET  /open-in-xyz/state        -> { ok: true, available, platform, appPath }
  *   POST /open-in-xyz/open         -> { ok: true } | { ok: false, code }
@@ -14,11 +14,11 @@
  * (`requestRejection`), whose Host/Origin fence defeats DNS rebinding and
  * cross-site calls and whose browser authentication gates every caller. On top
  * of that fence the two POST routes validate their body at the wire: an
- * `application/json` media type, a 64 KiB ceiling, one string `path` field, an
- * absolute path, and an existing directory. Nothing else leaves the Host: the
- * application (or its CLI fallback) is auto-detected here, never supplied by
- * the browser, and every process is spawned with an argv array through
- * `execFile` — no shell, no interpolation.
+ * `application/json` media type, a 64 KiB ceiling, one string `path` field and
+ * no other field, an absolute path, and an existing directory. Nothing else
+ * leaves the Host: the application (or its CLI fallback) is auto-detected
+ * here, never supplied by the browser, and every process is spawned with an
+ * argv array through `execFile` — no shell, no interpolation.
  *
  * Detection is deliberately zero-config: `/Applications/XYZ.app` (or the
  * per-user Applications folder) is preferred; when only the `xyz` CLI is
@@ -128,8 +128,8 @@ export async function readBoundedBody(req) {
 
 /**
  * Validate one POST body at the wire: a JSON object carrying one non-empty
- * absolute `path` string. Everything else is refused before any filesystem
- * or process work happens.
+ * absolute `path` string and no other field. Everything else is refused before
+ * any filesystem or process work happens.
  * @param {string} text - the raw UTF-8 request body.
  * @returns {{ path: string } | null} the accepted path, or null when invalid.
  */
@@ -141,6 +141,8 @@ export function parsePathBody(text) {
     return null;
   }
   if (typeof body !== 'object' || body === null || Array.isArray(body)) return null;
+  const fields = Object.keys(body);
+  if (fields.length !== 1 || fields[0] !== 'path') return null;
   const path = body.path;
   if (typeof path !== 'string') return null;
   if (path === '' || path.length > MAX_PATH_LENGTH) return null;
@@ -168,9 +170,10 @@ async function runHandoff(command, args) {
 /**
  * Open one existing directory in XYZ.
  * @param {string} directory - absolute path to an existing directory.
+ * @param {object | null} [launcher] - one earlier detection result; the route
+ *   resolves the launcher once so a request cannot see two different answers.
  */
-async function launchInXyz(directory) {
-  const launcher = resolveLauncher();
+async function launchInXyz(directory, launcher = resolveLauncher()) {
   if (launcher === null) {
     const error = new Error('XYZ is not installed');
     error.code = 'app_missing';
@@ -261,12 +264,13 @@ export function apply(ctx) {
   const openHandler = async (req, res) => {
     const directory = await readActionPath(req, res);
     if (directory === null) return;
-    if (resolveLauncher() === null) {
+    const launcher = resolveLauncher();
+    if (launcher === null) {
       sendJson(res, 409, { ok: false, code: 'app_missing' });
       return;
     }
     try {
-      await launchInXyz(directory);
+      await launchInXyz(directory, launcher);
       sendJson(res, 200, { ok: true });
     } catch (error) {
       console.error('[open-in-xyz] could not open the workspace in XYZ:', error?.code ?? error?.message);

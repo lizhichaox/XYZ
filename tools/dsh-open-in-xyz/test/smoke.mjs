@@ -177,7 +177,7 @@ const route = (key) => host.routes.get(ROUTES[key]).handler;
   assert.equal(wrongMethod.headers.allow, 'GET');
 }
 
-// POST routes: method, media type, bounded body, absolute existing directory.
+// POST routes: method, media type, bounded one-field body, absolute existing directory.
 for (const key of ['open', 'reveal']) {
   const post = route(key);
 
@@ -208,6 +208,8 @@ for (const key of ['open', 'reveal']) {
     { path: `${tmpdir()}\u0000trailer` },
     { path: 'x'.repeat(internals.MAX_PATH_LENGTH + 1) },
     { other: tmpdir() },
+    { path: tmpdir(), app: 'vscode' },
+    { path: tmpdir(), extra: true },
     [tmpdir()]
   ]) {
     const res = await callRoute(post, {

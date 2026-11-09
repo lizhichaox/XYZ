@@ -67,12 +67,12 @@ Host 半只在 `webServer` 上挂 3 条路由，且全部先过 composition 的
 
 | 路由 | 说明 |
 |---|---|
-| `GET /open-in-xyz/state` | `{ available, platform, appPath }` 可用性探测 |
+| `GET /open-in-xyz/state` | `{ ok, available, platform, appPath, cliPath }` 可用性探测 |
 | `POST /open-in-xyz/open` | 打开工作目录：JSON body `{ "path": "<绝对路径>" }` |
 | `POST /open-in-xyz/reveal` | 在 Finder 中显示该目录：同上 body |
 
 POST 路由在围栏之外还做 wire 级校验：`application/json`、64 KiB 上限、
-仅一个字符串 `path`、必须是绝对路径、`stat` 确认为已存在目录；程序路径固定为
+仅一个 `path` 字段（多余字段直接拒绝）、必须是绝对路径、`stat` 确认为已存在目录；程序路径固定为
 Host 端探测出的 XYZ（`/Applications/XYZ.app`、`~/Applications/XYZ.app`，或
 `/opt/homebrew/bin/xyz` CLI 兜底），**浏览器无法指定要打开的可执行文件或额外参数**。
 进程一律通过 `execFile` 的 argv 数组启动（`/usr/bin/open -a <app> <dir>`），不经过 shell。

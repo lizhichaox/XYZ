@@ -99,11 +99,11 @@ DSH profile. The installed DSH app is not ours to change.
   that plugin. XYZ and Finder go through this plugin's own routes.
 - **Keep the host routes closed.** The host half registers exactly three routes —
   `GET /open-in-xyz/state`, `POST /open-in-xyz/open`, `POST /open-in-xyz/reveal` — all
-  behind DSH composition's `connection.requestRejection()` trust fence. POST takes one
-  JSON body: an object with a non-empty absolute `path` string (64 KiB cap, `stat` must
-  confirm an existing directory). No other input reaches the launcher. The program
-  path is fixed to the host-detected XYZ and starts through `execFile` argv
-  (`/usr/bin/open -a <app> <dir>`), never a shell. Do not add a route that
+  behind DSH composition's `connection.requestRejection()` trust fence. POST accepts only
+  one JSON object with one non-empty absolute `path` string — any other field is rejected
+  (64 KiB cap, `stat` must confirm an existing directory), so no other input reaches the
+  launcher. The program path is fixed to the host-detected XYZ and starts through
+  `execFile` argv (`/usr/bin/open -a <app> <dir>`), never a shell. Do not add a route that
   accepts an arbitrary program, extra arguments, or an unvalidated path, and do not relax
   the directory check. A new application entry should reuse the shipped host's routes or
   follow the same fence + validation pattern.
