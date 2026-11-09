@@ -817,15 +817,10 @@ function shadowRegistration(harness) {
   assert.deepEqual([...tree.props.items].map((item) => item.id), ['open', 'reveal'], 'a failed catalog probe only drops VS Code');
 }
 
-// The client half only logs the two handled conditions, and never an error.
+// The client half only logs the two handled conditions, once each, and never an error.
 assert.equal(clientLog.errors.length, 0, 'the client half logged no errors');
-assert.ok(
-  clientLog.warnings.some(([message]) => String(message).includes('XYZ is not installed')),
-  'a missing XYZ install is logged as a warning, not thrown'
-);
-assert.ok(
-  clientLog.warnings.some(([message]) => String(message).includes('availability probe failed')),
-  'a failed environment probe is logged as a warning'
-);
+const warningCount = (needle) => clientLog.warnings.filter(([message]) => String(message).includes(needle)).length;
+assert.equal(warningCount('XYZ is not installed'), 1, 'a missing XYZ install is logged exactly once');
+assert.equal(warningCount('availability probe failed'), 1, 'a failed environment probe is logged exactly once');
 
 console.log('open-in-xyz smoke: all assertions passed');

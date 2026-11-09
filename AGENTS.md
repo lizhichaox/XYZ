@@ -93,10 +93,10 @@ the plugin.
   extra descender height above the x-height so the mark stays optically centered. The
   `./icon` export is the separate 256px app icon for the Plugins list, not the header mark.
 - **Leave VS Code to the shipped plugin.** "Open in VS Code" reads the shipped
-  `dsh-host-open-in-app` routes (`/open-in-app/apps`, `/open-in-app/icon/vscode`,
-  `/open-in-app/open`); do not reimplement app detection or launching, and do not disable
-  that plugin (it keeps file-level Open In and document previews working). XYZ and Finder
-  go through this plugin's own routes.
+  `@deepseek-ai/dsh-host-open-in-app` routes (`/open-in-app/apps`,
+  `/open-in-app/icon/vscode`, `/open-in-app/open`); do not reimplement app detection or
+  launching, and do not disable that plugin (it keeps file-level Open In and document
+  previews working). XYZ and Finder go through this plugin's own routes.
 - **Keep the host routes closed.** The host half registers exactly three routes —
   `GET /open-in-xyz/state`, `POST /open-in-xyz/open`, `POST /open-in-xyz/reveal` — all
   behind DSH composition's `connection.requestRejection()` trust fence. POST accepts only

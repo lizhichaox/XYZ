@@ -74,12 +74,12 @@ Host 半只在 `webServer` 上挂 3 条路由，且全部先过 composition 的
 | `POST /open-in-xyz/reveal` | 在 Finder 中显示该目录：同上 body |
 
 POST 路由在围栏之外还做 wire 级校验：`application/json`、64 KiB 上限、仅一个 `path`
-字段（多余字段直接拒绝）、必须是绝对路径、`stat` 确认为已存在目录；程序固定为 Host 半
-探测出的 XYZ（`/Applications/XYZ.app`、`~/Applications/XYZ.app`，或
-`/opt/homebrew/bin/xyz`、`/usr/local/bin/xyz` CLI 兜底），**浏览器无法指定要打开的可执行
-文件或额外参数**。进程一律通过 `execFile` 的 argv 数组启动，不经过 shell：应用包走
-`/usr/bin/open -a <app> <dir>`，只有 `xyz` CLI 时直接走 `xyz <dir>`，`reveal` 走
-`/usr/bin/open -R <dir>`。
+字段（多余字段直接拒绝）、必须是绝对路径（≤4096 字符、不含 NUL）、`stat` 确认为
+已存在目录；程序固定为 Host 半探测出的 XYZ（`/Applications/XYZ.app`、
+`~/Applications/XYZ.app`，或 `/opt/homebrew/bin/xyz`、`/usr/local/bin/xyz` CLI 兜底），
+**浏览器无法指定要打开的可执行文件或额外参数**。进程一律通过 `execFile` 的 argv 数组
+启动，不经过 shell：应用包走 `/usr/bin/open -a <app> <dir>`，只有 `xyz` CLI 时直接走
+`xyz <dir>`，`reveal` 走 `/usr/bin/open -R <dir>`。
 
 ## 行为细节
 
@@ -136,10 +136,10 @@ POST 路由在围栏之外还做 wire 级校验：`application/json`、64 KiB �
 npm test          # node --check + 无头 smoke
 ```
 
-`test/smoke.mjs` 不联网、不启动任何应用：它用假的 Cordis ctx 跑 Host 路由
-（信任围栏、方法、body 校验、启动 argv），再校验清单契约与 256px 插件图标，
+`test/smoke.mjs` 不联网、不启动任何应用：先校验清单契约与 256px 插件图标，
+再用假的 Cordis ctx 跑 Host 路由（信任围栏、方法、body 校验、启动 argv），
 最后用最小 React/模块加载器桩跑 Client 半（slot 注册参数、shadow 优先级、
-CSS 选择器、组件渲染与点击路径）。
+CSS 选择器、组件渲染，以及忙碌态、错误提示、样式表复用、探测失败等路径）。
 
 ## 图标清晰度（2026-11-09 优化）
 
