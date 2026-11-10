@@ -10,9 +10,14 @@ struct HTMLRenderer {
     /// A remote picture is a request to another server from the web content process.
     /// Reading keeps that off unless the app asks for it.
     var allowsRemoteImages = true
+    /// Reading can toggle a task checkbox only when the note is editable.
+    var allowsTaskToggle = true
 
     func render(_ document: Document, reserve: Int = 0) -> String {
-        var walker = HTMLRenderingWalker(allowsRemoteImages: allowsRemoteImages)
+        var walker = HTMLRenderingWalker(
+            allowsRemoteImages: allowsRemoteImages,
+            allowsTaskToggle: allowsTaskToggle
+        )
         if reserve > 0 {
             walker.html.reserveCapacity(reserve)
         }
@@ -23,6 +28,7 @@ struct HTMLRenderer {
 
 private struct HTMLRenderingWalker: MarkupWalker {
     var allowsRemoteImages: Bool
+    var allowsTaskToggle: Bool
     var html = ""
     private var alignments: [Table.ColumnAlignment?] = []
     private var inHeader = false
@@ -31,8 +37,9 @@ private struct HTMLRenderingWalker: MarkupWalker {
     /// An explicit initializer, not the memberwise one: a struct with private stored
     /// properties only synthesizes a memberwise initializer on newer Swift versions, and
     /// the CI toolchain is older (it reported "takes no arguments").
-    init(allowsRemoteImages: Bool = true) {
+    init(allowsRemoteImages: Bool = true, allowsTaskToggle: Bool = true) {
         self.allowsRemoteImages = allowsRemoteImages
+        self.allowsTaskToggle = allowsTaskToggle
     }
 
     mutating func visitHeading(_ heading: Heading) {
@@ -177,7 +184,12 @@ private struct HTMLRenderingWalker: MarkupWalker {
             let checked = checkbox == .checked ? " checked" : ""
             html.append("<li class=\"task\"")
             html.append(lineMarkup(listItem))
-            html.append("><input type=\"checkbox\" disabled")
+            html.append("><input type=\"checkbox\" class=\"task-checkbox\"")
+            if allowsTaskToggle, let line = listItem.range?.lowerBound.line, line > 0 {
+                html.append(" data-task-line=\"\(line)\"")
+            } else {
+                html.append(" disabled")
+            }
             html.append(checked)
             html.append(">")
             descendInto(listItem)

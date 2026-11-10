@@ -40,6 +40,7 @@ final class PreviewWebHost {
         created.navigationDelegate = coordinator
         created.configuration.userContentController.add(coordinator, name: "xyzAnchor")
         created.configuration.userContentController.add(coordinator, name: "xyzGutter")
+        created.configuration.userContentController.add(coordinator, name: "xyzTask")
         storage = created
         coordinatorStorage = coordinator
         assetHandler = handler
@@ -79,6 +80,8 @@ struct MarkdownWebView: View {
     var baseDirectory: URL?
     var host: PreviewWebHost
     var scrollLink: EditorScrollLink
+    /// A task checkbox in Reading was clicked. The argument is the source line.
+    var toggleTask: ((Int) -> Void)?
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage(XYZEditorStyle.fontSizeKey) private var fontSize = XYZEditorStyle.defaultFontSize
     @AppStorage(XYZEditorStyle.lineSpacingKey) private var lineSpacing = XYZEditorStyle.defaultLineSpacing
@@ -92,9 +95,9 @@ struct MarkdownWebView: View {
             rootPath: baseDirectory?.standardizedFileURL.resolvingSymlinksInPath().path ?? ""
         )
         #if os(macOS)
-        MacMarkdownWebView(html: html, theme: colorScheme == .dark ? "dark" : "light", prefs: prefs, host: host, scrollLink: scrollLink)
+        MacMarkdownWebView(html: html, theme: colorScheme == .dark ? "dark" : "light", prefs: prefs, host: host, scrollLink: scrollLink, toggleTask: toggleTask)
         #else
-        IOSMarkdownWebView(html: html, theme: colorScheme == .dark ? "dark" : "light", prefs: prefs, host: host, scrollLink: scrollLink)
+        IOSMarkdownWebView(html: html, theme: colorScheme == .dark ? "dark" : "light", prefs: prefs, host: host, scrollLink: scrollLink, toggleTask: toggleTask)
         #endif
     }
 }
@@ -106,12 +109,14 @@ private struct MacMarkdownWebView: NSViewRepresentable {
     var prefs: PreviewPrefs
     var host: PreviewWebHost
     var scrollLink: EditorScrollLink
+    var toggleTask: ((Int) -> Void)?
 
     func makeNSView(context: Context) -> ReadingSurface {
         let surface = ReadingSurface()
         host.setRoot(prefs.rootPath.isEmpty ? nil : URL(fileURLWithPath: prefs.rootPath))
         if let webView = claim(host.webView) as? XYZPreviewWebView {
             surface.install(webView)
+            host.coordinator.toggleTask = toggleTask
             host.coordinator.update(webView: webView, html: html, theme: theme, prefs: prefs, scrollLink: scrollLink)
         }
         return surface
@@ -121,6 +126,7 @@ private struct MacMarkdownWebView: NSViewRepresentable {
         host.setRoot(prefs.rootPath.isEmpty ? nil : URL(fileURLWithPath: prefs.rootPath))
         guard let webView = host.webView as? XYZPreviewWebView else { return }
         surface.install(webView)
+        host.coordinator.toggleTask = toggleTask
         host.coordinator.update(webView: webView, html: html, theme: theme, prefs: prefs, scrollLink: scrollLink)
     }
 
@@ -384,16 +390,19 @@ private struct IOSMarkdownWebView: UIViewRepresentable {
     var prefs: PreviewPrefs
     var host: PreviewWebHost
     var scrollLink: EditorScrollLink
+    var toggleTask: ((Int) -> Void)?
 
     func makeUIView(context: Context) -> WKWebView {
         host.setRoot(prefs.rootPath.isEmpty ? nil : URL(fileURLWithPath: prefs.rootPath))
         let webView = claim(host.webView)
+        host.coordinator.toggleTask = toggleTask
         host.coordinator.update(webView: webView, html: html, theme: theme, prefs: prefs, scrollLink: scrollLink)
         return webView
     }
 
     func updateUIView(_ webView: WKWebView, context: Context) {
         host.setRoot(prefs.rootPath.isEmpty ? nil : URL(fileURLWithPath: prefs.rootPath))
+        host.coordinator.toggleTask = toggleTask
         host.coordinator.update(webView: webView, html: html, theme: theme, prefs: prefs, scrollLink: scrollLink)
     }
 
@@ -441,6 +450,8 @@ private enum PreviewWebViewFactory {
 final class PreviewWebCoordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
     private let css = PreviewStyles.load()
     var openFile: ((URL) -> Void)?
+    /// A task checkbox in Reading was clicked. The argument is the source line.
+    var toggleTask: ((Int) -> Void)?
     private var didStartLoad = false
     private var isReady = false
     private var pendingHTML: String?
@@ -476,6 +487,18 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate, WKScriptMessa
                 mode: "reading"
             )
             #endif
+            return
+        }
+        if message.name == "xyzTask" {
+            let body = message.body as? [String: Any]
+            let line = Self.intValue(body?["line"])
+            guard line > 0 else { return }
+            let apply: () -> Void = { self.toggleTask?(line) }
+            if Thread.isMainThread {
+                apply()
+            } else {
+                DispatchQueue.main.async(execute: apply)
+            }
             return
         }
         guard message.name == "xyzAnchor" else { return }
@@ -1129,6 +1152,15 @@ enum PreviewPage {
           image.replaceWith(label);
           if (typeof xyzScheduleGutter === "function") xyzScheduleGutter();
         }
+        // A task checkbox posts its source line; the app flips the marker in the note.
+        document.addEventListener("click", function(event) {
+          var box = event.target;
+          if (!box || box.tagName !== "INPUT" || box.type !== "checkbox") return;
+          var line = parseInt(box.getAttribute("data-task-line") || "0", 10);
+          if (!line) return;
+          var handlers = window.webkit && window.webkit.messageHandlers;
+          if (handlers && handlers.xyzTask) handlers.xyzTask.postMessage({line: line});
+        });
         // #fragment links scroll to the heading. The page's <base> would otherwise turn them into a navigation.
         document.addEventListener("click", function(event) {
           var link = event.target && event.target.closest ? event.target.closest("a[href]") : null;

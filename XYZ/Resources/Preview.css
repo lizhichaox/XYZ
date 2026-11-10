@@ -234,6 +234,14 @@ li.task > input {
   vertical-align: -2px;
 }
 
+li.task > input:not(:disabled) {
+  cursor: pointer;
+}
+
+li.task > input:not(:disabled):hover {
+  border-color: var(--link);
+}
+
 li.task > input:checked {
   background-color: var(--link);
   border-color: var(--link);

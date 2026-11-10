@@ -3187,6 +3187,16 @@
           }
         }
       }
+    },
+    "Toggle Task": {
+      "localizations": {
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "切换任务"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

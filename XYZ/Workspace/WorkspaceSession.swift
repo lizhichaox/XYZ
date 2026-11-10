@@ -489,6 +489,20 @@ final class WorkspaceSession: ObservableObject {
         }
     }
 
+    /// A task checkbox in Reading was clicked. Flip the marker on that source line.
+    @discardableResult
+    func toggleTask(atLine line: Int, undoManager: UndoManager?) -> String? {
+        guard let buffer, buffer.kind == .markdown,
+              let toggle = TaskList.toggle(in: buffer.text, line: line) else { return nil }
+        buffer.userEdited(toggle.text)
+        previewBridge.send(toggle.text)
+        undoManager?.registerUndo(withTarget: self) { [weak undoManager] session in
+            session.toggleTask(atLine: line, undoManager: undoManager)
+        }
+        undoManager?.setActionName(String(localized: "Toggle Task"))
+        return toggle.text
+    }
+
     /// Folder replace from the Edit menu. The count is confirmed before any file changes.
     func replaceInFolder(pattern: String, replacement: String, undoManager: UndoManager?) {
         let query = FindQuery(pattern: pattern.trimmingCharacters(in: .whitespacesAndNewlines))

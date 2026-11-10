@@ -44,10 +44,21 @@ final class MarkdownHTMLTests: XCTestCase {
     func testTaskList() {
         let html = MarkdownHTML.render("- [x] done\n- [ ] open\n")
         XCTAssertEqual(html.components(separatedBy: "class=\"task\"").count - 1, 2)
-        XCTAssertTrue(html.contains("type=\"checkbox\" disabled checked"))
-        XCTAssertTrue(html.contains("type=\"checkbox\" disabled>"))
+        XCTAssertTrue(html.contains("type=\"checkbox\" class=\"task-checkbox\" data-task-line=\"1\" checked"))
+        XCTAssertTrue(html.contains("type=\"checkbox\" class=\"task-checkbox\" data-task-line=\"2\">"))
         XCTAssertTrue(html.contains("done"))
         XCTAssertTrue(html.contains("open"))
+    }
+
+    func testTaskCheckboxIsDisabledWhenReadingCannotEdit() {
+        let html = MarkdownHTML.render("- [ ] open\n", allowsTaskToggle: false)
+        XCTAssertTrue(html.contains("type=\"checkbox\" class=\"task-checkbox\" disabled>"))
+        XCTAssertFalse(html.contains("data-task-line"))
+    }
+
+    func testTaskCheckboxKeepsItsSourceLineAfterFrontMatter() {
+        let html = MarkdownHTML.render("---\ntitle: Note\n---\n\n- [ ] task\n")
+        XCTAssertTrue(html.contains("data-task-line=\"5\""))
     }
 
     func testLink() {

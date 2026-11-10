@@ -42,6 +42,8 @@ final class PreviewModel: ObservableObject {
 
     /// Reading does not request a picture from another server unless this is on.
     private var allowsRemoteImages = false
+    /// Task checkboxes are interactive only when the note can be edited.
+    private var allowsTaskToggle = true
 
     private var task: Task<Void, Never>?
     private var generation = 0
@@ -51,13 +53,22 @@ final class PreviewModel: ObservableObject {
         allowsRemoteImages = allows
     }
 
+    func setAllowsTaskToggle(_ allows: Bool) {
+        allowsTaskToggle = allows
+    }
+
     func schedule(_ text: String, immediate: Bool) {
         task?.cancel()
         generation &+= 1
         let token = generation
         let allowsRemoteImages = allowsRemoteImages
+        let allowsTaskToggle = allowsTaskToggle
         if immediate && text.utf8.count <= Self.synchronousLimit {
-            publish(MarkdownHTML.render(text, allowRemoteImages: allowsRemoteImages))
+            publish(MarkdownHTML.render(
+                text,
+                allowRemoteImages: allowsRemoteImages,
+                allowsTaskToggle: allowsTaskToggle
+            ))
             return
         }
         task = Task { [weak self] in
@@ -67,18 +78,34 @@ final class PreviewModel: ObservableObject {
                 guard !Task.isCancelled else { return }
             }
             guard let self else { return }
-            let rendered = await Self.render(text, allowRemoteImages: allowsRemoteImages)
+            let rendered = await Self.render(
+                text,
+                allowRemoteImages: allowsRemoteImages,
+                allowsTaskToggle: allowsTaskToggle
+            )
             guard self.generation == token else { return }
             self.publish(rendered)
         }
     }
 
-    private static func render(_ text: String, allowRemoteImages: Bool) async -> String {
+    private static func render(
+        _ text: String,
+        allowRemoteImages: Bool,
+        allowsTaskToggle: Bool
+    ) async -> String {
         if text.utf8.count <= synchronousLimit {
-            return MarkdownHTML.render(text, allowRemoteImages: allowRemoteImages)
+            return MarkdownHTML.render(
+                text,
+                allowRemoteImages: allowRemoteImages,
+                allowsTaskToggle: allowsTaskToggle
+            )
         }
         return await Task.detached(priority: .userInitiated) {
-            MarkdownHTML.render(text, allowRemoteImages: allowRemoteImages)
+            MarkdownHTML.render(
+                text,
+                allowRemoteImages: allowRemoteImages,
+                allowsTaskToggle: allowsTaskToggle
+            )
         }.value
     }
 
@@ -90,7 +117,11 @@ final class PreviewModel: ObservableObject {
     /// First paint. Called before the web view exists so the shell can include the HTML.
     func adopt(_ text: String) {
         guard text.utf8.count <= Self.synchronousLimit else { return }
-        publish(MarkdownHTML.render(text, allowRemoteImages: allowsRemoteImages))
+        publish(MarkdownHTML.render(
+            text,
+            allowRemoteImages: allowsRemoteImages,
+            allowsTaskToggle: allowsTaskToggle
+        ))
     }
 }
 
@@ -102,6 +133,10 @@ struct MarkdownPreview: View {
     var baseDirectory: URL?
     /// Off unless the Reading setting turns remote pictures on.
     var allowsRemoteImages: Bool = false
+    /// Task checkboxes are interactive only when the note can be edited.
+    var allowsTaskToggle: Bool = false
+    /// A task checkbox in Reading was clicked. The argument is the source line.
+    var toggleTask: ((Int) -> Void)?
     @StateObject private var model: PreviewModel
 
     init(
@@ -109,21 +144,32 @@ struct MarkdownPreview: View {
         host: PreviewWebHost,
         scrollLink: EditorScrollLink,
         baseDirectory: URL? = nil,
-        allowsRemoteImages: Bool = false
+        allowsRemoteImages: Bool = false,
+        allowsTaskToggle: Bool = false,
+        toggleTask: ((Int) -> Void)? = nil
     ) {
         self.bridge = bridge
         self.host = host
         self.scrollLink = scrollLink
         self.baseDirectory = baseDirectory
         self.allowsRemoteImages = allowsRemoteImages
+        self.allowsTaskToggle = allowsTaskToggle
+        self.toggleTask = toggleTask
         let model = PreviewModel()
         model.setAllowsRemoteImages(allowsRemoteImages)
+        model.setAllowsTaskToggle(allowsTaskToggle)
         model.adopt(bridge.latestText)
         _model = StateObject(wrappedValue: model)
     }
 
     var body: some View {
-        MarkdownWebView(html: model.html, baseDirectory: baseDirectory, host: host, scrollLink: scrollLink)
+        MarkdownWebView(
+            html: model.html,
+            baseDirectory: baseDirectory,
+            host: host,
+            scrollLink: scrollLink,
+            toggleTask: toggleTask
+        )
             .background(Color.editorBackground)
             .accessibilityLabel("Markdown preview")
             .onAppear {
@@ -135,6 +181,10 @@ struct MarkdownPreview: View {
             }
             .onChange(of: allowsRemoteImages) { _, value in
                 model.setAllowsRemoteImages(value)
+                model.schedule(bridge.latestText, immediate: true)
+            }
+            .onChange(of: allowsTaskToggle) { _, value in
+                model.setAllowsTaskToggle(value)
                 model.schedule(bridge.latestText, immediate: true)
             }
             .onDisappear {

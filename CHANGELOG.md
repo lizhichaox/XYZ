@@ -23,6 +23,12 @@
   were translated; user-facing Chinese remains only in the localization catalogs and CJK
   test fixtures.
 
+### Reading
+
+- Task-list checkboxes in Reading are interactive. Clicking one flips the `[ ]` / `[x]`
+  marker on that source line, updates the page, schedules the normal save, and registers
+  an undo action. Read-only notes keep the boxes disabled.
+
 ### Performance
 
 - **The line-number gutter lays out only the visible band.** Every gutter draw used to

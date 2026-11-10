@@ -160,6 +160,23 @@ struct DocumentEditorView: View {
     }
     #endif
 
+    private static func toggleTask(
+        at line: Int,
+        document: MarkdownFileDocument,
+        bridge: PreviewBridge,
+        undoManager: UndoManager?
+    ) {
+        guard let toggle = TaskList.toggle(in: document.text, line: line) else { return }
+        document.storeEditorText(toggle.text)
+        bridge.send(toggle.text)
+        undoManager?.registerUndo(withTarget: document) { document in
+            guard let again = TaskList.toggle(in: document.text, line: line) else { return }
+            document.storeEditorText(again.text)
+            bridge.send(again.text)
+        }
+        undoManager?.setActionName(String(localized: "Toggle Task"))
+    }
+
     private func storeEditorText(_ newText: String) {
         document.storeEditorText(newText)
         bridge.send(newText)
@@ -174,7 +191,12 @@ struct DocumentEditorView: View {
             host: webHost,
             scrollLink: scrollLink,
             baseDirectory: fileURL?.deletingLastPathComponent(),
-            allowsRemoteImages: loadsRemoteImages
+            allowsRemoteImages: loadsRemoteImages,
+            allowsTaskToggle: isEditable && TextMarkup.allows(fileExtension: fileURL?.pathExtension),
+            toggleTask: { [weak document, weak bridge] line in
+                guard isEditable, let document, let bridge else { return }
+                Self.toggleTask(at: line, document: document, bridge: bridge, undoManager: undoManager)
+            }
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         #if os(macOS)
