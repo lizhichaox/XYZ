@@ -29,7 +29,8 @@
   level after `{`, `(`, or `[` (and after `:` in Python, YAML, TOML, and INI). A closing
   bracket at the caret outdents the new line. Typing an opening bracket or quote inserts
   its partner; typing a closing bracket over its partner steps over it, and a selection is
-  wrapped. Markdown keeps its list behavior.
+  wrapped. Matching brackets are colored by nesting depth, outside strings and comments.
+  Markdown keeps its list behavior.
 
 ### Reading
 

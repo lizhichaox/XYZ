@@ -2151,13 +2151,36 @@ enum EditorTypography {
         let ns = storage.string as NSString
         guard span.length > 0, NSMaxRange(span) <= ns.length else { return }
         let range = span.location..<(span.location + span.length)
-        let spans = SyntaxColoring.spans(in: storage.string, language: language, within: range)
+        let spans = SyntaxColoring.spans(in: ns, language: language, within: range)
         // Syntax changes color, never the selected face, weight or glyph advances.
         for item in spans {
             let colored = NSRange(location: item.location, length: item.length)
             guard colored.location >= 0, NSMaxRange(colored) <= ns.length, colored.length > 0 else { continue }
             storage.addAttribute(.foregroundColor, value: syntaxColor(item.kind), range: colored)
         }
+        guard ns.length <= 250_000 else { return }
+        let excluded = spans.compactMap { item -> Range<Int>? in
+            guard item.kind == .string || item.kind == .comment else { return nil }
+            return item.location..<(item.location + item.length)
+        }
+        for bracket in BracketColorizer.spans(in: ns as String, excluding: excluded) {
+            guard bracket.location >= span.location, bracket.location < NSMaxRange(span) else { continue }
+            storage.addAttribute(
+                .foregroundColor,
+                value: bracketColor(depth: bracket.depth),
+                range: NSRange(location: bracket.location, length: bracket.length)
+            )
+        }
+    }
+
+    private static let bracketColors: [NSColor] = [
+        NSColor.xyzSyntax(.keyword),
+        NSColor.xyzSyntax(.type),
+        NSColor.xyzSyntax(.key),
+    ]
+
+    private static func bracketColor(depth: Int) -> NSColor {
+        bracketColors[depth % bracketColors.count]
     }
 
     private static func styleMarkup(_ storage: NSTextStorage, style: XYZEditorStyle, within span: NSRange) {
