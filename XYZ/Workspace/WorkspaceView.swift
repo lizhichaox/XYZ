@@ -2366,6 +2366,18 @@ final class WorkspaceCommandBridge: ObservableObject, EditorCommandTarget {
         session?.openTodayNote()
     }
 
+    func toggleFold() {
+        storedFind.editorView?.xyzToggleFold(nil)
+    }
+
+    func foldAll() {
+        storedFind.editorView?.foldAll()
+    }
+
+    func unfoldAll() {
+        storedFind.editorView?.unfoldAll()
+    }
+
     func paletteOpen(fileID: String, newWindow: Bool) {
         guard let session else { return }
         if newWindow {

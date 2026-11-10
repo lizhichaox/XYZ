@@ -365,6 +365,18 @@ final class DocumentCommandBridge: ObservableObject, EditorCommandTarget {
     func selectNextOccurrence() {
         findStore.perform?(.selectNextOccurrence)
     }
+
+    func toggleFold() {
+        findStore.editorView?.xyzToggleFold(nil)
+    }
+
+    func foldAll() {
+        findStore.editorView?.foldAll()
+    }
+
+    func unfoldAll() {
+        findStore.editorView?.unfoldAll()
+    }
     weak var readingWeb: WKWebView?
 
     func noteFindSurface() {

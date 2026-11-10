@@ -34,7 +34,8 @@
 - Typing `#` in a Markdown note offers tag completion from the folder's notes and the
   current note; choosing a tag inserts `#tag`.
 - Go to Matching Bracket and Select All Occurrences are in the Edit menu and the command
-  palette, alongside Select Next Occurrence.
+  palette, alongside Select Next Occurrence. Toggle Fold, Fold All, and Unfold All are in
+  the command palette too.
 
 
 - Return in code and configuration files now keeps the line's indentation and opens a

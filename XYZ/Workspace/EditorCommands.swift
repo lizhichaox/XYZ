@@ -79,6 +79,9 @@ protocol EditorCommandTarget: AnyObject {
     func selectAllOccurrences()
     func selectNextOccurrence()
     func openTodayNote()
+    func toggleFold()
+    func foldAll()
+    func unfoldAll()
 }
 
 @MainActor
@@ -125,6 +128,9 @@ extension EditorCommandTarget {
     func selectAllOccurrences() {}
     func selectNextOccurrence() {}
     func openTodayNote() {}
+    func toggleFold() {}
+    func foldAll() {}
+    func unfoldAll() {}
 }
 
 /// Menu actions and key equivalents for document windows and folder windows.
@@ -496,6 +502,12 @@ final class EditorCommands: NSObject {
             target?.selectAllOccurrences()
         case "edit.selectNextOccurrence":
             target?.selectNextOccurrence()
+        case "edit.toggleFold":
+            target?.toggleFold()
+        case "edit.foldAll":
+            target?.foldAll()
+        case "edit.unfoldAll":
+            target?.unfoldAll()
         case "file.reload":
             target?.reloadFile()
         case "view.goToHeading":
