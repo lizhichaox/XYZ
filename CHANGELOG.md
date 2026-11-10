@@ -56,6 +56,11 @@
 
 ### Performance
 
+- **A backlinks update no longer re-renders the whole note.** The footer is appended to
+  the HTML that is already on screen; on the 135 K probe that avoids a 43 ms render each
+  time the scan finishes.
+
+
 - **Backlink scans cache their link regexes and skip link-free lines.** On a 200-note
   probe (50 lines each) one scan fell from 147 ms to 61 ms; ten scans went from 1,472 ms
   to 606 ms. The scan already runs off the main actor.

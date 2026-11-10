@@ -48,6 +48,8 @@ final class PreviewModel: ObservableObject {
     private var allowsTaskToggle = true
     /// The Reading footer listing notes that link to this one.
     private var backlinksHTML = ""
+    /// The rendered note without the footer, so a backlinks update does not re-render it.
+    private var contentHTML = ""
 
     private var task: Task<Void, Never>?
     private var generation = 0
@@ -62,7 +64,13 @@ final class PreviewModel: ObservableObject {
     }
 
     func setBacklinksHTML(_ html: String) {
+        guard backlinksHTML != html else { return }
         backlinksHTML = html
+        guard !contentHTML.isEmpty else { return }
+        let next = contentHTML + backlinksHTML
+        if self.html != next {
+            self.html = next
+        }
     }
 
     func schedule(_ text: String, immediate: Bool) {
@@ -121,6 +129,7 @@ final class PreviewModel: ObservableObject {
     }
 
     private func publish(_ rendered: String) {
+        contentHTML = rendered
         let next = rendered + backlinksHTML
         guard html != next else { return }
         html = next
@@ -220,7 +229,6 @@ struct MarkdownPreview: View {
             }
             .onChange(of: backlinksHTML) { _, value in
                 model.setBacklinksHTML(value)
-                model.schedule(bridge.latestText, immediate: true)
             }
             .onDisappear {
                 bridge.detach(id: ObjectIdentifier(model))
