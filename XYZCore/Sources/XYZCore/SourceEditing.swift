@@ -82,6 +82,78 @@ public enum SourceEditing {
         )
     }
 
+    /// Return in a code file keeps the line's indentation and opens a level after `{`, `(`,
+    /// or `[` (and after `:` in Python, YAML, TOML, and INI). A closing bracket at the
+    /// caret outdents the new line. Markdown keeps its list behavior instead.
+    public static func autoIndent(
+        in text: String,
+        selection: SourceRange,
+        language: SyntaxLanguage
+    ) -> SourceReplacement? {
+        guard language.isCode, selection.length == 0 else { return nil }
+        let ns = text as NSString
+        guard selection.location >= 0, selection.location <= ns.length else { return nil }
+        let lineRange = ns.lineRange(for: NSRange(location: selection.location, length: 0))
+        var content = lineRange
+        while content.length > 0 {
+            let last = ns.character(at: NSMaxRange(content) - 1)
+            if last == 0x0A || last == 0x0D {
+                content.length -= 1
+            } else {
+                break
+            }
+        }
+        let lineStart = content.location
+        let lineText = ns.substring(with: content)
+        let baseIndent = leadingWhitespace(lineText)
+        let indentLength = (baseIndent as NSString).length
+        guard selection.location >= lineStart + indentLength else { return nil }
+        let before = ns.substring(with: NSRange(
+            location: lineStart,
+            length: selection.location - lineStart
+        ))
+        let after = ns.substring(with: NSRange(
+            location: selection.location,
+            length: NSMaxRange(content) - selection.location
+        ))
+        let trimmedBefore = before.trimmingCharacters(in: .whitespaces)
+        let trimmedAfter = after.trimmingCharacters(in: .whitespaces)
+        let unit = baseIndent.contains("\t") ? "\t" : "    "
+        var nextIndent = baseIndent
+        if let first = trimmedAfter.first, "})]".contains(first) {
+            nextIndent = outdented(baseIndent)
+        } else if let last = trimmedBefore.last, "{([".contains(last) {
+            nextIndent += unit
+        } else if [SyntaxLanguage.python, .yaml, .toml, .ini].contains(language),
+                  trimmedBefore.hasSuffix(":") {
+            nextIndent += unit
+        }
+        guard nextIndent != baseIndent || !baseIndent.isEmpty else { return nil }
+        let insertion = "\n" + nextIndent
+        let inserted = (insertion as NSString).length
+        return SourceReplacement(
+            range: SourceRange(location: selection.location, length: 0),
+            text: insertion,
+            selection: SourceRange(location: selection.location + inserted, length: 0)
+        )
+    }
+
+    private static func leadingWhitespace(_ line: String) -> String {
+        var indent = ""
+        for character in line {
+            guard character == " " || character == "\t" else { break }
+            indent.append(character)
+        }
+        return indent
+    }
+
+    private static func outdented(_ indent: String) -> String {
+        if indent.hasSuffix("\t") { return String(indent.dropLast()) }
+        if indent.hasSuffix("    ") { return String(indent.dropLast(4)) }
+        if indent.hasSuffix(" ") { return String(indent.dropLast()) }
+        return indent
+    }
+
     public static func indent(in text: String, selection: SourceRange) -> SourceReplacement? {
         shift(in: text, selection: selection, inserting: true)
     }

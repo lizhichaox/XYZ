@@ -70,6 +70,16 @@ public enum SyntaxLanguage: String, Equatable, Sendable {
         case .ini: return "INI"
         }
     }
+
+    /// Code and configuration files get code editing behavior; prose and logs do not.
+    public var isCode: Bool {
+        switch self {
+        case .plain, .markdown, .csv, .log:
+            return false
+        default:
+            return true
+        }
+    }
 }
 
 /// One file format. Markdown is the first; more register by extension.

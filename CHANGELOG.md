@@ -23,6 +23,12 @@
   were translated; user-facing Chinese remains only in the localization catalogs and CJK
   test fixtures.
 
+### Editing
+
+- Return in code and configuration files now keeps the line's indentation and opens a
+  level after `{`, `(`, or `[` (and after `:` in Python, YAML, TOML, and INI). A closing
+  bracket at the caret outdents the new line. Markdown keeps its list behavior.
+
 ### Reading
 
 - Task-list checkboxes in Reading are interactive. Clicking one flips the `[ ]` / `[x]`

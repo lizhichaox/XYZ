@@ -129,10 +129,19 @@ final class XYZMacTextView: NSTextView {
     }
 
     override func insertNewline(_ sender: Any?) {
-        guard applyMarkupEdit(SourceEditing.newline(in: string, selection: sourceSelection())) else {
-            super.insertNewline(sender)
+        if applyMarkupEdit(SourceEditing.newline(in: string, selection: sourceSelection())) {
             return
         }
+        if !allowsMarkup,
+           let edit = SourceEditing.autoIndent(
+               in: string,
+               selection: sourceSelection(),
+               language: sourceLanguage
+           ),
+           applySourceEdit(edit) {
+            return
+        }
+        super.insertNewline(sender)
     }
 
     override func insertTab(_ sender: Any?) {
