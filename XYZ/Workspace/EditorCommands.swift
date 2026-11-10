@@ -75,6 +75,9 @@ protocol EditorCommandTarget: AnyObject {
     var isSwitchingTabs: Bool { get }
     var findModel: EditorFindModel? { get }
     func performCustomCommand(_ id: String) -> Bool
+    func jumpToMatchingBracket()
+    func selectAllOccurrences()
+    func selectNextOccurrence()
 }
 
 @MainActor
@@ -117,6 +120,9 @@ extension EditorCommandTarget {
     var isSwitchingTabs: Bool { false }
     var findModel: EditorFindModel? { nil }
     func performCustomCommand(_ id: String) -> Bool { false }
+    func jumpToMatchingBracket() {}
+    func selectAllOccurrences() {}
+    func selectNextOccurrence() {}
 }
 
 /// Menu actions and key equivalents for document windows and folder windows.
@@ -480,6 +486,12 @@ final class EditorCommands: NSObject {
             _ = target?.closeActiveTab()
         case "tab.reopen":
             _ = target?.reopenClosedTab()
+        case "edit.jumpBracket":
+            target?.jumpToMatchingBracket()
+        case "edit.selectAllOccurrences":
+            target?.selectAllOccurrences()
+        case "edit.selectNextOccurrence":
+            target?.selectNextOccurrence()
         case "file.reload":
             target?.reloadFile()
         case "view.goToHeading":
@@ -892,6 +904,8 @@ enum EditorMenuSupport {
             ("xyz.edit.upper", String(localized: "Make Uppercase"), "", [], #selector(XYZMacTextView.xyzMakeUppercase(_:))),
             ("xyz.edit.lower", String(localized: "Make Lowercase"), "", [], #selector(XYZMacTextView.xyzMakeLowercase(_:))),
             ("xyz.edit.title", String(localized: "Make Title Case"), "", [], #selector(XYZMacTextView.xyzMakeTitleCase(_:))),
+            ("xyz.edit.jumpBracket", String(localized: "Go to Matching Bracket"), "\\", [.command, .shift], #selector(XYZMacTextView.xyzJumpToMatchingBracket(_:))),
+            ("xyz.edit.selectAllOccurrences", String(localized: "Select All Occurrences"), "l", [.command, .shift], #selector(XYZMacTextView.xyzSelectAllOccurrences(_:))),
         ]
         if menu.items.contains(where: { $0.identifier?.rawValue == "xyz.edit.divider" }) == false {
             let divider = NSMenuItem.separator()

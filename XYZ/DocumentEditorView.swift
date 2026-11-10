@@ -353,6 +353,18 @@ final class DocumentCommandBridge: ObservableObject, EditorCommandTarget {
 
     var findModel: EditorFindModel? { findStore }
     private let findStore = EditorFindModel()
+
+    func jumpToMatchingBracket() {
+        findStore.editorView?.jumpToMatchingBracket()
+    }
+
+    func selectAllOccurrences() {
+        findStore.editorView?.selectAllOccurrences()
+    }
+
+    func selectNextOccurrence() {
+        findStore.perform?(.selectNextOccurrence)
+    }
     weak var readingWeb: WKWebView?
 
     func noteFindSurface() {

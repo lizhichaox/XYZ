@@ -2350,6 +2350,18 @@ final class WorkspaceCommandBridge: ObservableObject, EditorCommandTarget {
         session?.paletteFiles() ?? []
     }
 
+    func jumpToMatchingBracket() {
+        storedFind.editorView?.jumpToMatchingBracket()
+    }
+
+    func selectAllOccurrences() {
+        storedFind.editorView?.selectAllOccurrences()
+    }
+
+    func selectNextOccurrence() {
+        storedFind.perform?(.selectNextOccurrence)
+    }
+
     func paletteOpen(fileID: String, newWindow: Bool) {
         guard let session else { return }
         if newWindow {

@@ -29,6 +29,8 @@
   native completion list filters as you type; choosing a note inserts `[[Note]]`.
 - Typing `#` in a Markdown note offers tag completion from the folder's notes and the
   current note; choosing a tag inserts `#tag`.
+- Go to Matching Bracket and Select All Occurrences are in the Edit menu and the command
+  palette, alongside Select Next Occurrence.
 
 
 - Return in code and configuration files now keeps the line's indentation and opens a

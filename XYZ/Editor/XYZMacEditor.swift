@@ -821,6 +821,14 @@ private struct FindScan {
         revealMatch(model, forward: true, stayIfAlreadyThere: true)
     }
 
+    @objc func xyzJumpToMatchingBracket(_ sender: Any?) {
+        jumpToMatchingBracket()
+    }
+
+    @objc func xyzSelectAllOccurrences(_ sender: Any?) {
+        selectAllOccurrences()
+    }
+
     /// ⌘⇧L: select every whole-word occurrence of the current word or selection.
     func selectAllOccurrences() {
         let ns = string as NSString
