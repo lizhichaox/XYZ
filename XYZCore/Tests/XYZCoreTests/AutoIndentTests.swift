@@ -32,6 +32,14 @@ final class AutoIndentTests: XCTestCase {
         XCTAssertEqual(apply(edit, to: text)?.text, "if ready:\n    ")
     }
 
+    func testReturnBetweenAutoClosedBraces() {
+        let text = "{}"
+        let edit = SourceEditing.autoIndent(in: text, selection: caret(1), language: .swift)
+        let applied = apply(edit, to: text)
+        XCTAssertEqual(applied?.text, "{\n    \n}")
+        XCTAssertEqual(applied?.selection, caret(6))
+    }
+
     func testIgnoresProseAndMarkdown() {
         XCTAssertNil(SourceEditing.autoIndent(in: "    text", selection: caret(8), language: .plain))
         XCTAssertNil(SourceEditing.autoIndent(in: "    text", selection: caret(8), language: .markdown))
