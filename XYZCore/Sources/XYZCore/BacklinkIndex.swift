@@ -225,7 +225,7 @@ public enum BacklinkIndex {
 public enum BacklinkHTML {
     public static func render(_ backlinks: [Backlink]) -> String {
         guard !backlinks.isEmpty else { return "" }
-        var html = "<section class=\"backlinks\">\n<h2>Backlinks</h2>\n<ul>\n"
+        var html = "<section class=\"backlinks\">\n<button class=\"backlinks-title\" type=\"button\" aria-expanded=\"true\">Backlinks</button>\n<ul>\n"
         for backlink in backlinks {
             html.append("<li><a href=\"")
             html.append(HTMLText.attribute(backlink.href))

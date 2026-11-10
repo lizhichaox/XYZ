@@ -1175,6 +1175,15 @@ enum PreviewPage {
           image.replaceWith(label);
           if (typeof xyzScheduleGutter === "function") xyzScheduleGutter();
         }
+        // The Backlinks heading folds its list.
+        document.addEventListener("click", function(event) {
+          var title = event.target && event.target.closest ? event.target.closest(".backlinks-title") : null;
+          if (!title) return;
+          var section = title.closest(".backlinks");
+          if (!section) return;
+          var collapsed = section.classList.toggle("collapsed");
+          title.setAttribute("aria-expanded", collapsed ? "false" : "true");
+        });
         // A callout title folds its body, like Obsidian.
         document.addEventListener("click", function(event) {
           var title = event.target && event.target.closest ? event.target.closest(".callout-title") : null;

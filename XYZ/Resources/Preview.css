@@ -272,10 +272,34 @@ li.task > input:not(:disabled):hover {
   border-top: 1px solid var(--border);
 }
 
-.backlinks h2 {
+.backlinks-title {
+  display: flex;
+  align-items: center;
+  gap: 0.35em;
+  width: 100%;
+  margin: 0 0 0.6em;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
   font-size: 0.95em;
   color: var(--muted);
-  margin: 0 0 0.6em;
+  text-align: left;
+  cursor: pointer;
+}
+
+.backlinks-title::before {
+  content: "▾";
+  font-size: 0.9em;
+  line-height: 1;
+}
+
+.backlinks.collapsed .backlinks-title::before {
+  content: "▸";
+}
+
+.backlinks.collapsed ul {
+  display: none;
 }
 
 .backlinks ul {

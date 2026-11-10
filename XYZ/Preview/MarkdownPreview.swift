@@ -36,6 +36,8 @@ final class PreviewBridge {
 @MainActor
 final class PreviewModel: ObservableObject {
     @Published private(set) var html: String = ""
+    /// A large note is still rendering off the main actor; Reading shows a small spinner.
+    @Published private(set) var isRendering = false
 
     /// Below this size, rendering stays on the main actor. Larger documents render off it.
     private static let synchronousLimit = 20_000
@@ -70,6 +72,7 @@ final class PreviewModel: ObservableObject {
         let allowsRemoteImages = allowsRemoteImages
         let allowsTaskToggle = allowsTaskToggle
         if immediate && text.utf8.count <= Self.synchronousLimit {
+            isRendering = false
             publish(MarkdownHTML.render(
                 text,
                 allowRemoteImages: allowsRemoteImages,
@@ -77,6 +80,7 @@ final class PreviewModel: ObservableObject {
             ))
             return
         }
+        isRendering = true
         task = Task { [weak self] in
             if !immediate {
                 let wait = text.utf8.count > 120_000 ? 420 : 220
@@ -90,6 +94,7 @@ final class PreviewModel: ObservableObject {
                 allowsTaskToggle: allowsTaskToggle
             )
             guard self.generation == token else { return }
+            self.isRendering = false
             self.publish(rendered)
         }
     }
@@ -124,6 +129,7 @@ final class PreviewModel: ObservableObject {
     /// First paint. Called before the web view exists so the shell can include the HTML.
     func adopt(_ text: String) {
         guard text.utf8.count <= Self.synchronousLimit else { return }
+        isRendering = false
         publish(MarkdownHTML.render(
             text,
             allowRemoteImages: allowsRemoteImages,
@@ -188,6 +194,14 @@ struct MarkdownPreview: View {
             openTag: openTag
         )
             .background(Color.editorBackground)
+            .overlay {
+                if model.isRendering && model.html.isEmpty {
+                    ProgressView()
+                        .controlSize(.small)
+                        .padding(10)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8))
+                }
+            }
             .accessibilityLabel("Markdown preview")
             .onAppear {
                 let previewModel = model

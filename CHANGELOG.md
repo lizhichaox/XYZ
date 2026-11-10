@@ -43,7 +43,10 @@
   numeric `#123` is not treated as a tag.
 - Reading ends with a Backlinks section: notes in the folder that link to the open note
   through `[[wiki links]]` or Markdown links. Each row shows the note, line, and excerpt;
-  clicking it opens that note. Fenced and inline code are ignored.
+  clicking it opens that note. Fenced and inline code are ignored. The Backlinks heading
+  folds the list.
+- A large note shows a small spinner in Reading until its first render finishes, instead
+  of an empty page.
 - Callout titles are buttons: clicking one folds or unfolds the callout body, with the
   chevron and `aria-expanded` following the state.
 - `==highlight==` renders as a highlight in Reading; code and link text keep the literal

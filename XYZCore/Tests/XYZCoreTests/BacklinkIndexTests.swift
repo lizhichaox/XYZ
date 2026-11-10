@@ -60,5 +60,6 @@ final class BacklinkIndexTests: XCTestCase {
         XCTAssertTrue(html.contains("A&amp;B.md"))
         XCTAssertTrue(html.contains("&lt;tag&gt;"))
         XCTAssertTrue(html.contains("Ln 3"))
+        XCTAssertTrue(html.contains("<button class=\"backlinks-title\" type=\"button\" aria-expanded=\"true\">Backlinks</button>"))
     }
 }
