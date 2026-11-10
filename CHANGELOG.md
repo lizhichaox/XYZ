@@ -47,6 +47,11 @@
 
 ### Performance
 
+- **Backlink scans cache their link regexes and skip link-free lines.** On a 200-note
+  probe (50 lines each) one scan fell from 147 ms to 61 ms; ten scans went from 1,472 ms
+  to 606 ms. The scan already runs off the main actor.
+
+
 - **Reading skips the wiki-link pass when a note has no `[[`.** The renderer used to scan
   and copy every line of every note before parsing. On the 135 K probe note that pass was
   about half of the render: 74 ms before, 39 ms after.

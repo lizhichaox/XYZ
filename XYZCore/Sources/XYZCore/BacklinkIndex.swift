@@ -37,6 +37,8 @@ public enum BacklinkIndex {
 
     public static func links(in text: String, relativePath: String) -> [LinkOccurrence] {
         _ = relativePath
+        // Most notes have no links. Skip the line scan entirely for them.
+        guard text.contains("[[") || text.contains("](") else { return [] }
         let ns = text as NSString
         var occurrences: [LinkOccurrence] = []
         var lineNumber = 1
@@ -59,6 +61,13 @@ public enum BacklinkIndex {
                 inFence.toggle()
             } else if !inFence {
                 let visible = withoutInlineCode(line)
+                guard visible.contains("[[") || visible.contains("](") else {
+                    let next = NSMaxRange(lineRange)
+                    if next <= location { break }
+                    location = next
+                    lineNumber += 1
+                    continue
+                }
                 let excerpt = String(trimmed.prefix(120))
                 for target in wikiTargets(in: visible) + markdownTargets(in: visible) {
                     occurrences.append(LinkOccurrence(target: target, line: lineNumber, excerpt: excerpt))
@@ -132,11 +141,11 @@ public enum BacklinkIndex {
     }
 
     private static func wikiTargets(in line: String) -> [String] {
-        matches(pattern: #"\[\[([^\]\n]+)\]\]"#, in: line)
+        matches(wikiRegex, in: line)
     }
 
     private static func markdownTargets(in line: String) -> [String] {
-        matches(pattern: #"\[[^\]\n]*\]\(([^)\n]+)\)"#, in: line).compactMap { raw in
+        matches(markdownRegex, in: line).compactMap { raw in
             var target = raw.trimmingCharacters(in: .whitespaces)
             if target.hasPrefix("<"), let end = target.firstIndex(of: ">") {
                 target = String(target[target.index(after: target.startIndex)..<end])
@@ -147,15 +156,19 @@ public enum BacklinkIndex {
         }
     }
 
-    private static func matches(pattern: String, in line: String) -> [String] {
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+    private static func matches(_ regex: NSRegularExpression?, in line: String) -> [String] {
+        guard let regex else { return [] }
         let ns = line as NSString
         return regex.matches(in: line, options: [], range: NSRange(location: 0, length: ns.length)).map {
             ns.substring(with: $0.range(at: 1))
         }
     }
 
+    private static let wikiRegex = try? NSRegularExpression(pattern: #"\[\[([^\]\n]+)\]\]"#)
+    private static let markdownRegex = try? NSRegularExpression(pattern: #"\[[^\]\n]*\]\(([^)\n]+)\)"#)
+
     private static func withoutInlineCode(_ line: String) -> String {
+        guard line.contains("`") else { return line }
         var result = ""
         var inCode = false
         for character in line {
