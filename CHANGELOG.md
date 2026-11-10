@@ -66,6 +66,8 @@
   markers.
 - Obsidian comments (`%%...%%`) are hidden in Reading, including block comments. Fenced
   and inline code keep the literal markers, and line numbers after a comment do not move.
+- A trailing block ID such as `^abc` is hidden in Reading and becomes an anchor; a
+  `[[#^abc]]` link scrolls to it. Code blocks keep the literal marker.
 
 ### Performance
 

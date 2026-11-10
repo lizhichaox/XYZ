@@ -67,6 +67,30 @@ final class MarkdownHTMLTests: XCTestCase {
         XCTAssertTrue(html.contains("<span class=\"tag\" data-tag=\"release/1\">#release/1</span>"))
     }
 
+    func testBlockIDBecomesAnAnchorAndIsHidden() {
+        let html = MarkdownHTML.render("A paragraph ^abc-1\n")
+        XCTAssertTrue(html.contains("id=\"abc-1\""))
+        XCTAssertFalse(html.contains("^abc-1"))
+    }
+
+    func testBlockLinkTargetsTheAnchor() {
+        let html = MarkdownHTML.render("[[#^abc]]\n\nText ^abc\n")
+        XCTAssertTrue(html.contains("href=\"#abc\""))
+        XCTAssertTrue(html.contains("id=\"abc\""))
+    }
+
+    func testBlockIDInsideCodeStaysLiteral() {
+        let html = MarkdownHTML.render("```\n^abc\n```\n")
+        XCTAssertTrue(html.contains("^abc"))
+        XCTAssertFalse(html.contains("id=\"abc\""))
+    }
+
+    func testBlockIDOnAListItem() {
+        let html = MarkdownHTML.render("- item ^list-1\n")
+        XCTAssertTrue(html.contains("id=\"list-1\""))
+        XCTAssertFalse(html.contains("^list-1"))
+    }
+
     func testInlineCommentIsHidden() {
         let html = MarkdownHTML.render("A %%hidden%% word.\n")
         XCTAssertFalse(html.contains("hidden"))

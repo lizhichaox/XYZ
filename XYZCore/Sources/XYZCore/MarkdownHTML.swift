@@ -20,8 +20,9 @@ public enum MarkdownHTML: Sendable {
             allowsTaskToggle: allowsTaskToggle
         )
         .render(document, reserve: markdown.utf8.count + 64)
+        let withBlockIDs = BlockID.rewrite(body)
         let properties = prepared.properties.html
-        if properties.isEmpty { return body }
-        return properties + body
+        if properties.isEmpty { return withBlockIDs }
+        return properties + withBlockIDs
     }
 }
