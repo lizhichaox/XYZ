@@ -283,6 +283,17 @@ final class XYZMacTextView: NSTextView {
     }
 
     override func insertText(_ insertString: Any, replacementRange: NSRange) {
+        if let text = insertString as? String,
+           text.count == 1,
+           !allowsMarkup,
+           sourceLanguage.isCode,
+           !hasMarkedText(),
+           selectedRanges.count == 1,
+           replacementRange.location == NSNotFound,
+           let edit = SourceEditing.autoClose(in: string, selection: sourceSelection(), inserted: text),
+           applySourceEdit(edit) {
+            return
+        }
         let ranges = selectedRanges.compactMap { ($0 as? NSValue)?.rangeValue }
         guard ranges.count > 1, let text = insertString as? String, replacementRange.location == NSNotFound else {
             super.insertText(insertString, replacementRange: replacementRange)

@@ -119,6 +119,20 @@ public enum SourceEditing {
         let trimmedBefore = before.trimmingCharacters(in: .whitespaces)
         let trimmedAfter = after.trimmingCharacters(in: .whitespaces)
         let unit = baseIndent.contains("\t") ? "\t" : "    "
+        // Return between an opening bracket and its auto-inserted partner: keep the caret
+        // on an indented line and put the closing bracket on its own line.
+        if let open = trimmedBefore.last,
+           let close = trimmedAfter.first,
+           matchingClose(open) == close {
+            let inner = baseIndent + unit
+            let insertion = "\n" + inner + "\n" + baseIndent
+            let caret = selection.location + 1 + (inner as NSString).length
+            return SourceReplacement(
+                range: SourceRange(location: selection.location, length: 0),
+                text: insertion,
+                selection: SourceRange(location: caret, length: 0)
+            )
+        }
         var nextIndent = baseIndent
         if let first = trimmedAfter.first, "})]".contains(first) {
             nextIndent = outdented(baseIndent)
@@ -136,6 +150,80 @@ public enum SourceEditing {
             text: insertion,
             selection: SourceRange(location: selection.location + inserted, length: 0)
         )
+    }
+
+    private static func matchingClose(_ open: Character) -> Character? {
+        switch open {
+        case "{": return "}"
+        case "(": return ")"
+        case "[": return "]"
+        default: return nil
+        }
+    }
+
+    /// Typing an opening bracket or quote in code inserts its partner and keeps the caret
+    /// inside. Typing a closing bracket over its partner steps over it instead of doubling
+    /// it. A selection is wrapped. Markdown keeps its own typing behavior.
+    public static func autoClose(
+        in text: String,
+        selection: SourceRange,
+        inserted: String
+    ) -> SourceReplacement? {
+        guard inserted.count == 1, let character = inserted.first else { return nil }
+        let ns = text as NSString
+        guard selection.location >= 0,
+              selection.length >= 0,
+              selection.location <= ns.length,
+              selection.length <= ns.length - selection.location else { return nil }
+        let pairs: [Character: Character] = ["(": ")", "[": "]", "{": "}"]
+        if let close = pairs[character] {
+            if selection.length > 0 {
+                let selected = ns.substring(with: NSRange(location: selection.location, length: selection.length))
+                return SourceReplacement(
+                    range: selection,
+                    text: inserted + selected + String(close),
+                    selection: SourceRange(location: selection.location + 1, length: selection.length)
+                )
+            }
+            return SourceReplacement(
+                range: SourceRange(location: selection.location, length: 0),
+                text: inserted + String(close),
+                selection: SourceRange(location: selection.location + 1, length: 0)
+            )
+        }
+        if ")]}".contains(character) {
+            guard selection.length == 0, selection.location < ns.length else { return nil }
+            guard ns.substring(with: NSRange(location: selection.location, length: 1)) == inserted else { return nil }
+            return SourceReplacement(
+                range: SourceRange(location: selection.location, length: 0),
+                text: "",
+                selection: SourceRange(location: selection.location + 1, length: 0)
+            )
+        }
+        guard "\"'`".contains(character) else { return nil }
+        if selection.length > 0 {
+            let selected = ns.substring(with: NSRange(location: selection.location, length: selection.length))
+            return SourceReplacement(
+                range: selection,
+                text: inserted + selected + inserted,
+                selection: SourceRange(location: selection.location + 1, length: selection.length)
+            )
+        }
+        guard shouldPairQuote(character, in: ns, at: selection.location) else { return nil }
+        return SourceReplacement(
+            range: SourceRange(location: selection.location, length: 0),
+            text: inserted + inserted,
+            selection: SourceRange(location: selection.location + 1, length: 0)
+        )
+    }
+
+    private static func shouldPairQuote(_ quote: Character, in ns: NSString, at location: Int) -> Bool {
+        let previous = location > 0 ? ns.substring(with: NSRange(location: location - 1, length: 1)) : ""
+        let next = location < ns.length ? ns.substring(with: NSRange(location: location, length: 1)) : ""
+        if let first = next.first, first.isLetter || first.isNumber { return false }
+        if quote == "'", let first = previous.first, first.isLetter || first.isNumber { return false }
+        if quote == "`", previous == "`" { return false }
+        return true
     }
 
     private static func leadingWhitespace(_ line: String) -> String {
