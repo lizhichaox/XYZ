@@ -242,6 +242,44 @@ li.task > input:not(:disabled):hover {
   border-color: var(--link);
 }
 
+.backlinks {
+  margin-top: 2.4em;
+  padding-top: 1.2em;
+  border-top: 1px solid var(--border);
+}
+
+.backlinks h2 {
+  font-size: 0.95em;
+  color: var(--muted);
+  margin: 0 0 0.6em;
+}
+
+.backlinks ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.backlinks li {
+  margin: 0.5em 0;
+}
+
+.backlinks a {
+  font-weight: 500;
+}
+
+.backlinks .backlink-line {
+  color: var(--muted);
+  font-size: 0.85em;
+  margin-left: 0.4em;
+}
+
+.backlinks p {
+  color: var(--muted);
+  font-size: 0.9em;
+  margin: 0.15em 0 0;
+}
+
 .tag {
   cursor: pointer;
   color: var(--link);

@@ -2221,7 +2221,8 @@ private struct WorkspaceDetail: View {
             openTag: { [weak session] tag in
                 guard let session else { return }
                 EditorCommands.shared.showGlobalSearch(session, query: "#" + tag)
-            }
+            },
+            backlinksHTML: BacklinkHTML.render(session.backlinks)
         )
     }
 

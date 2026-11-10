@@ -44,6 +44,8 @@ final class PreviewModel: ObservableObject {
     private var allowsRemoteImages = false
     /// Task checkboxes are interactive only when the note can be edited.
     private var allowsTaskToggle = true
+    /// The Reading footer listing notes that link to this one.
+    private var backlinksHTML = ""
 
     private var task: Task<Void, Never>?
     private var generation = 0
@@ -55,6 +57,10 @@ final class PreviewModel: ObservableObject {
 
     func setAllowsTaskToggle(_ allows: Bool) {
         allowsTaskToggle = allows
+    }
+
+    func setBacklinksHTML(_ html: String) {
+        backlinksHTML = html
     }
 
     func schedule(_ text: String, immediate: Bool) {
@@ -110,8 +116,9 @@ final class PreviewModel: ObservableObject {
     }
 
     private func publish(_ rendered: String) {
-        guard html != rendered else { return }
-        html = rendered
+        let next = rendered + backlinksHTML
+        guard html != next else { return }
+        html = next
     }
 
     /// First paint. Called before the web view exists so the shell can include the HTML.
@@ -139,6 +146,8 @@ struct MarkdownPreview: View {
     var toggleTask: ((Int) -> Void)?
     /// A tag chip in Reading was clicked. The argument is the tag without its leading `#`.
     var openTag: ((String) -> Void)?
+    /// The Reading footer listing notes that link to this one.
+    var backlinksHTML: String = ""
     @StateObject private var model: PreviewModel
 
     init(
@@ -149,7 +158,8 @@ struct MarkdownPreview: View {
         allowsRemoteImages: Bool = false,
         allowsTaskToggle: Bool = false,
         toggleTask: ((Int) -> Void)? = nil,
-        openTag: ((String) -> Void)? = nil
+        openTag: ((String) -> Void)? = nil,
+        backlinksHTML: String = ""
     ) {
         self.bridge = bridge
         self.host = host
@@ -159,9 +169,11 @@ struct MarkdownPreview: View {
         self.allowsTaskToggle = allowsTaskToggle
         self.toggleTask = toggleTask
         self.openTag = openTag
+        self.backlinksHTML = backlinksHTML
         let model = PreviewModel()
         model.setAllowsRemoteImages(allowsRemoteImages)
         model.setAllowsTaskToggle(allowsTaskToggle)
+        model.setBacklinksHTML(backlinksHTML)
         model.adopt(bridge.latestText)
         _model = StateObject(wrappedValue: model)
     }
@@ -190,6 +202,10 @@ struct MarkdownPreview: View {
             }
             .onChange(of: allowsTaskToggle) { _, value in
                 model.setAllowsTaskToggle(value)
+                model.schedule(bridge.latestText, immediate: true)
+            }
+            .onChange(of: backlinksHTML) { _, value in
+                model.setBacklinksHTML(value)
                 model.schedule(bridge.latestText, immediate: true)
             }
             .onDisappear {

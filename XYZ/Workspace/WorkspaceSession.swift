@@ -102,6 +102,9 @@ final class WorkspaceSession: ObservableObject {
     @Published private(set) var indexedEntries: [WorkspacePathEntry] = []
     @Published private(set) var contentHits: [WorkspaceContentHit] = []
     @Published private(set) var contentSearching = false
+    /// Notes in this folder that link to the open note.
+    @Published private(set) var backlinks: [Backlink] = []
+    @Published private(set) var backlinksLoading = false
     @Published var viewMode: EditorViewMode
     /// The caret in the open file, for the status bar.
     @Published var caret = EditorCaret()
@@ -131,6 +134,8 @@ final class WorkspaceSession: ObservableObject {
     private var accessStarted = false
     private var didStart = false
     private var buffers: [String: WorkspaceFileBuffer] = [:]
+    private var backlinkTask: Task<Void, Never>?
+    private var backlinkGeneration = 0
     private var pendingRevealLine: Int?
     /// True while closing or quitting is flushing every buffer. The window shows one
     /// combined alert, so the per-file conflict alert stays quiet.
@@ -436,6 +441,51 @@ final class WorkspaceSession: ObservableObject {
 
     static func access(of buffer: WorkspaceFileBuffer) -> EditorFileAccess {
         EditorModeChoice.access(kind: buffer.kind, markdown: buffer.kind == .markdown)
+    }
+
+    /// Scans the folder for notes that link to the open note. Runs off the main actor;
+    /// a newer note cancels the previous scan.
+    func refreshBacklinks() {
+        backlinkTask?.cancel()
+        backlinkGeneration &+= 1
+        let token = backlinkGeneration
+        guard let buffer, buffer.kind == .markdown else {
+            backlinks = []
+            backlinksLoading = false
+            return
+        }
+        let target = buffer.relativePath
+        let source = indexedEntries.isEmpty ? flattenedLoadedEntries() : indexedEntries
+        let files = source.filter { entry in
+            guard !entry.isDirectory else { return false }
+            let ext = (entry.name as NSString).pathExtension.lowercased()
+            return ext == "md" || ext == "markdown"
+        }
+        guard !files.isEmpty else {
+            backlinks = []
+            backlinksLoading = false
+            return
+        }
+        let root = rootURL
+        backlinksLoading = true
+        backlinkTask = Task { [weak self] in
+            let found = await Task.detached(priority: .utility) {
+                var texts: [(relativePath: String, text: String)] = []
+                for entry in files.prefix(500) {
+                    let url = entry.relativePath.split(separator: "/").reduce(root) {
+                        $0.appendingPathComponent(String($1))
+                    }
+                    guard WorkspaceFileCoordination.fileSize(at: url) <= 1_000_000 else { continue }
+                    guard let data = try? WorkspaceFileCoordination.readData(at: url),
+                          let decoded = TextBytes.decode(data, allowLegacy: true) else { continue }
+                    texts.append((entry.relativePath, decoded.text))
+                }
+                return BacklinkIndex.backlinks(to: target, in: texts)
+            }.value
+            guard !Task.isCancelled, let self, self.backlinkGeneration == token else { return }
+            self.backlinks = found
+            self.backlinksLoading = false
+        }
     }
 
     func focusSearch() {
@@ -1105,6 +1155,7 @@ final class WorkspaceSession: ObservableObject {
         buffer = open
         selectedPath = open.relativePath
         previewBridge.send(open.text)
+        refreshBacklinks()
         tabMRU.focus(open.relativePath)
         if let tab = tabStrip.tabs.first(where: { $0.id == open.relativePath }) {
             viewMode = tab.mode
@@ -1351,6 +1402,9 @@ final class WorkspaceSession: ObservableObject {
             guard !Task.isCancelled else { return }
             guard let self, self.indexGeneration == generation else { return }
             self.indexedEntries = entries
+            if self.buffer?.kind == .markdown {
+                self.refreshBacklinks()
+            }
             if !self.nameQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 self.scheduleContentSearch()
             }
@@ -1807,6 +1861,9 @@ final class WorkspaceSession: ObservableObject {
                                     )
                                 }
                             )
+                            if self.buffer?.kind == .markdown {
+                                self.refreshBacklinks()
+                            }
                         }
                     }
                 case .failure:

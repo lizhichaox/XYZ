@@ -67,6 +67,21 @@ public enum WorkspacePaths {
         return items
     }
 
+    /// A link from a note in `fromDirectory` to `to`, both workspace-relative.
+    /// The result uses `..` for a target outside the source folder.
+    public static func relativeLink(from fromDirectory: String, to target: String) -> String {
+        let from = fromDirectory.split(separator: "/").map(String.init)
+        let to = target.split(separator: "/").map(String.init)
+        var common = 0
+        while common < from.count, common < to.count, from[common] == to[common] {
+            common += 1
+        }
+        let up = Array(repeating: "..", count: from.count - common)
+        let down = Array(to.dropFirst(common))
+        let parts = up + down
+        return parts.isEmpty ? "." : parts.joined(separator: "/")
+    }
+
     /// Rewrites `relativePath` when `old` is renamed to `new`, including descendants.
     public static func replacing(_ relativePath: String, from old: String, to new: String) -> String {
         if old.isEmpty || old == new { return relativePath }

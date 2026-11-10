@@ -39,6 +39,9 @@
 - Inline tags such as `#swift` and `#release/1` render as chips in Reading. Clicking a
   chip opens Search Notes with that tag. Tags inside code or link text stay literal, and a
   numeric `#123` is not treated as a tag.
+- Reading ends with a Backlinks section: notes in the folder that link to the open note
+  through `[[wiki links]]` or Markdown links. Each row shows the note, line, and excerpt;
+  clicking it opens that note. Fenced and inline code are ignored.
 
 ### Performance
 
