@@ -3428,6 +3428,7 @@ enum EscapeCrashCheck {
 }
 #endif
 
+#if os(macOS)
 extension NSColor {
     func isClose(to other: NSColor, tolerance: Double = 0.02) -> Bool {
         guard let first = usingColorSpace(.deviceRGB), let second = other.usingColorSpace(.deviceRGB) else {
@@ -3442,3 +3443,4 @@ extension NSColor {
         !isClose(to: other, tolerance: tolerance)
     }
 }
+#endif
