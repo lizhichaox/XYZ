@@ -133,6 +133,7 @@ final class EditorScrollLink {
     var revealMatch: ((Int, String) -> Void)?
     /// Go to Line. The source editor sets this. Reading does not.
     var revealPosition: (Int, Int) -> Void = { _, _ in }
+    private var queuedAnchor: String?
     private var pending: (anchor: EditorScrollAnchor, destination: EditorViewMode)?
 
     private struct QueuedCaret {
@@ -164,6 +165,15 @@ final class EditorScrollLink {
 
     func clearQueuedReveal() {
         queuedReveal = nil
+    }
+
+    func storeQueuedAnchor(_ anchor: String) {
+        queuedAnchor = anchor
+    }
+
+    func takeQueuedAnchor() -> String? {
+        defer { queuedAnchor = nil }
+        return queuedAnchor
     }
 
     var focusEditor: (() -> Void)?

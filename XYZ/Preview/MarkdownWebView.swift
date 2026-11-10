@@ -576,6 +576,9 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate, WKScriptMessa
         if let line = scrollLink.takeQueuedReveal() {
             evaluate(webView, "xyzRevealLine(\(max(1, line)));")
         }
+        if let anchor = scrollLink.takeQueuedAnchor() {
+            evaluate(webView, "xyzRevealAnchor(\(PreviewPage.javaScriptLiteral(anchor)));")
+        }
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -585,6 +588,9 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate, WKScriptMessa
         push(to: webView)
         if let line = scrollLink?.takeQueuedReveal() {
             evaluate(webView, "xyzRevealLine(\(max(1, line)));")
+        }
+        if let anchor = scrollLink?.takeQueuedAnchor() {
+            evaluate(webView, "xyzRevealAnchor(\(PreviewPage.javaScriptLiteral(anchor)));")
         }
     }
 
@@ -619,7 +625,12 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate, WKScriptMessa
         if navigationAction.navigationType == .linkActivated {
             if let url = navigationAction.request.url {
                 if let file = LocalAssets.fileURL(for: url) {
-                    openFile?(file)
+                    var target = file
+                    if let fragment = url.fragment, !fragment.isEmpty,
+                       let linked = URL(string: file.absoluteString + "#" + fragment) {
+                        target = linked
+                    }
+                    openFile?(target)
                 } else {
                     Self.openIfSafe(url)
                 }
@@ -1340,6 +1351,14 @@ enum PreviewPage {
           var max = Math.max(0, document.documentElement.scrollHeight - window.innerHeight);
           xyzPinned = 0;
           window.scrollTo(0, max * Math.min(1, Math.max(0, +fraction || 0)));
+          xyzReport();
+        }
+        function xyzRevealAnchor(id) {
+          if (!id) return;
+          var target = document.getElementById(id);
+          if (!target) return;
+          xyzPinned = 0;
+          target.scrollIntoView({block: "start"});
           xyzReport();
         }
         window.addEventListener("scroll", function() { xyzReport(); if (typeof xyzMarkCurrentLine === "function") xyzMarkCurrentLine(); }, {passive: true});

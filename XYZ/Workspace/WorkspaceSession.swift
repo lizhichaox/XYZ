@@ -512,6 +512,7 @@ final class WorkspaceSession: ObservableObject {
             NSWorkspace.shared.open(url)
             return
         }
+        let fragment = url.fragment?.removingPercentEncoding ?? url.fragment
         if !FileManager.default.fileExists(atPath: path),
            let folder = buffer?.url.deletingLastPathComponent().standardizedFileURL,
            let relative = LinkedNotePath.rootRelative(
@@ -521,9 +522,16 @@ final class WorkspaceSession: ObservableObject {
                isFile: { FileManager.default.fileExists(atPath: $0) }
            ) {
             openRelative(relative)
+            queueAnchor(fragment)
             return
         }
         openRelative(String(path.dropFirst(rootPath.count + 1)))
+        queueAnchor(fragment)
+    }
+
+    private func queueAnchor(_ fragment: String?) {
+        guard let fragment, !fragment.isEmpty else { return }
+        scrollLink.storeQueuedAnchor(fragment)
     }
 
     private func rememberScrollLine() {
