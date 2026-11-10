@@ -204,6 +204,8 @@ struct XYZEditor: View {
     var syntax: SyntaxLanguage = .plain
     /// Note names for `[[` completion in Markdown.
     var completionProvider: ((String) -> [String])? = nil
+    /// Tags for `#` completion in Markdown.
+    var tagCompletionProvider: ((String) -> [String])? = nil
     /// Code uses a fixed-width face even when the prose setting is proportional.
     var forcesMonospace: Bool = false
     var onSelection: ((EditorCaret) -> Void)? = nil
@@ -245,6 +247,7 @@ struct XYZEditor: View {
             markup: markup,
             syntax: syntax,
             completionProvider: completionProvider,
+            tagCompletionProvider: tagCompletionProvider,
             lineNumbers: lineNumbersVisible ?? false,
             find: find,
             onSelection: onSelection,

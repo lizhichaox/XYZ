@@ -12,6 +12,10 @@ final class XYZMacTextView: NSTextView {
     var sourceLanguage: SyntaxLanguage = .plain
     /// Note names for `[[` completion in Markdown.
     var completionProvider: ((String) -> [String])?
+    /// Tags for `#` completion in Markdown.
+    var tagCompletionProvider: ((String) -> [String])?
+    private enum CompletionMode { case wiki, tag }
+    private var completionMode: CompletionMode = .wiki
     /// Size and measure from Settings. Layout derives the side padding from it.
     var style = XYZEditorStyle() {
         didSet {
@@ -337,11 +341,23 @@ final class XYZMacTextView: NSTextView {
         guard caret <= ns.length else { return super.rangeForUserCompletion }
         let lineRange = ns.lineRange(for: NSRange(location: caret, length: 0))
         let before = ns.substring(with: NSRange(location: lineRange.location, length: caret - lineRange.location))
-        guard let open = before.range(of: "[[", options: .backwards) else {
-            return super.rangeForUserCompletion
+        if let open = before.range(of: "[[", options: .backwards) {
+            completionMode = .wiki
+            let start = lineRange.location + before.distance(from: before.startIndex, to: open.lowerBound) + 2
+            return NSRange(location: start, length: caret - start)
         }
-        let start = lineRange.location + before.distance(from: before.startIndex, to: open.lowerBound) + 2
-        return NSRange(location: start, length: caret - start)
+        if let hash = before.range(of: "#", options: .backwards) {
+            let prefix = before[..<hash.lowerBound]
+            let previous = prefix.last
+            let isWordStart = previous == nil || previous!.isWhitespace || previous!.isPunctuation
+            let isHeading = prefix.trimmingCharacters(in: .whitespaces).isEmpty
+            if isWordStart, !isHeading {
+                completionMode = .tag
+                let start = lineRange.location + before.distance(from: before.startIndex, to: hash.lowerBound) + 1
+                return NSRange(location: start, length: caret - start)
+            }
+        }
+        return super.rangeForUserCompletion
     }
 
     override func insertCompletion(
@@ -350,31 +366,49 @@ final class XYZMacTextView: NSTextView {
         movement: Int,
         isFinal flag: Bool
     ) {
-        guard flag, allowsMarkup, let provider = completionProvider else {
+        guard flag, allowsMarkup else {
             super.insertCompletion(word, forPartialWordRange: charRange, movement: movement, isFinal: flag)
             return
         }
-        _ = provider
-        let replacement = "\(word)]]"
+        let replacement = completionMode == .wiki ? "\(word)]]" : word
         guard shouldChangeText(in: charRange, replacementString: replacement) else { return }
         textStorage?.replaceCharacters(in: charRange, with: replacement)
         didChangeText()
         setSelectedRange(NSRange(location: charRange.location + (replacement as NSString).length, length: 0))
     }
 
-    /// After typing `[[`, ask AppKit for note-name completions.
-    func requestLinkCompletionIfNeeded() {
-        guard allowsMarkup, !hasMarkedText(), let provider = completionProvider else { return }
+    /// After typing `[[` or `#`, ask AppKit for note-name or tag completions.
+    func requestCompletionIfNeeded() {
+        guard allowsMarkup, !hasMarkedText() else { return }
         let ns = string as NSString
         let caret = selectedRange().location
         guard caret <= ns.length else { return }
         let lineRange = ns.lineRange(for: NSRange(location: caret, length: 0))
         let before = ns.substring(with: NSRange(location: lineRange.location, length: caret - lineRange.location))
-        guard let open = before.range(of: "[[", options: .backwards) else { return }
-        let afterOpen = before[open.upperBound...]
-        guard !afterOpen.contains("]]"), !afterOpen.contains("\n") else { return }
-        guard !provider(String(afterOpen)).isEmpty else { return }
-        complete(nil)
+        if let open = before.range(of: "[[", options: .backwards) {
+            let afterOpen = before[open.upperBound...]
+            guard !afterOpen.contains("]]"), !afterOpen.contains("\n") else { return }
+            guard let provider = completionProvider, !provider(String(afterOpen)).isEmpty else { return }
+            completionMode = .wiki
+            complete(nil)
+            return
+        }
+        if let hash = before.range(of: "#", options: .backwards) {
+            let prefix = before[..<hash.lowerBound]
+            let previous = prefix.last
+            let isWordStart = previous == nil || previous!.isWhitespace || previous!.isPunctuation
+            let isHeading = prefix.trimmingCharacters(in: .whitespaces).isEmpty
+            guard isWordStart, !isHeading else { return }
+            let afterHash = before[hash.upperBound...]
+            guard !afterHash.contains("\n") else { return }
+            guard let provider = tagCompletionProvider, !provider(String(afterHash)).isEmpty else { return }
+            completionMode = .tag
+            complete(nil)
+        }
+    }
+
+    var currentCompletionProvider: ((String) -> [String])? {
+        completionMode == .wiki ? completionProvider : tagCompletionProvider
     }
 
     weak var findModel: EditorFindModel?
@@ -1592,6 +1626,7 @@ struct XYZMacEditor: NSViewRepresentable {
     var markup: Bool
     var syntax: SyntaxLanguage
     var completionProvider: ((String) -> [String])?
+    var tagCompletionProvider: ((String) -> [String])?
     var lineNumbers: Bool
     var find: EditorFindModel?
     var onSelection: ((EditorCaret) -> Void)?
@@ -1725,6 +1760,7 @@ struct XYZMacEditor: NSViewRepresentable {
         textView.findModel = find
         textView.sourceLanguage = syntax
         textView.completionProvider = completionProvider
+        textView.tagCompletionProvider = tagCompletionProvider
         textView.restyleRequested = { [weak coordinator = context.coordinator] range in
             coordinator?.restyle(edited: range)
         }
@@ -1989,7 +2025,7 @@ struct XYZMacEditor: NSViewRepresentable {
             forPartialWordRange charRange: NSRange,
             indexOfSelectedItem index: UnsafeMutablePointer<Int>?
         ) -> [String] {
-            guard let view = textView as? XYZMacTextView, let provider = view.completionProvider else {
+            guard let view = textView as? XYZMacTextView, let provider = view.currentCompletionProvider else {
                 return words
             }
             let partial = (textView.string as NSString).substring(with: charRange)
@@ -2019,7 +2055,7 @@ struct XYZMacEditor: NSViewRepresentable {
                 }
             }
             onTextChange(textView.string)
-            (textView as? XYZMacTextView)?.requestLinkCompletionIfNeeded()
+            (textView as? XYZMacTextView)?.requestCompletionIfNeeded()
         }
 
         /// Font, line box, and wrap. One attribute pass, then the viewport lays itself out.

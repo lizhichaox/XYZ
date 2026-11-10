@@ -105,6 +105,8 @@ final class WorkspaceSession: ObservableObject {
     /// Notes in this folder that link to the open note.
     @Published private(set) var backlinks: [Backlink] = []
     @Published private(set) var backlinksLoading = false
+    /// Tags found in the folder's Markdown notes, for `#` completion.
+    @Published private(set) var availableTags: [String] = []
     @Published var viewMode: EditorViewMode
     /// The caret in the open file, for the status bar.
     @Published var caret = EditorCaret()
@@ -452,6 +454,7 @@ final class WorkspaceSession: ObservableObject {
         guard let buffer, buffer.kind == .markdown else {
             backlinks = []
             backlinksLoading = false
+            availableTags = []
             return
         }
         let target = buffer.relativePath
@@ -464,13 +467,15 @@ final class WorkspaceSession: ObservableObject {
         guard !files.isEmpty else {
             backlinks = []
             backlinksLoading = false
+            availableTags = []
             return
         }
         let root = rootURL
         backlinksLoading = true
         backlinkTask = Task { [weak self] in
-            let found = await Task.detached(priority: .utility) {
+            let result = await Task.detached(priority: .utility) {
                 var texts: [(relativePath: String, text: String)] = []
+                var tags: Set<String> = []
                 for entry in files.prefix(500) {
                     let url = entry.relativePath.split(separator: "/").reduce(root) {
                         $0.appendingPathComponent(String($1))
@@ -479,11 +484,13 @@ final class WorkspaceSession: ObservableObject {
                     guard let data = try? WorkspaceFileCoordination.readData(at: url),
                           let decoded = TextBytes.decode(data, allowLegacy: true) else { continue }
                     texts.append((entry.relativePath, decoded.text))
+                    tags.formUnion(TagIndex.tags(in: decoded.text))
                 }
-                return BacklinkIndex.backlinks(to: target, in: texts)
+                return (BacklinkIndex.backlinks(to: target, in: texts), tags.sorted())
             }.value
             guard !Task.isCancelled, let self, self.backlinkGeneration == token else { return }
-            self.backlinks = found
+            self.backlinks = result.0
+            self.availableTags = result.1
             self.backlinksLoading = false
         }
     }

@@ -2247,6 +2247,16 @@ private struct WorkspaceDetail: View {
                     .prefix(50)
                     .map { $0 }
             },
+            tagCompletionProvider: { query in
+                let needle = query.lowercased()
+                let tags = Set(session.availableTags)
+                    .union(TagIndex.tags(in: session.buffer?.text ?? ""))
+                return tags
+                    .filter { needle.isEmpty || $0.lowercased().contains(needle) }
+                    .sorted()
+                    .prefix(50)
+                    .map { $0 }
+            },
             forcesMonospace: format.usesCodeFont,
             onSelection: {
                 caret = $0
