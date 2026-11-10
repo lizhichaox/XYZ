@@ -111,6 +111,10 @@ final class XYZMacTextView: NSTextView {
             jumpToMatchingBracket()
             return true
         }
+        if flags == [.command, .shift], event.charactersIgnoringModifiers?.lowercased() == "l" {
+            selectAllOccurrences()
+            return true
+        }
         if EditorCommands.shared.handleKeyEquivalent(event) {
             return true
         }
@@ -732,6 +736,29 @@ private struct FindScan {
             selection: SourceRange(location: 0, length: 0)
         ))
         revealMatch(model, forward: true, stayIfAlreadyThere: true)
+    }
+
+    /// ⌘⇧L: select every whole-word occurrence of the current word or selection.
+    func selectAllOccurrences() {
+        let ns = string as NSString
+        let current = selectedRanges.compactMap { ($0 as? NSValue)?.rangeValue }.sorted { $0.location < $1.location }
+        let seedRange = current.last(where: { $0.length > 0 }) ?? current.last
+        let seed: String
+        if let seedRange, seedRange.length > 0 {
+            seed = ns.substring(with: seedRange)
+        } else {
+            let origin = seedRange?.location ?? selectedRange().location
+            guard let word = WordOccurrences.wordRange(in: ns, at: origin) else { return }
+            seed = ns.substring(with: word)
+            setSelectedRange(word)
+        }
+        guard !seed.isEmpty else { return }
+        let matches = TextFind.matches(in: string, query: FindQuery(pattern: seed, matchCase: true))
+        guard !matches.isEmpty else { return }
+        selectedRanges = matches.map {
+            NSValue(range: NSRange(location: $0.range.location, length: $0.range.length))
+        }
+        scrollRangeToVisible(NSRange(location: matches[0].range.location, length: matches[0].range.length))
     }
 
     func selectNextOccurrence() {

@@ -30,7 +30,8 @@
   bracket at the caret outdents the new line. Typing an opening bracket or quote inserts
   its partner; typing a closing bracket over its partner steps over it, and a selection is
   wrapped. Matching brackets are colored by nesting depth, outside strings and comments;
-  ⌘⇧\ jumps to the matching bracket. Markdown keeps its list behavior.
+  ⌘⇧\ jumps to the matching bracket, and ⌘⇧L selects every occurrence of the current
+  word or selection. Markdown keeps its list behavior.
 
 ### Reading
 
