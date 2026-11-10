@@ -41,6 +41,7 @@ final class PreviewWebHost {
         created.configuration.userContentController.add(coordinator, name: "xyzAnchor")
         created.configuration.userContentController.add(coordinator, name: "xyzGutter")
         created.configuration.userContentController.add(coordinator, name: "xyzTask")
+        created.configuration.userContentController.add(coordinator, name: "xyzTag")
         storage = created
         coordinatorStorage = coordinator
         assetHandler = handler
@@ -82,6 +83,8 @@ struct MarkdownWebView: View {
     var scrollLink: EditorScrollLink
     /// A task checkbox in Reading was clicked. The argument is the source line.
     var toggleTask: ((Int) -> Void)?
+    /// A tag chip in Reading was clicked. The argument is the tag without its leading `#`.
+    var openTag: ((String) -> Void)?
     @Environment(\.colorScheme) private var colorScheme
     @AppStorage(XYZEditorStyle.fontSizeKey) private var fontSize = XYZEditorStyle.defaultFontSize
     @AppStorage(XYZEditorStyle.lineSpacingKey) private var lineSpacing = XYZEditorStyle.defaultLineSpacing
@@ -95,9 +98,9 @@ struct MarkdownWebView: View {
             rootPath: baseDirectory?.standardizedFileURL.resolvingSymlinksInPath().path ?? ""
         )
         #if os(macOS)
-        MacMarkdownWebView(html: html, theme: colorScheme == .dark ? "dark" : "light", prefs: prefs, host: host, scrollLink: scrollLink, toggleTask: toggleTask)
+        MacMarkdownWebView(html: html, theme: colorScheme == .dark ? "dark" : "light", prefs: prefs, host: host, scrollLink: scrollLink, toggleTask: toggleTask, openTag: openTag)
         #else
-        IOSMarkdownWebView(html: html, theme: colorScheme == .dark ? "dark" : "light", prefs: prefs, host: host, scrollLink: scrollLink, toggleTask: toggleTask)
+        IOSMarkdownWebView(html: html, theme: colorScheme == .dark ? "dark" : "light", prefs: prefs, host: host, scrollLink: scrollLink, toggleTask: toggleTask, openTag: openTag)
         #endif
     }
 }
@@ -110,6 +113,7 @@ private struct MacMarkdownWebView: NSViewRepresentable {
     var host: PreviewWebHost
     var scrollLink: EditorScrollLink
     var toggleTask: ((Int) -> Void)?
+    var openTag: ((String) -> Void)?
 
     func makeNSView(context: Context) -> ReadingSurface {
         let surface = ReadingSurface()
@@ -117,6 +121,7 @@ private struct MacMarkdownWebView: NSViewRepresentable {
         if let webView = claim(host.webView) as? XYZPreviewWebView {
             surface.install(webView)
             host.coordinator.toggleTask = toggleTask
+            host.coordinator.openTag = openTag
             host.coordinator.update(webView: webView, html: html, theme: theme, prefs: prefs, scrollLink: scrollLink)
         }
         return surface
@@ -127,6 +132,7 @@ private struct MacMarkdownWebView: NSViewRepresentable {
         guard let webView = host.webView as? XYZPreviewWebView else { return }
         surface.install(webView)
         host.coordinator.toggleTask = toggleTask
+        host.coordinator.openTag = openTag
         host.coordinator.update(webView: webView, html: html, theme: theme, prefs: prefs, scrollLink: scrollLink)
     }
 
@@ -391,11 +397,13 @@ private struct IOSMarkdownWebView: UIViewRepresentable {
     var host: PreviewWebHost
     var scrollLink: EditorScrollLink
     var toggleTask: ((Int) -> Void)?
+    var openTag: ((String) -> Void)?
 
     func makeUIView(context: Context) -> WKWebView {
         host.setRoot(prefs.rootPath.isEmpty ? nil : URL(fileURLWithPath: prefs.rootPath))
         let webView = claim(host.webView)
         host.coordinator.toggleTask = toggleTask
+        host.coordinator.openTag = openTag
         host.coordinator.update(webView: webView, html: html, theme: theme, prefs: prefs, scrollLink: scrollLink)
         return webView
     }
@@ -403,6 +411,7 @@ private struct IOSMarkdownWebView: UIViewRepresentable {
     func updateUIView(_ webView: WKWebView, context: Context) {
         host.setRoot(prefs.rootPath.isEmpty ? nil : URL(fileURLWithPath: prefs.rootPath))
         host.coordinator.toggleTask = toggleTask
+        host.coordinator.openTag = openTag
         host.coordinator.update(webView: webView, html: html, theme: theme, prefs: prefs, scrollLink: scrollLink)
     }
 
@@ -452,6 +461,8 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate, WKScriptMessa
     var openFile: ((URL) -> Void)?
     /// A task checkbox in Reading was clicked. The argument is the source line.
     var toggleTask: ((Int) -> Void)?
+    /// A tag chip in Reading was clicked. The argument is the tag without its leading `#`.
+    var openTag: ((String) -> Void)?
     private var didStartLoad = false
     private var isReady = false
     private var pendingHTML: String?
@@ -494,6 +505,18 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate, WKScriptMessa
             let line = Self.intValue(body?["line"])
             guard line > 0 else { return }
             let apply: () -> Void = { self.toggleTask?(line) }
+            if Thread.isMainThread {
+                apply()
+            } else {
+                DispatchQueue.main.async(execute: apply)
+            }
+            return
+        }
+        if message.name == "xyzTag" {
+            let body = message.body as? [String: Any]
+            let tag = body?["tag"] as? String ?? ""
+            guard !tag.isEmpty else { return }
+            let apply: () -> Void = { self.openTag?(tag) }
             if Thread.isMainThread {
                 apply()
             } else {
@@ -1152,6 +1175,15 @@ enum PreviewPage {
           image.replaceWith(label);
           if (typeof xyzScheduleGutter === "function") xyzScheduleGutter();
         }
+        // A tag chip asks the app to search the folder for that tag.
+        document.addEventListener("click", function(event) {
+          var tag = event.target && event.target.closest ? event.target.closest(".tag[data-tag]") : null;
+          if (!tag) return;
+          var value = tag.getAttribute("data-tag") || "";
+          if (!value) return;
+          var handlers = window.webkit && window.webkit.messageHandlers;
+          if (handlers && handlers.xyzTag) handlers.xyzTag.postMessage({tag: value});
+        });
         // A task checkbox posts its source line; the app flips the marker in the note.
         document.addEventListener("click", function(event) {
           var box = event.target;

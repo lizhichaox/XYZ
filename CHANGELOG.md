@@ -36,8 +36,9 @@
 - Task-list checkboxes in Reading are interactive. Clicking one flips the `[ ]` / `[x]`
   marker on that source line, updates the page, schedules the normal save, and registers
   an undo action. Read-only notes keep the boxes disabled.
-- Inline tags such as `#swift` and `#release/1` render as chips in Reading. Tags inside
-  code or link text stay literal, and a numeric `#123` is not treated as a tag.
+- Inline tags such as `#swift` and `#release/1` render as chips in Reading. Clicking a
+  chip opens Search Notes with that tag. Tags inside code or link text stay literal, and a
+  numeric `#123` is not treated as a tag.
 
 ### Performance
 

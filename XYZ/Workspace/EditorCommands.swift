@@ -644,6 +644,10 @@ final class EditorCommands: NSObject {
         globalSearch.toggle(session: session)
     }
 
+    func showGlobalSearch(_ session: WorkspaceSession, query: String) {
+        globalSearch.show(session: session, query: query)
+    }
+
     @objc func replaceInFolder(_ sender: Any?) {
         guard target?.supportsWorkspaceFiles == true, target?.editorIsEditing == true else {
             NSSound.beep()

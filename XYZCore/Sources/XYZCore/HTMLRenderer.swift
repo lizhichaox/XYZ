@@ -279,7 +279,9 @@ private struct HTMLRenderingWalker: MarkupWalker {
             guard tag.rangeOfCharacter(from: .letters) != nil else { continue }
             let prefix = NSRange(location: cursor, length: match.range.location - cursor)
             html.append(HTMLText.escape(ns.substring(with: prefix)))
-            html.append("<span class=\"tag\">#")
+            html.append("<span class=\"tag\" data-tag=\"")
+            html.append(HTMLText.attribute(tag))
+            html.append("\">#")
             html.append(HTMLText.escape(tag))
             html.append("</span>")
             cursor = NSMaxRange(match.range)

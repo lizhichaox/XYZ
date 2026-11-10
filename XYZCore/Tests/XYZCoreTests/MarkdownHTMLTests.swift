@@ -63,8 +63,8 @@ final class MarkdownHTMLTests: XCTestCase {
 
     func testTagBecomesAChip() {
         let html = MarkdownHTML.render("A #swift note and #release/1.\n")
-        XCTAssertTrue(html.contains("<span class=\"tag\">#swift</span>"))
-        XCTAssertTrue(html.contains("<span class=\"tag\">#release/1</span>"))
+        XCTAssertTrue(html.contains("<span class=\"tag\" data-tag=\"swift\">#swift</span>"))
+        XCTAssertTrue(html.contains("<span class=\"tag\" data-tag=\"release/1\">#release/1</span>"))
     }
 
     func testTagInsideCodeStaysLiteral() {

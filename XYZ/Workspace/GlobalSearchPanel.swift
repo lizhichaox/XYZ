@@ -70,15 +70,19 @@ final class GlobalSearchController: NSObject, NSTableViewDataSource, NSTableView
         if let search { panel.makeFirstResponder(search) }
     }
 
-    func show(session: WorkspaceSession) {
+    func show(session: WorkspaceSession, query: String = "") {
         self.session = session
         let panel = self.panel ?? makePanel()
         self.panel = panel
         scope = .all
         updateChips()
-        typedQuery = ""
-        search?.stringValue = ""
-        showRecents()
+        typedQuery = query
+        search?.stringValue = query
+        if query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            showRecents()
+        } else {
+            schedule()
+        }
         place(panel)
         suppressResign = true
         panel.makeKeyAndOrderFront(nil)

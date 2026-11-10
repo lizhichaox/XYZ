@@ -243,6 +243,7 @@ li.task > input:not(:disabled):hover {
 }
 
 .tag {
+  cursor: pointer;
   color: var(--link);
   background: var(--border);
   border-radius: 4px;

@@ -137,6 +137,8 @@ struct MarkdownPreview: View {
     var allowsTaskToggle: Bool = false
     /// A task checkbox in Reading was clicked. The argument is the source line.
     var toggleTask: ((Int) -> Void)?
+    /// A tag chip in Reading was clicked. The argument is the tag without its leading `#`.
+    var openTag: ((String) -> Void)?
     @StateObject private var model: PreviewModel
 
     init(
@@ -146,7 +148,8 @@ struct MarkdownPreview: View {
         baseDirectory: URL? = nil,
         allowsRemoteImages: Bool = false,
         allowsTaskToggle: Bool = false,
-        toggleTask: ((Int) -> Void)? = nil
+        toggleTask: ((Int) -> Void)? = nil,
+        openTag: ((String) -> Void)? = nil
     ) {
         self.bridge = bridge
         self.host = host
@@ -155,6 +158,7 @@ struct MarkdownPreview: View {
         self.allowsRemoteImages = allowsRemoteImages
         self.allowsTaskToggle = allowsTaskToggle
         self.toggleTask = toggleTask
+        self.openTag = openTag
         let model = PreviewModel()
         model.setAllowsRemoteImages(allowsRemoteImages)
         model.setAllowsTaskToggle(allowsTaskToggle)
@@ -168,7 +172,8 @@ struct MarkdownPreview: View {
             baseDirectory: baseDirectory,
             host: host,
             scrollLink: scrollLink,
-            toggleTask: toggleTask
+            toggleTask: toggleTask,
+            openTag: openTag
         )
             .background(Color.editorBackground)
             .accessibilityLabel("Markdown preview")
