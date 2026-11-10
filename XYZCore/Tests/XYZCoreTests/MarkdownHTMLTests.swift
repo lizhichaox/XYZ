@@ -177,6 +177,17 @@ final class MarkdownHTMLTests: XCTestCase {
         XCTAssertTrue(html.contains("href=\"Other.md#hello\">Other</a>"))
     }
 
+    func testNoteEmbedBecomesALink() {
+        let html = MarkdownHTML.render("![[Note]]\n")
+        XCTAssertTrue(html.contains("<a href=\"Note.md\">Note</a>"))
+        XCTAssertFalse(html.contains("<img"))
+    }
+
+    func testImageEmbedStaysAnImage() {
+        let html = MarkdownHTML.render("![[picture.png|Alt]]\n")
+        XCTAssertTrue(html.contains("<img alt=\"Alt\" src=\"picture.png\""))
+    }
+
     func testWikiLinkInsideCodeStaysLiteral() {
         let html = MarkdownHTML.render("```\n[[Not a link]]\n```\n")
         XCTAssertTrue(html.contains("[[Not a link]]"))

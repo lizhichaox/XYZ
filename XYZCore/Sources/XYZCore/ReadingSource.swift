@@ -223,6 +223,18 @@ enum ReadingSource {
         var index = chunk.startIndex
         while index < chunk.endIndex {
             let next = chunk.index(after: index)
+            if chunk[index] == "!", next < chunk.endIndex, chunk[next] == "[" {
+                let afterOpen = chunk.index(after: next)
+                if afterOpen < chunk.endIndex, chunk[afterOpen] == "[" {
+                    let innerStart = chunk.index(after: afterOpen)
+                    if let end = chunk[innerStart...].range(of: "]]"),
+                       let link = wikiLink(String(chunk[innerStart..<end.lowerBound]), embed: true) {
+                        result.append(link)
+                        index = end.upperBound
+                        continue
+                    }
+                }
+            }
             if chunk[index] == "[", next < chunk.endIndex, chunk[next] == "[" {
                 let innerStart = chunk.index(after: next)
                 if let end = chunk[innerStart...].range(of: "]]"),
@@ -239,7 +251,8 @@ enum ReadingSource {
     }
 
     /// `[[Page]]`, `[[Page|Label]]`, `[[Page#Heading]]`, `[[#Heading]]`.
-    private static func wikiLink(_ inner: String) -> String? {
+    /// An embed of a picture stays an image; an embed of a note becomes a link.
+    private static func wikiLink(_ inner: String, embed: Bool = false) -> String? {
         let trimmed = inner.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty, !trimmed.contains("]"), !trimmed.contains("\n") else { return nil }
         let pieces = trimmed.split(separator: "|", maxSplits: 1, omittingEmptySubsequences: false)
@@ -270,6 +283,11 @@ enum ReadingSource {
             shown = (path as NSString).lastPathComponent
         }
         guard !shown.isEmpty, !href.isEmpty else { return nil }
-        return "[\(shown)](\(href))"
+        let image = embed && imageExtensions.contains((path as NSString).pathExtension.lowercased())
+        return "\(image ? "!" : "")[\(shown)](\(href))"
     }
+
+    private static let imageExtensions: Set<String> = [
+        "png", "jpg", "jpeg", "gif", "webp", "svg", "heic", "avif", "bmp", "tif", "tiff",
+    ]
 }

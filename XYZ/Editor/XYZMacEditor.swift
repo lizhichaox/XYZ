@@ -106,10 +106,28 @@ final class XYZMacTextView: NSTextView {
     }
 
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        let flags = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+        if flags == [.command, .shift], event.charactersIgnoringModifiers == "\\" {
+            jumpToMatchingBracket()
+            return true
+        }
         if EditorCommands.shared.handleKeyEquivalent(event) {
             return true
         }
         return super.performKeyEquivalent(with: event)
+    }
+
+    /// ⌘⇧\ jumps between the bracket at the caret and its partner.
+    func jumpToMatchingBracket() {
+        let ns = string as NSString
+        guard let pair = BracketMatching.pair(in: ns, caretOffset: selectedRange().location) else {
+            NSSound.beep()
+            return
+        }
+        let caret = selectedRange().location
+        let target = caret <= pair.opener.location ? pair.closer : pair.opener
+        setSelectedRange(target)
+        scrollRangeToVisible(target)
     }
 
     override func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
