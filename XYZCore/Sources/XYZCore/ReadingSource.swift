@@ -102,6 +102,8 @@ enum ReadingSource {
     }
 
     static func rewriteWikiLinks(_ source: String) -> String {
+        // Most notes have no wiki links. Avoid scanning and copying the whole note for them.
+        guard source.contains("[[") else { return source }
         let ns = source as NSString
         var result = ""
         result.reserveCapacity(ns.length + 16)

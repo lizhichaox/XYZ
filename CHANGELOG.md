@@ -37,6 +37,11 @@
 
 ### Performance
 
+- **Reading skips the wiki-link pass when a note has no `[[`.** The renderer used to scan
+  and copy every line of every note before parsing. On the 135 K probe note that pass was
+  about half of the render: 74 ms before, 39 ms after.
+
+
 - **The line-number gutter lays out only the visible band.** Every gutter draw used to
   `ensureLayout` the whole note and toggle `allowsNonContiguousLayout`; on a 2,000-line
   Markdown note that cost about 89 ms per draw. The draw now asks TextKit for the clip
