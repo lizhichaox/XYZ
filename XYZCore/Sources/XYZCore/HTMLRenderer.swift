@@ -32,6 +32,7 @@ private struct HTMLRenderingWalker: MarkupWalker {
     var html = ""
     private var alignments: [Table.ColumnAlignment?] = []
     private var inHeader = false
+    private var inLink = false
     private var anchors = HeadingAnchor.Registry()
 
     /// An explicit initializer, not the memberwise one: a struct with private stored
@@ -265,8 +266,32 @@ private struct HTMLRenderingWalker: MarkupWalker {
     }
 
     mutating func visitText(_ text: Text) {
-        html.append(HTMLText.escape(text.string))
+        let string = text.string
+        guard !inLink, string.contains("#"), let regex = Self.tagRegex else {
+            html.append(HTMLText.escape(string))
+            return
+        }
+        let ns = string as NSString
+        var cursor = 0
+        for match in regex.matches(in: string, options: [], range: NSRange(location: 0, length: ns.length)) {
+            let tagRange = match.range(at: 1)
+            let tag = ns.substring(with: tagRange)
+            guard tag.rangeOfCharacter(from: .letters) != nil else { continue }
+            let prefix = NSRange(location: cursor, length: match.range.location - cursor)
+            html.append(HTMLText.escape(ns.substring(with: prefix)))
+            html.append("<span class=\"tag\">#")
+            html.append(HTMLText.escape(tag))
+            html.append("</span>")
+            cursor = NSMaxRange(match.range)
+        }
+        if cursor < ns.length {
+            html.append(HTMLText.escape(ns.substring(from: cursor)))
+        }
     }
+
+    private static let tagRegex = try? NSRegularExpression(
+        pattern: #"(?<![\p{L}\p{N}_])#([\p{L}\p{N}_/-]+)"#
+    )
 
     mutating func visitSoftBreak(_ softBreak: SoftBreak) {
         html.append("\n")
@@ -305,6 +330,9 @@ private struct HTMLRenderingWalker: MarkupWalker {
     }
 
     mutating func visitLink(_ link: Link) {
+        let wasInLink = inLink
+        inLink = true
+        defer { inLink = wasInLink }
         guard let destination = URLPolicy.linkDestination(link.destination) else {
             descendInto(link)
             return

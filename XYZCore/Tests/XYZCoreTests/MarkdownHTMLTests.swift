@@ -61,6 +61,30 @@ final class MarkdownHTMLTests: XCTestCase {
         XCTAssertTrue(html.contains("data-task-line=\"5\""))
     }
 
+    func testTagBecomesAChip() {
+        let html = MarkdownHTML.render("A #swift note and #release/1.\n")
+        XCTAssertTrue(html.contains("<span class=\"tag\">#swift</span>"))
+        XCTAssertTrue(html.contains("<span class=\"tag\">#release/1</span>"))
+    }
+
+    func testTagInsideCodeStaysLiteral() {
+        let html = MarkdownHTML.render("`#swift`\n\n```\n#swift\n```\n")
+        XCTAssertFalse(html.contains("<span class=\"tag\">"))
+        XCTAssertTrue(html.contains("#swift"))
+    }
+
+    func testTagInsideLinkStaysText() {
+        let html = MarkdownHTML.render("[#swift](https://example.com)\n")
+        XCTAssertFalse(html.contains("<span class=\"tag\">"))
+        XCTAssertTrue(html.contains("#swift"))
+    }
+
+    func testNumericHashIsNotATag() {
+        let html = MarkdownHTML.render("Issue #123 is closed.\n")
+        XCTAssertFalse(html.contains("<span class=\"tag\">"))
+        XCTAssertTrue(html.contains("#123"))
+    }
+
     func testLink() {
         let html = MarkdownHTML.render("[Docs](https://example.com/docs \"Docs\")\n")
         XCTAssertTrue(html.contains("<a href=\"https://example.com/docs\" title=\"Docs\">Docs</a>"))
