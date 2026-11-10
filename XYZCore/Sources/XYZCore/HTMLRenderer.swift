@@ -267,7 +267,29 @@ private struct HTMLRenderingWalker: MarkupWalker {
 
     mutating func visitText(_ text: Text) {
         let string = text.string
-        guard !inLink, string.contains("#"), let regex = Self.tagRegex else {
+        guard !inLink, string.contains("==") || string.contains("#") else {
+            html.append(HTMLText.escape(string))
+            return
+        }
+        let ns = string as NSString
+        var cursor = 0
+        if let regex = Self.highlightRegex {
+            for match in regex.matches(in: string, options: [], range: NSRange(location: 0, length: ns.length)) {
+                let prefix = NSRange(location: cursor, length: match.range.location - cursor)
+                renderTags(ns.substring(with: prefix))
+                html.append("<mark>")
+                html.append(HTMLText.escape(ns.substring(with: match.range(at: 1))))
+                html.append("</mark>")
+                cursor = NSMaxRange(match.range)
+            }
+        }
+        if cursor < ns.length {
+            renderTags(ns.substring(from: cursor))
+        }
+    }
+
+    private mutating func renderTags(_ string: String) {
+        guard string.contains("#"), let regex = Self.tagRegex else {
             html.append(HTMLText.escape(string))
             return
         }
@@ -293,6 +315,9 @@ private struct HTMLRenderingWalker: MarkupWalker {
 
     private static let tagRegex = try? NSRegularExpression(
         pattern: #"(?<![\p{L}\p{N}_])#([\p{L}\p{N}_/-]+)"#
+    )
+    private static let highlightRegex = try? NSRegularExpression(
+        pattern: #"==([^=\n]+)=="#
     )
 
     mutating func visitSoftBreak(_ softBreak: SoftBreak) {

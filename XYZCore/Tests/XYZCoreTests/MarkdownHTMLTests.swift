@@ -67,6 +67,28 @@ final class MarkdownHTMLTests: XCTestCase {
         XCTAssertTrue(html.contains("<span class=\"tag\" data-tag=\"release/1\">#release/1</span>"))
     }
 
+    func testHighlightBecomesMark() {
+        let html = MarkdownHTML.render("A ==highlighted== word.\n")
+        XCTAssertTrue(html.contains("<mark>highlighted</mark>"))
+    }
+
+    func testHighlightInsideCodeStaysLiteral() {
+        let html = MarkdownHTML.render("`==highlighted==`\n\n```\n==highlighted==\n```\n")
+        XCTAssertFalse(html.contains("<mark>"))
+        XCTAssertTrue(html.contains("==highlighted=="))
+    }
+
+    func testHighlightInsideLinkStaysText() {
+        let html = MarkdownHTML.render("[==highlighted==](https://example.com)\n")
+        XCTAssertFalse(html.contains("<mark>"))
+        XCTAssertTrue(html.contains("==highlighted=="))
+    }
+
+    func testEmptyHighlightIsNotMarked() {
+        let html = MarkdownHTML.render("A ==== word.\n")
+        XCTAssertFalse(html.contains("<mark>"))
+    }
+
     func testTagInsideCodeStaysLiteral() {
         let html = MarkdownHTML.render("`#swift`\n\n```\n#swift\n```\n")
         XCTAssertFalse(html.contains("<span class=\"tag\">"))

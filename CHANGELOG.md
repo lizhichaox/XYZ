@@ -44,6 +44,8 @@
   clicking it opens that note. Fenced and inline code are ignored.
 - Callout titles are buttons: clicking one folds or unfolds the callout body, with the
   chevron and `aria-expanded` following the state.
+- `==highlight==` renders as a highlight in Reading; code and link text keep the literal
+  markers.
 
 ### Performance
 

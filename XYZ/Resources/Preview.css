@@ -304,6 +304,13 @@ li.task > input:not(:disabled):hover {
   margin: 0.15em 0 0;
 }
 
+mark {
+  background: var(--mark);
+  color: inherit;
+  border-radius: 2px;
+  padding: 0 1px;
+}
+
 .tag {
   cursor: pointer;
   color: var(--link);
