@@ -16,6 +16,13 @@
   starts at the current workspace, or at home from the page, instead of whatever folder
   was used last. It uses only `XYZTheme` colors.
 
+### Documentation
+
+- All code comments and repository documentation are English-only. The Chinese analysis
+  reports under `docs/analysis/`, `docs/project-analysis.md`, and the DSH plugin README
+  were translated; user-facing Chinese remains only in the localization catalogs and CJK
+  test fixtures.
+
 ### Performance
 
 - **The line-number gutter lays out only the visible band.** Every gutter draw used to
@@ -209,7 +216,7 @@ Follow-up performance pass after 0.5.35:
 - `-XYZCheckGutter`: `refresh` (opens a folder by clicking it) passes; the other cases still
   fail on this Mac for the inactive-window reason described in 0.5.35.
 - The owner tried the intervening test build and reported the sidebar performance as
-  "差不多了" (good enough).
+  "good enough".
 - Release 0.5.36 (52): archive, Developer ID export, app notarized
   (`eb83c100-89a4-4706-bb03-514d743f7294`) and stapled, DMG signed, notarized
   (`1339a0e1-7c43-4194-8a9d-9c7e48674d3d`) and stapled, `spctl` accepted for both. Installed
@@ -251,7 +258,7 @@ chasing it:
   lookups are dropped. Those cases are unrelated to the sidebar.
 - The owner confirmed on the installed build: opening and closing folders, rapid clicking,
   selection, the open-file marker, the scoped Collapse/Expand button and icon state all behave,
-  and the sidebar is "丝滑多了" (much smoother).
+  and the sidebar is "much smoother".
 - Release 0.5.35 (51): archive, Developer ID export, app notarized
   (`110ef669-88d7-4554-8819-1a0117cedf8a`) and stapled, DMG signed, notarized
   (`70cdb64f-4af1-478b-86ea-29cc7b2456b2`) and stapled, `spctl` accepted for both. Installed
@@ -333,7 +340,7 @@ Build 47. The version in this tree, and the build installed in `/Applications` o
 - `xcodebuild` Debug for `platform=macOS` and Debug for `generic/platform=iOS Simulator`: BUILD SUCCEEDED, signing off.
 - Release 0.5.31 (47): archive → `developer-id` export; `codesign` shows the Developer ID authority and Hardened Runtime. The app zip was notarized (`ae1b56da-b042-46ac-a983-55daece1822e`, Accepted), stapled, and `spctl` reports `accepted, source=Notarized Developer ID`. The DMG was code-signed, notarized (`3229b1fa-6c13-41a9-b203-6d9f3c347156`, Accepted), stapled, and accepted the same way.
 - Installed over `/Applications/XYZ.app`; the machine keeps one app (`AGENTS.md`). Launched hidden once: the process started and quit with no crash report.
-- The owner ran 0.5.30 on this Mac, reported the animation "不卡了" but not smooth, then reported the header text overlap, then confirmed the 0.5.31 build ("好了"): the slide is smooth and the sidebar text is back to one line. That is the only windowed verification; it was done by the owner, not by a harness.
+- The owner ran 0.5.30 on this Mac, reported the animation "no more lag" but not smooth, then reported the header text overlap, then confirmed the 0.5.31 build ("done"): the slide is smooth and the sidebar text is back to one line. That is the only windowed verification; it was done by the owner, not by a harness.
 
 ### Not checked
 
@@ -727,7 +734,7 @@ Explorer New File, New Folder, Refresh, and Collapse All are on the header. Crea
 - Format menu: bold, italic, strikethrough, inline code, link, headings, quote, bulleted, numbered and task lists, code block, and table, with Typora-style shortcuts (headings on ⌥⌘0 to ⌥⌘6).
 - Go to Heading (⌘R), and `@` in the command palette, list the note's headings and jump to one in Source or Reading.
 - Reading shows pictures from the note's folder, colors fenced code that names its language, scrolls to a heading for `#fragment` links, and opens the file a relative link names.
-- Settings: appearance (System, Light, Dark), language (System, English, 简体中文), font, a text size shared by Source and Reading, and Limit line width. View → Zoom In, Zoom Out, and Actual Size step the size.
+- Settings: appearance (System, Light, Dark), language (System, English, Simplified Chinese), font, a text size shared by Source and Reading, and Limit line width. View → Zoom In, Zoom Out, and Actual Size step the size.
 - View → Show Word Count shows the word count and reading time under the note.
 - The interface is in English and Simplified Chinese.
 - Source shows line numbers in the left padding (Settings → Show line numbers, or View → Show Line Numbers).

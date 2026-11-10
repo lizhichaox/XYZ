@@ -1,334 +1,334 @@
-# XYZ Mac 工作区层分析（只读）
+# XYZ Mac Workspace Layer Analysis (Read-Only)
 
-范围：`XYZ/Workspace/*.swift`（12,437 行，13 个文件）、`XYZ/DocumentEditorView.swift`、`XYZ/XYZApp.swift`；参考 `XYZCore/Sources/XYZCore/*`、`XYZ/Preview/*`、`XYZ/Editor/*`、`docs/architecture.md`、`CHANGELOG.md`、`.github/workflows/ci.yml`。
-方法：read/grep 逐文件阅读 + 行号定位；未运行 `xcodebuild`（Lead 已确认 Debug/Release/iOS Simulator 构建通过）。为验证两个文件系统级假设，在 `/tmp` 用 `swift`/shell 做了两个一次性实验（详见 P0-1、P1-5），未触碰仓库。
-版本：0.5.28 (build 44)，HEAD `db12a62`；工作树干净。
-
----
-
-## 0. 结论摘要
-
-- **架构总体方向是对的**：`WorkspaceSession` 持有文件夹/标签/当前 buffer；`WorkspaceFileBuffer` 持有单文件文本与保存状态；纯策略（文件分类、盘/编辑器冲突、打开代际判定）已经在 `XYZCore` 且单测覆盖（`WorkspaceFilePolicy` / `WorkspaceTests`）。AppKit 只出现在窗口/侧栏/面板层。
-- **但“读/写/生命周期”三条线仍有硬伤**：打开文件的代际保护是**全局串行号**，与批量恢复标签冲突，且恢复后立即持久化空标签列表（P0-2）；新建文件在大小写不敏感卷上会**截断同名文件**（P0-1）；关窗/退出只做一次 best-effort flush，失败/冲突时无阻塞提示（P0-3）。
-- **状态所有权有一处结构性断层**：`WorkspaceFileBuffer` 是 `ObservableObject`、有 5 个 `@Published`，但整个 App 没有任何视图订阅它（grep 无 `@ObservedObject var buffer` / `sink`）。外部磁盘变更、保存失败提示、缺文件提示的 UI 刷新实际依赖 `WorkspaceSession` 的其它无关 `@Published` 顺带触发（P1-1）。
-- **主线程上做全量磁盘 IO**：`save()` 在 `@MainActor` 同步执行 `NSFileCoordinator` + 整文件读 + 整文件写，而读路径却是 `Task.detached`（P1-2，与 Lead 线索 a 一致）。
-- **系统类 swizzling** 集中在 `FolderOpening.swift`（NSSavePanel 3 个 selector + PlatformDocumentController 4 个 selector，含手写 block 签名/`unsafeBitCast`），是本项目最大的升级脆弱点（P2-1，与 Lead 线索 b 一致）。
-- 单位测试只覆盖 `XYZCore` 的纯函数；CI 的窗口截图/OCR 只覆盖“单文件打开/模式切换/切换文件”一条链路，**恢复标签、保存/退出、磁盘冲突、Replace All、大小写、符号链接、书签**全部只能人工验证（第 6 节）。
+Scope: `XYZ/Workspace/*.swift` (12,437 lines across 13 files), `XYZ/DocumentEditorView.swift`, `XYZ/XYZApp.swift`; references `XYZCore/Sources/XYZCore/*`, `XYZ/Preview/*`, `XYZ/Editor/*`, `docs/architecture.md`, `CHANGELOG.md`, `.github/workflows/ci.yml`.
+Method: file-by-file read/grep plus line-number pinning; did not run `xcodebuild` (the Lead confirmed the Debug/Release/iOS Simulator builds pass). To validate two filesystem-level hypotheses, ran two one-off experiments in `/tmp` with `swift`/shell (see P0-1 and P1-5); the repository was not touched.
+Version: 0.5.28 (build 44), HEAD `db12a62`; working tree clean.
 
 ---
 
-## 1. 状态所有权与数据流
+## 0. Summary of Findings
 
-### 1.1 所有权边界
+- **The overall architecture is right**: `WorkspaceSession` owns the folder/tabs/current buffer; `WorkspaceFileBuffer` owns a single file's text and save state; pure policy (file classification, disk/editor conflicts, open-generation checks) already lives in `XYZCore` with unit-test coverage (`WorkspaceFilePolicy` / `WorkspaceTests`). AppKit appears only at the window/sidebar/panel layer.
+- **But the read/write/lifecycle lines still have hard defects**: open-generation protection is a **global serial number** that collides with batch tab restoration and immediately persists an empty tab list after restore (P0-2); creating a file on a case-insensitive volume can **truncate an existing same-name file** (P0-1); window close/quit performs a single best-effort flush, with no blocking prompt on failure/conflict (P0-3).
+- **State ownership has one structural break**: `WorkspaceFileBuffer` is an `ObservableObject` with 5 `@Published` properties, yet no view in the whole app subscribes to it (grep finds no `@ObservedObject var buffer` / `sink`). UI refresh for external disk changes, save-failure notices, and missing-file notices actually rides incidentally on unrelated `@Published` changes from `WorkspaceSession` (P1-1).
+- **Full disk I/O on the main thread**: `save()` runs `NSFileCoordinator` + full-file read + full-file write synchronously on `@MainActor`, while the read path is `Task.detached` (P1-2, matching the Lead's clue a).
+- **System-class swizzling** is concentrated in `FolderOpening.swift` (3 NSSavePanel selectors + 4 PlatformDocumentController selectors, with hand-written block signatures/`unsafeBitCast`); it is the project's largest upgrade fragility (P2-1, matching the Lead's clue b).
+- Unit tests cover only `XYZCore` pure functions; the CI window screenshot/OCR job covers only one chain — "open a single file / switch mode / switch file". **Restoring tabs, saving/quit, disk conflicts, Replace All, case handling, symlinks, and bookmarks** all remain manual-only (section 6).
 
-| 对象 | 位置 | 拥有的状态 | 生命周期 |
+---
+
+## 1. State Ownership and Data Flow
+
+### 1.1 Ownership Boundaries
+
+| Object | Location | State owned | Lifetime |
 |---|---|---|---|
-| `WorkspaceSession` (`@MainActor ObservableObject`) | `WorkspaceSession.swift:14` | `rootURL/bookmark`、树 `children/expanded/loadErrors`、`selectedPath`、`buffer`、`tabStrip`、`viewMode`、`caret/viewportLine`、搜索状态、`indexedEntries/contentHits`、`previewBridge/previewHost/scrollLink`、monitor/tasks/generations | 每个窗口 1 个；`WorkspaceWindowController` 强持有；`switchFolder` 时整体替换 |
-| `WorkspaceFileBuffer` (`@MainActor ObservableObject`) | `WorkspaceSession.swift:1632-1935` | 单文件 `text/lastSaved/encoding/lineEnding/conflictText/isMissing/status/reloadToken`、`saveTask`、`observationEpoch` | 由 `session.buffers[path]` 字典持有；关标签/`release` 时移除 |
-| `WorkspaceWindowController` | `WorkspaceWindowController.swift:8` | `NSWindow`、`session`、全局 `static controllers` | 强持窗口+session；`windowWillClose` 移除自己 |
-| SwiftUI 树 | `WorkspaceView.swift:838` / `WorkspaceDetail:1385` / `WorkspaceCommandBridge:1662` | 布局/可见性等局部 UI 状态（`columnVisibility`、`titlebarInset`、`outline`、`wordCount`、`caret` 镜像） | `WorkspaceRootView` 的 `NSHostingView` 持有 |
-| AppKit 侧 | `XYZSplitView`、`SidebarColumnView`、`WorkspaceChromeView`、find/palette/search 面板 | 分栏帧、侧栏快照、标题栏附件、面板 | 视图生命周期；面板为 controller 单例复用 |
+| `WorkspaceSession` (`@MainActor ObservableObject`) | `WorkspaceSession.swift:14` | `rootURL/bookmark`, tree `children/expanded/loadErrors`, `selectedPath`, `buffer`, `tabStrip`, `viewMode`, `caret/viewportLine`, search state, `indexedEntries/contentHits`, `previewBridge/previewHost/scrollLink`, monitor/tasks/generations | one per window; strongly held by `WorkspaceWindowController`; replaced wholesale on `switchFolder` |
+| `WorkspaceFileBuffer` (`@MainActor ObservableObject`) | `WorkspaceSession.swift:1632-1935` | single-file `text/lastSaved/encoding/lineEnding/conflictText/isMissing/status/reloadToken`, `saveTask`, `observationEpoch` | held by the `session.buffers[path]` dictionary; removed on tab close/`release` |
+| `WorkspaceWindowController` | `WorkspaceWindowController.swift:8` | `NSWindow`, `session`, global `static controllers` | strongly holds window+session; removes itself in `windowWillClose` |
+| SwiftUI tree | `WorkspaceView.swift:838` / `WorkspaceDetail:1385` / `WorkspaceCommandBridge:1662` | local UI state such as layout/visibility (`columnVisibility`, `titlebarInset`, `outline`, `wordCount`, `caret` mirror) | held by `WorkspaceRootView`'s `NSHostingView` |
+| AppKit side | `XYZSplitView`, `SidebarColumnView`, `WorkspaceChromeView`, find/palette/search panels | split-view frames, sidebar snapshot, titlebar accessories, panels | view lifetime; panels reused as controller singletons |
 
-数据流（打开一个文件）：
+Data flow (opening a file):
 
 ```
-Sidebar/⌘K/⌘P → session.openFile(node,...)                     WorkspaceSession.swift:515-565
-  ├─ claimExistingFile?（跨窗口去重，仅工作区窗口）                :523 / WorkspaceWindowController.swift:95-98
-  ├─ revealAncestors / scrollMemory → pendingRevealLine          :530-538
-  ├─ openSerial += 1; openRequest[path] += 1                     :539-546
-  └─ Task { await readForEditing(detached IO) }                  :548
-        └─ MainActor.run: 只有 serial==openSerial 且
-           shouldInstallRead(request/latest/alreadyInstalled) 才安装   :551-557
-             ├─ makeBuffer（挂 onEditorState/onConflict，均为 weak self）:936-957
-             ├─ watchFile → DirectoryMonitor                      :980-993
-             └─ present(): tabStrip+buffer 同时发布 → show()       :568-578
+Sidebar/⌘K/⌘P → session.openFile(node,...)                         WorkspaceSession.swift:515-565
+  ├─ claimExistingFile? (cross-window dedupe, workspace windows only)  :523 / WorkspaceWindowController.swift:95-98
+  ├─ revealAncestors / scrollMemory → pendingRevealLine            :530-538
+  ├─ openSerial += 1; openRequest[path] += 1                       :539-546
+  └─ Task { await readForEditing(detached IO) }                    :548
+        └─ MainActor.run: install only if serial==openSerial and
+           shouldInstallRead(request/latest/alreadyInstalled)      :551-557
+             ├─ makeBuffer (installs onEditorState/onConflict, both weak self)  :936-957
+             ├─ watchFile → DirectoryMonitor                       :980-993
+             └─ present(): publish tabStrip+buffer together → show()        :568-578
 ```
 
-编辑/保存流：`XYZMacEditor.updateNSView`（`XYZMacEditor.swift:1215-1226`，`reloadToken` 变化才整体替换文本）→ SwiftUI 闭包 `session.buffer?.userEdited(...)`（`WorkspaceView.swift:1643-1652`）→ `WorkspaceFileBuffer.userEdited`（`1750-1764`）→ 500ms `scheduleSave`（`1881-1888`）→ `save()`（`1890-1934`）→ `WorkspaceFileCoordination.updateText`（`WorkspaceFileAccess.swift:99-154`）→ `onEditorState` 只把 dirty 写回 `tabStrip`（`947-952`）。
+Edit/save flow: `XYZMacEditor.updateNSView` (`XYZMacEditor.swift:1215-1226`, replaces the text wholesale only when `reloadToken` changes) → SwiftUI closure `session.buffer?.userEdited(...)` (`WorkspaceView.swift:1643-1652`) → `WorkspaceFileBuffer.userEdited` (`1750-1764`) → 500 ms `scheduleSave` (`1881-1888`) → `save()` (`1890-1934`) → `WorkspaceFileCoordination.updateText` (`WorkspaceFileAccess.swift:99-154`) → `onEditorState` writes only dirty back into `tabStrip` (`947-952`).
 
-### 1.2 @Published 更新时机与主要问题
+### 1.2 @Published Update Timing and Main Problems
 
-1. **Session 自身发布**：树/标签/viewMode/caret/viewport/搜索/`actionMessage` 都是 `@Published`，SwiftUI 与 `WorkspaceSidebar.updateNSView` 都靠它们重算（`WorkspaceSidebar.swift:70-74`）。
-2. **Buffer 发布无效**：`WorkspaceFileBuffer` 的 `@Published`（`1636-1640`：`kind/reloadToken/conflictText/isMissing/status`）没有任何观察者。视图只读 `session.buffer?.text` / `.editorToken` / `.status`（`WorkspaceView.swift:1439-1448, 1590-1617, 1628-1655`），而 SwiftUI 不会跟踪嵌套 Observatory 对象的属性。实际刷新靠“顺带”：`onEditorState` → `EditorTabStrip.setDirty` 变化才让 `session.tabStrip`（`@Published`）发布（`WorkspaceSession.swift:947-952`，`EditorTabs.swift:118-125`）。因此：
-   - 干净文件被外部修改：`noteExternalChange` → `apply(text:)` 改 `text/lastSaved/reloadToken`（`1867-1879`），`setDirty(false)` 返回 false → **session 不发布** → 编辑器 `reloadToken` 不更新、Reading 预览不刷新，直到用户滚动/点击产生 `viewportLine`/`caret` 发布。CHANGELOG:281 “A clean file still reloads quietly”在 UI 上不一定成立。
-   - 保存失败：`save` 的 `catch` 只设 `status`（`1929-1933`），不调用 `onEditorState` → 状态栏横幅可能永远不出现。
-   - `noteMissing`（`1814-1816, 1843-1850`）同样只改 buffer；只有目录刷新里 `scheduleIndex` 稍后发布 `indexedEntries` 才可能让横幅出现。
-3. **镜像状态**：`WorkspaceDetail` 用 `@State caret` 与 `session.caret` 双写（`1392, 1639-1643`）；`WorkspaceView.openFilePath` 用 `selectedPath ?? buffer`（`996-1001`），而 `selectedPath` 在多数路径与 `buffer.relativePath` 重复。见 P1-7。
-4. **主线程假设**：session/buffer/视图全部 `@MainActor`；`DirectoryMonitor` 在私有队列上 `open/O_EVTONLY + DispatchSource`，事件统一 `DispatchQueue.main.asyncAfter` 去抖（`WorkspaceFileAccess.swift:21-68`）；后台读一律 `Task.detached` 后回 `MainActor.run`。唯一例外：`save()` 的同步 IO 实际在主线程（P1-2）。
+1. **Session publishes on its own**: tree/tabs/viewMode/caret/viewport/search/`actionMessage` are all `@Published`; both SwiftUI and `WorkspaceSidebar.updateNSView` recompute from them (`WorkspaceSidebar.swift:70-74`).
+2. **Buffer publishing is ineffective**: the `@Published` properties of `WorkspaceFileBuffer` (`1636-1640`: `kind/reloadToken/conflictText/isMissing/status`) have no observer. Views only read `session.buffer?.text` / `.editorToken` / `.status` (`WorkspaceView.swift:1439-1448, 1590-1617, 1628-1655`), and SwiftUI does not track properties of a nested `ObservableObject`. Actual refresh rides incidentally: `onEditorState` → only a change in `EditorTabStrip.setDirty` makes `session.tabStrip` (`@Published`) publish (`WorkspaceSession.swift:947-952`, `EditorTabs.swift:118-125`). Therefore:
+   - A clean file modified externally: `noteExternalChange` → `apply(text:)` changes `text/lastSaved/reloadToken` (`1867-1879`), `setDirty(false)` returns false → **the session publishes nothing** → the editor's `reloadToken` does not update and the Reading preview does not refresh, until the user scrolls/clicks and produces a `viewportLine`/`caret` publication. CHANGELOG:281 "A clean file still reloads quietly" does not necessarily hold in the UI.
+   - Save failure: the `catch` in `save` only sets `status` (`1929-1933`) and does not call `onEditorState` → the status-bar banner may never appear.
+   - `noteMissing` (`1814-1816, 1843-1850`) likewise only modifies the buffer; only a later `indexedEntries` publication from `scheduleIndex` during a directory refresh can make the banner appear.
+3. **Mirrored state**: `WorkspaceDetail` writes both its `@State caret` and `session.caret` (`1392, 1639-1643`); `WorkspaceView.openFilePath` uses `selectedPath ?? buffer` (`996-1001`), while `selectedPath` duplicates `buffer.relativePath` along most paths. See P1-7.
+4. **Main-thread assumption**: session/buffer/views are all `@MainActor`; `DirectoryMonitor` runs `open/O_EVTONLY + DispatchSource` on a private queue, with events uniformly debounced via `DispatchQueue.main.asyncAfter` (`WorkspaceFileAccess.swift:21-68`); background reads are always `Task.detached` followed by a return to `MainActor.run`. Sole exception: the synchronous I/O of `save()` actually runs on the main thread (P1-2).
 
-### 1.3 Task 生命周期清单
+### 1.3 Task Lifecycle Inventory
 
-- 受追踪可取消：`reloadTasks`（目录去抖，`1502-1509`）、`indexTask`（`1110-1127`）、`contentTask`（`1129-1167`）、`buffer.saveTask`（`1881-1888`）、`find.searchTask`（`EditorChrome.swift:203-210`）、`outline.task`（`EditorChrome.swift:1293-1304`）、`GlobalSearchController.task`（`GlobalSearchPanel.swift:327-361`）。
-- **不受追踪**：打开文件（`548-564`）、新建文件（`429-455`）、文件夹替换（`1259-1273`）、`noteExternalChange` 的磁盘采样（`1787-1840`）、`load(parent:)`（`1515-1545`）、monitor 回调里的 `Task { @MainActor }`（`204, 1069`）。`shutdown()`（`211-223`）只取消前三类，其余靠 `[weak self]` + generation guard 自行退出；detached 读仍会跑完。
-- 单个 Task 的完成顺序有 guard 保护，但**取消语义**在 detached 上失效（P1-6）。
+- Tracked and cancellable: `reloadTasks` (directory debounce, `1502-1509`), `indexTask` (`1110-1127`), `contentTask` (`1129-1167`), `buffer.saveTask` (`1881-1888`), `find.searchTask` (`EditorChrome.swift:203-210`), `outline.task` (`EditorChrome.swift:1293-1304`), `GlobalSearchController.task` (`GlobalSearchPanel.swift:327-361`).
+- **Not tracked**: opening files (`548-564`), creating files (`429-455`), folder replacement (`1259-1273`), disk sampling in `noteExternalChange` (`1787-1840`), `load(parent:)` (`1515-1545`), the `Task { @MainActor }` inside monitor callbacks (`204, 1069`). `shutdown()` (`211-223`) cancels only the first three groups; the rest exit on their own via `[weak self]` + generation guards, and detached reads still run to completion.
+- Completion order of an individual Task is protected by guards, but **cancellation semantics** fail on detached tasks (P1-6).
 
 ---
 
-## 2. 并发 / 竞态
+## 2. Concurrency / Races
 
-### 2.1 已有代际机制盘点
+### 2.1 Inventory of Existing Generation Mechanisms
 
-| 机制 | 位置 | 判定 | 评价 |
+| Mechanism | Location | Decision | Assessment |
 |---|---|---|---|
-| 目录加载 `loadGeneration[parent]` | `1511-1545` | 结果落地前比对 `loadGeneration[parent]` | 正确；但 detached 目录枚举不可取消 |
-| 索引 `indexGeneration` | `1110-1127` | 结果落地前比对 | 正确；扫描本身不可取消 |
-| 打开文件 `openSerial`（全局）+ `openRequest[path]` | `126-127, 539-563` | 仅最后一个**用户请求**能发布 tab | 修好了“tab 先于文本出现”，但**把批量恢复打死**（P0-2） |
-| 安装读 `WorkspaceFilePolicy.shouldInstallRead` | `WorkspaceFilePolicy.swift:266-270` | `request==latest && !alreadyInstalled` | 正确，单测覆盖（`WorkspaceTests.swift:527-531`） |
-| 磁盘采样 `observationEpoch` | `1651-1653, 1782-1841, 1894` | 采样开始后编辑过就丢弃 | 正确，单测覆盖（`533-537`） |
-| 保存决策 `decideWrite` | `WorkspaceFileAccess.swift:131-146` | 在协调块内重读盘后决定 write/upToDate/conflict | 正确；TOCTOU 只在非协调写入者（git/shell）存在 |
-| 保存后追写 `needsFollowUpSave` | `1917-1919` | 写完发现文本又变了 → 再存 | 正确（单测 `538-541`） |
-| 内容搜索 | `1129-1167` | `Task.cancel` + 查询/glob 相等比较 | 外层正确，detached 工作不可取消 |
-| find 面板 Reading 代际 | `EditorChrome.swift:129-200` | `readingGeneration` | 正确 |
-| 全局搜索 | `GlobalSearchPanel.swift:327-361` | `generation` + cancel | 正确 |
+| Directory load `loadGeneration[parent]` | `1511-1545` | compare `loadGeneration[parent]` before results land | correct; but detached directory enumeration is not cancellable |
+| Index `indexGeneration` | `1110-1127` | compare before results land | correct; the scan itself is not cancellable |
+| Open file `openSerial` (global) + `openRequest[path]` | `126-127, 539-563` | only the last **user request** may publish a tab | fixes "tab appears before text", but **kills batch restore** (P0-2) |
+| Install read `WorkspaceFilePolicy.shouldInstallRead` | `WorkspaceFilePolicy.swift:266-270` | `request==latest && !alreadyInstalled` | correct, unit-tested (`WorkspaceTests.swift:527-531`) |
+| Disk sampling `observationEpoch` | `1651-1653, 1782-1841, 1894` | discard if edited after sampling started | correct, unit-tested (`533-537`) |
+| Save decision `decideWrite` | `WorkspaceFileAccess.swift:131-146` | re-read disk inside the coordination block, then decide write/upToDate/conflict | correct; TOCTOU exists only for non-coordinated writers (git/shell) |
+| Follow-up write `needsFollowUpSave` | `1917-1919` | text changed again after the write → save again | correct (unit test `538-541`) |
+| Content search | `1129-1167` | `Task.cancel` + query/glob equality compare | outer layer correct; detached work is not cancellable |
+| Find-panel Reading generation | `EditorChrome.swift:129-200` | `readingGeneration` | correct |
+| Global search | `GlobalSearchPanel.swift:327-361` | `generation` + cancel | correct |
 
-### 2.2 仍存在的竞态 / 丢失路径
+### 2.2 Remaining Races / Loss Paths
 
-- **批量恢复被“最新打开获胜”击穿**（P0-2）：`restoreTabs` 同步循环调用 `openFile`，每次 `openSerial += 1` 并异步读；读完成时只有最后一次请求的 serial 能通过 guard。随后 `open()` 立即 `persistOpenWindows()`，而 `tabStrip` 还空。结果是“恢复的窗口通常只剩最后 1 个标签，并把保存的标签列表覆盖掉”。单测只测 `WorkspaceWindowState.normalized`（`EditorShellTests.swift:256-284`），CI 的 `renderDocumentWindow` 直接 `session.openRelative("fixture.md")`，不经过 restore（`GutterSnapshot.swift:533-700`）。
-- **每 tab 的 viewMode 不持久化**（P1-3）：`windowState()` 对所有 tab 硬编码 `.reading`（`717-724`）；`openRestored` 也传 `.reading`（`749-761`）；`restoreTabs` 从不 `setMode`（`727-747`）。`WorkspaceTabState.mode` 在恢复路径上等于死字段，而 `EditorTab.mode` 有单测（`EditorTabs.swift:72-75`, `EditorShellTests.swift:234`）。
-- **快速连续点两个不同文件**：由于 `openSerial` 是全局的，A→B 时 A 的读被丢弃，A 根本不出标签（`539-563`）。对“预览替换”语义可接受，但和“点过的文件都应有标签”的直觉冲突；建议只让同一 path 的 request 竞争，跨 path 用打开顺序队列。
-- **Replace in Folder 的 TOCTOU**（P1-4）：`planFolderReplace` 在后台读取全部文件内容（`1416-1478`），确认框后 `applyFolderChange`（`1306-1375`）对**未打开的文件直接按旧计划写入**，不重读、不比对；若期间文件被外部修改/iCloud 同步，会被静默覆盖。只对“当前打开且 text 等于计划原文”的 buffer 做了检查（`1313-1315`）。
-- **Replace in Folder 的隐藏文件越界**：计划阶段的文件列表只排除 `shouldSkipRelativePath`（`.git/node_modules/.build`），**不排除 `entry.isHidden`、也不看 `showsHiddenFiles`**（`1241-1243`；内容搜索同样 `1148-1150`）。对比 `searchPanelContents` 是过滤的（`1183, 1189-1194`）。所以“隐藏文件”关闭时，Replace All 仍会改 `.env`、`.obsidian/*` 等用户看不见的文本文件。
-- **关窗/退出丢失未保存编辑**（P0-3）：`windowWillClose` 直接 `session.shutdown()`（`WorkspaceWindowController.swift:129-137`），`prepareForQuit` 只 flush 一次并 `terminateNow`（`445-451, 652-657`）；`shutdown` 对每个 buffer `flush()`（`211-223`），而 `flush` 只调用一次非强制 `save`（`1767-1770`）。若该次保存是 conflict/编码错误/IO 错误（`1925-1933`），编辑只留在内存，窗口随即销毁；冲突提示 `offerExternalChange` 还要求 `buffer === self.buffer`（`961-963`），后台标签的冲突连提示都没有。
-- **trash 脏文件**：`trash` 先 `closeTab(force: true)`（不 flush），再 `trashItem`（`479-489`）；被 force 关闭的 buffer 的 flush 被排到 `DispatchQueue.main.async`（`676-688`），执行时文件已在废纸篓 → `save` 走 conflict 分支不写盘 → 未保存编辑丢失。
-- **保存中文本再变**：已处理（`needsFollowUpSave`），但只在 `.write` 分支；`.conflict` 时新编辑继续只留在内存（`userEdited` 见 `conflictText != nil` 就 cancel save，`1755-1758`），直到用户处理横幅，属预期但需保证横幅可见（见 P1-1）。
-- **磁盘监听**：`DirectoryMonitor` 每 key 一个 `DispatchSourceFileSystemObject`，250ms 去抖（`WorkspaceFileAccess.swift:8-74`）；文件监听在 buffer 安装时挂、释放时摘（`980-993`），目录监听随展开/折叠增删（`1067-1073, 1493-1500`）。问题在于**每次目录事件 `load()` 都调用 `scheduleIndex()`**（`1534`），即任何一次文件树变化都触发全根递归索引（P1-6）。
-- **重复 buffer**：跨工作区窗口有 `claimExistingFile`（`523` + `WorkspaceWindowController.swift:259-272`），但 `openInDocumentWindow`（`1021-1027`）与 Reading 预览链接（`DocumentEditorView.swift:178-182`）会把同一文件交给 `NSDocumentController` 的 `DocumentGroup`，产生第二个模型；两边各自保存，只靠磁盘冲突兜底（P2-8）。
-
----
-
-## 3. 资源与生命周期
-
-### 3.1 security-scoped bookmark
-
-- 创建：`WorkspaceBookmarks.make`（`WorkspaceFileAccess.swift:228-235`）、`capture`（start/stop 包住写入，`237-253`）；面板路径直接 `make`（`WorkspaceWindowController.swift:54-60, 185-193`），CLI/拖放路径用 `capture`（`FolderOpening.swift:574`, `WorkspaceWindowController.swift:222`）。
-- 持有：`WorkspaceSession.bookmark` + `activate()` 里 `startAccessingSecurityScopedResource` 一次（`WorkspaceSession.swift:189`），`shutdown()` 成对 stop（`219-222`）。`accessStarted` 防重复。
-- CLI 路径：`application(_:open:)` 里 `startAccessing` → `openOne` → `stopAccessing`（`FolderOpening.swift:516-524`）；session 内部用解析后的 bookmark URL 再 start，避免外层 stop 后失权（设计上成立）。
-- **问题**：① `stale` 标志被丢弃，恢复时从不刷新/重写 bookmark（`WorkspaceFileAccess.swift:255-270`；`WorkspaceWindowController.swift:224-232` 只记日志）；文件夹被移动/重命名后恢复会逐渐失效。② 面板路径不 start/stop 而直接 `make`，与 `capture` 的约定不一致；③ `WorkspaceLibrary` 每次 `onTabsChanged` 都把全部 bookmark/窗口状态同步写 UserDefaults（`WorkspaceWindowController.swift:99-102, 461-468`），主线程做 JSON+Data 写入；④ 恢复窗口的 tab 路径未校验，直接进 `url(for:)`（`1052-1056`）——`".."` 组件可越出 root（持久化数据被篡改时）。
-
-### 3.2 NSWindow / SwiftUI 混合
-
-- 不是 `NSWindow` 子类，而是普通 `NSWindow` + `NSWindowController` 作为 delegate（`WorkspaceWindowController.swift:8-34`），`isReleasedWhenClosed = false`（`:28`），窗口从 `static controllers` 强持，关闭时移除（`:129-137`）。
-- **不用 `NSHostingController` 的原因**（架构文档也写了，`docs/architecture.md:7`）：它是约束驱动的 content controller，会把编辑器 flexible height 反写窗口，每轮布局窗口越来越高直到 AppKit abort。现在用 `WorkspaceRootView: NSView` 包 `NSHostingView`、`sizingOptions = []`、手动 frame + `layout()` 同步（`WorkspaceWindowController.swift:106-115, 472-498`）。这是正确取舍，保留注释即可。
-- 窗口 chrome 直接改 AppKit 标题栏：`WorkspaceChrome.apply`（`WorkspaceView.swift:1357-1383`）把 `titleVisibility=.hidden`、去掉 toolbar；`TitlebarTitleInstaller` 往 `standardWindowButton(.closeButton).superview` 里插 label/toggles（`1100-1191`），并在 `layout()` 里反复 re-apply（`WorkspaceChromeView:1068-1092`）。
-- 生命周期缺口：
-  - `windowWillClose` 不拦截，没有“未保存更改”闸门（P0-3）。
-  - `installPhantomGuard` 注册 3 个通知 + 6 段延时 pass（`308-348`），永不注销（app 级可接受）；`closeStrayWindows`/`closePhantomWindows` 用 500×500/alpha 启发式关闭“不是我们的”窗口（`350-421`），属于高维护成本、可能误杀未来窗口的代码。
-  - `WindowFill.fillOnce` 用 `NSHashTable.weakObjects` + 3 次 `async` 重试（`665-692`），可接受。
-  - `static controllers` 是强引用数组，若窗口未走 `windowWillClose`（异常路径）会永久保留整个 session。
-- SwiftUI 视图内的 AppKit 机器：`XYZSplitView` 600+ 行、`SidebarColumnView` 300+ 行、`SidebarDivider`/`PaneSplitView`/`PaneHost`（`WorkspaceView.swift:24-549`），`PaneHost.layout` 反向锁 frame（`:552-567`）；这些是“窗口不稳定”的历史产物，能工作但难测。
-
-### 3.3 NSTextView / WKWebView 持有与 retain cycle
-
-- 编辑器：`XYZMacEditor` UI 由 `EditorPane`/`XYZMacTextView` 持有，`EditorFindModel.editorView` 是 `weak`（`EditorChrome.swift:36`），`find.edit` 捕获 `[weak textView]`（`XYZMacEditor.swift:1193-1194`）。`Coordinator.deinit` 移除滚动观察（`XYZMacEditor.swift:1323-1327`）。
-- Reading：`PreviewWebHost` 每个 session 一个、惰性建 `WKWebView` 并跨文件复用（`WorkspaceSession.swift:108-110`；`MarkdownWebView.swift:17-39`），`PreviewWebCoordinator.openFile` 捕获 `[weak self]`。`WorkspaceDetail` 切换 surface 时 `MarkdownPreview` 复用同一 host，不会重复建 web view（符合意图），但 session 关闭时不显式 `stopLoading`/置空，依赖 dealloc。
-- 回调捕获审计：`onEditorState`/`onConflict`/`scrollLink.onViewportLine`/`previewHost.openFile`/monitor 回调/`onTabsChanged`/`claimExistingFile`/`onMoveTab` 全部 `[weak self]`（`947-955, 149-151, 190-194, 983-987, 1068-1072, WorkspaceWindowController.swift:95-105`），未发现 session↔controller 的强环。
-- 剩余静态/全局持有：`EditorCommands.shared`（弱 `target`/`hostWindow`，`EditorCommands.swift:127-128`）、`EditorMenuSupport.observers`/`FolderOpening.observers`/`EscapeKey.menuObservers`/`WorkspaceWindowController.phantomObservers` 永不注销（app 级）、`TabMiddleTarget.live` + 全局 `monitor`（`EditorChrome.swift:805-850`，weak 视图但 `viewDidMoveToWindow` 可重复 append）、`AboutWindow.panel`、`GoToLinePanel.current`（仅 cancel/commit 时清空，失焦 hides 时不清，`EditorCommands.swift:1813-1918`）。`EditorAnchorView` 注册 `didBecomeKey` 观察但**没有 `deinit` 注销**（`EditorCommands.swift:1159-1205`），虽然 `viewDidMoveToWindow` 二次进入会先移除，仍建议补 deinit。
-- 第三方表面：`PDFSurface.Coordinator` 有 deinit 注销（`FileSurfaces.swift:328-330`）；`QuickLookHost` 从不 `preview?.close()`（`371-416`）；`MediaSurface` dismantle 会 pause（`351-355`）；`ImageSurface` 在 `makeNSView/updateNSView` 主线程 `NSImage(contentsOf:)` 整图解码（`143-168, 180-187`），大图/HEIC 会明显卡顿且无降采样。
+- **Batch restore is defeated by "latest open wins"** (P0-2): `restoreTabs` calls `openFile` in a synchronous loop; each call does `openSerial += 1` and then reads asynchronously; when a read completes, only the serial of the last request can pass the guard. `open()` then immediately calls `persistOpenWindows()`, while `tabStrip` is still empty. The result is "a restored window usually keeps only its last tab, and the saved tab list is overwritten". Unit tests only cover `WorkspaceWindowState.normalized` (`EditorShellTests.swift:256-284`); CI's `renderDocumentWindow` calls `session.openRelative("fixture.md")` directly and never goes through restore (`GutterSnapshot.swift:533-700`).
+- **Per-tab viewMode is not persisted** (P1-3): `windowState()` hardcodes `.reading` for all tabs (`717-724`); `openRestored` also passes `.reading` (`749-761`); `restoreTabs` never calls `setMode` (`727-747`). `WorkspaceTabState.mode` is a dead field on the restore path, while `EditorTab.mode` does have unit tests (`EditorTabs.swift:72-75`, `EditorShellTests.swift:234`).
+- **Two different files clicked in quick succession**: because `openSerial` is global, when A→B happens A's read is discarded and A never gets a tab at all (`539-563`). That is acceptable for "preview replacement" semantics, but it conflicts with the intuition that "every file you clicked should have a tab"; the suggestion is to let only requests for the same path compete, and to use an open-order queue across paths.
+- **TOCTOU in Replace in Folder** (P1-4): `planFolderReplace` reads all file contents in the background (`1416-1478`); after the confirmation dialog, `applyFolderChange` (`1306-1375`) **writes unopened files directly from the old plan**, without re-reading or comparing; if a file was modified externally/iCloud-synced in the meantime, it is silently overwritten. Only the buffer that is "currently open and whose text equals the planned original" is checked (`1313-1315`).
+- **Hidden-file overflow in Replace in Folder**: the file list at plan time excludes only `shouldSkipRelativePath` (`.git/node_modules/.build`) and **does not exclude `entry.isHidden`, nor consult `showsHiddenFiles`** (`1241-1243`; content search is the same, `1148-1150`). By contrast, `searchPanelContents` does filter (`1183, 1189-1194`). So with "hidden files" off, Replace All still rewrites text files the user cannot see, such as `.env` and `.obsidian/*`.
+- **Window close/quit loses unsaved edits** (P0-3): `windowWillClose` calls `session.shutdown()` directly (`WorkspaceWindowController.swift:129-137`), `prepareForQuit` flushes only once and then `terminateNow` (`445-451, 652-657`); `shutdown` calls `flush()` on every buffer (`211-223`), while `flush` calls a single non-forced `save` (`1767-1770`). If that save is a conflict/encoding error/IO error (`1925-1933`), the edit survives only in memory and the window is destroyed right after; conflict notification via `offerExternalChange` additionally requires `buffer === self.buffer` (`961-963`), so conflicts in background tabs get no notification at all.
+- **trash of dirty files**: `trash` first calls `closeTab(force: true)` (no flush) and then `trashItem` (`479-489`); the force-closed buffer's flush is deferred to `DispatchQueue.main.async` (`676-688`), and by the time it runs the file is already in the Trash → `save` takes the conflict branch and does not write → unsaved edits are lost.
+- **Text changes again during save**: already handled (`needsFollowUpSave`), but only on the `.write` branch; on `.conflict`, new edits stay in memory only (`userEdited` cancels the save when it sees `conflictText != nil`, `1755-1758`). That is intended behavior, but the banner must be guaranteed visible (see P1-1).
+- **Disk watching**: `DirectoryMonitor` uses one `DispatchSourceFileSystemObject` per key with a 250 ms debounce (`WorkspaceFileAccess.swift:8-74`); the file monitor is attached when the buffer is installed and detached on release (`980-993`), and directory monitors are added/removed with expand/collapse (`1067-1073, 1493-1500`). The problem is that **every directory event triggers a `load()`, which calls `scheduleIndex()`** (`1534`) — i.e. any file-tree change starts a full-root recursive index (P1-6).
+- **Duplicate buffers**: cross-workspace-window deduplication exists via `claimExistingFile` (`523` + `WorkspaceWindowController.swift:259-272`), but `openInDocumentWindow` (`1021-1027`) and Reading preview links (`DocumentEditorView.swift:178-182`) hand the same file to `NSDocumentController`'s `DocumentGroup`, producing a second model; each side saves independently and only disk conflict catches it (P2-8).
 
 ---
 
-## 4. 复杂度热点与拆分建议
+## 3. Resources and Lifecycle
 
-统计（`grep` 声明 + 行数）：`WorkspaceSession.swift` 1978 行/6 类型/110 func；`EditorCommands.swift` 1919/21/143；`WorkspaceView.swift` 1852/21/110；`WorkspaceSidebar.swift` 1839/18/112；`EditorChrome.swift` 1395/26/62；`GlobalSearchPanel.swift` 908/6/51；`WorkspaceWindowController.swift` 744/9/33；`FolderOpening.swift` 530/6/17；`FileSurfaces.swift` 430/11/24。
+### 3.1 security-scoped bookmarks
 
-巨型 body / 命令分发的具体证据：
+- Creation: `WorkspaceBookmarks.make` (`WorkspaceFileAccess.swift:228-235`), `capture` (wraps the write in start/stop, `237-253`); panel paths call `make` directly (`WorkspaceWindowController.swift:54-60, 185-193`), CLI/drag paths use `capture` (`FolderOpening.swift:574`, `WorkspaceWindowController.swift:222`).
+- Holding: `WorkspaceSession.bookmark` + a single `startAccessingSecurityScopedResource` inside `activate()` (`WorkspaceSession.swift:189`), with the paired stop in `shutdown()` (`219-222`). `accessStarted` prevents duplicates.
+- CLI path: `startAccessing` → `openOne` → `stopAccessing` inside `application(_:open:)` (`FolderOpening.swift:516-524`); the session then starts access again on the resolved bookmark URL, avoiding loss of access after the outer stop (sound by design).
+- **Problems**: (1) the `stale` flag is discarded, and restore never refreshes/rewrites the bookmark (`WorkspaceFileAccess.swift:255-270`; `WorkspaceWindowController.swift:224-232` only logs); restore degrades over time after the folder is moved/renamed. (2) Panel paths call `make` without start/stop, inconsistent with the `capture` convention. (3) `WorkspaceLibrary` synchronously writes all bookmarks/window state to UserDefaults on every `onTabsChanged` (`WorkspaceWindowController.swift:99-102, 461-468`), doing JSON+Data writes on the main thread. (4) Restored window tab paths are not validated before entering `url(for:)` (`1052-1056`) — a `".."` component can escape the root (if persisted data is tampered with).
 
-- `EditorCommands.handleKeyEquivalent` 用 40+ 个 `if flags == ... && key == ...` 顺序匹配（`159-265`），`run(_ id:)` 是 30 分支 `switch`（`439-498`），另有 370 行命令式菜单手术（`EditorMenuSupport`，`776-1143`）和 3 个面板类。
-- `WorkspaceSession` 同时干了：树/展开/持久化、打开代际、磁盘监听、索引与内容搜索、全局搜索聚合、文件夹替换（计划+写盘+undo）、tab/滚动/视图模式、CLI 打开辅助（`openInDocumentWindow`）。
-- `WorkspaceView.swift` 里 SwiftUI 文件塞进了 `NSSplitView` 全套（`24-549`）、标题栏 AppKit 注入（`1005-1383`）、业务 detail（`1385-1658`）、命令桥（`1660-1842`）。
-- `WorkspaceSidebar.swift` 一个文件包含 representable + NSOutlineView 数据源/拖放/重命名（`84-705`）、列宽拟合（`708-1047`）、root header（`1050-1276`）、行 cell/绘制（`1392-1838`）、CI 自检（`724-847`）。
+### 3.2 NSWindow / SwiftUI Hybrid
 
-最该拆的 8 处（按收益排序）：
+- Not an `NSWindow` subclass, but a plain `NSWindow` + `NSWindowController` acting as delegate (`WorkspaceWindowController.swift:8-34`), with `isReleasedWhenClosed = false` (`:28`); the window is strongly held from `static controllers` and removed on close (`:129-137`).
+- **Why `NSHostingController` is not used** (also documented in the architecture doc, `docs/architecture.md:7`): it is a constraint-driven content controller that feeds the editor's flexible height back into the window, and each layout pass makes the window taller until AppKit aborts. The current design wraps an `NSHostingView` in `WorkspaceRootView: NSView`, sets `sizingOptions = []`, and uses manual frames + `layout()` synchronization (`WorkspaceWindowController.swift:106-115, 472-498`). This is the right trade-off; just keep the comment.
+- Window chrome mutates the AppKit titlebar directly: `WorkspaceChrome.apply` (`WorkspaceView.swift:1357-1383`) sets `titleVisibility=.hidden` and removes the toolbar; `TitlebarTitleInstaller` inserts labels/toggles into `standardWindowButton(.closeButton).superview` (`1100-1191`), and re-applies them repeatedly inside `layout()` (`WorkspaceChromeView:1068-1092`).
+- Lifecycle gaps:
+  - `windowWillClose` is not intercepted, so there is no "unsaved changes" gate (P0-3).
+  - `installPhantomGuard` registers 3 notifications + 6 delayed passes (`308-348`) and never unregisters them (acceptable at app scope); `closeStrayWindows`/`closePhantomWindows` use 500×500/alpha heuristics to close windows that are "not ours" (`350-421`) — high-maintenance code that could kill future windows.
+  - `WindowFill.fillOnce` uses `NSHashTable.weakObjects` + 3 `async` retries (`665-692`); acceptable.
+  - `static controllers` is a strongly referenced array; if a window does not go through `windowWillClose` (abnormal path), the entire session is retained forever.
+- AppKit machinery inside SwiftUI views: `XYZSplitView` at 600+ lines, `SidebarColumnView` at 300+ lines, `SidebarDivider`/`PaneSplitView`/`PaneHost` (`WorkspaceView.swift:24-549`), and `PaneHost.layout` reverse-locking the frame (`:552-567`); these are historical artifacts of "window instability" — they work but are hard to test.
 
-1. **`WorkspaceSession` → 4 个协作对象**：`WorkspaceSession`（树/选中/tab 呈现）、`WorkspaceOpenCoordinator`（openFile/代际/restoreTabs，含“批量恢复”路径）、`WorkspaceIndexer`（`scheduleIndex` + `WorkspaceIndexScan` + 搜索结果聚合）、`FolderReplaceEngine`（plan/apply/undo）。第 5 个：把 `WorkspaceFileBuffer` 拆到独立文件与独立保存协调器。
-2. **打开/恢复的纯逻辑进 XYZCore**：把 `restoreTabs` 的“应用顺序”建模成纯函数（输入 `WorkspaceWindowState`，输出 tab 序列 + 每 tab mode/preview/pinned），才能对 P0-2 写回归单测。
-3. **`EditorCommands` → 快捷键表 + 命令注册表 + 菜单安装器 + 各面板**。快捷键/校验改成声明式 `[Shortcut]`，`run(id:)` 映射到 `PaletteCommand`（`XYZCore/CommandPalette.swift` 已有 id/title），消灭两套命令表。
-4. **`WorkspaceView` → `XYZSplitView` 机器单独文件**（AppKit，~730 行）、窗口 chrome/标题栏单独文件、`WorkspaceDetail` 单独文件、`WorkspaceCommandBridge` 单独文件。
-5. **`WorkspaceSidebar` → Coordinator（数据源）+ SidebarColumnView/Header + SidebarRowCell 绘制 + 宽度拟合/自检**。CI 专用 `SidebarColumnFitCheck` 不应留在生产文件里。
-6. **`GlobalSearchPanel` → 面板构建/搜索 cell + 控制器状态机**；`QueryField` 的 diagnostics 覆盖应移到 DEBUG。
-7. **`EditorChrome` → find model/bar、tab bar、breadcrumb/status bar、outline、tab switch picker**（现 26 个类型混在一个文件）。
-8. **`FolderOpening` → swizzling hooks 独立模块 + FileMenuSupport + AppDelegate**；`FileSurfaces` 按 surface 拆文件，JSON/CSV 视图可移到独立文件。
+### 3.3 NSTextView / WKWebView Ownership and Retain Cycles
 
-本应在 `XYZCore`（可单测）但目前留在 App 的逻辑：
-
-- **路径包含/规范化**：`openLinked`（`WorkspaceSession.swift:359-368`）、CLI（`FolderOpening.swift:534-540`）、拖放（`WorkspaceSidebar.swift:679-689`）、索引（`WorkspaceSession.swift:1950-1964`）各自手写 `standardizedFileURL.path + hasPrefix(root + "/")`，没有共享函数、没有单测，也没覆盖符号链接/大小写/Unicode 归一化。
-- **大小写/归一化感知的唯一命名**：`WorkspaceItemName.unique`（`XYZCore WorkspaceSearch.swift:297-309`）只做精确字符串集合判断，与当前卷的 case-insensitive 语义不一致（P0-1）。
-- **保存状态机**：`WorkspaceFilePolicy` 只有判定函数；debounce/serial/epoch/冲突提示的**迁移序列**留在 `WorkspaceFileBuffer`，没有状态机测试。
-- **Replace 计划的纯函数化**：把“条目+文本→变更集”抽成 core 类型（IO 留在 App），可测编码/换行/大小写/隐藏文件过滤。
-- **索引扫描的跳过策略**：`WorkspaceIndexScan` 在 App（`1938-1976`），其 skip/隐藏/上限语义至少应与 `WorkspaceContentSearch` 共用 core 规则并测试（当前 `.git/node_modules/.build` 名单只在 core，扫描器却自己实现）。
-
----
-
-## 5. 安全
-
-沙箱能力（`XYZ/XYZ-macOS.entitlements`）：`app-sandbox`、`files.user-selected.read-write`、`files.bookmarks.app-scope`、`network.client`、iCloud CloudDocuments。所有磁盘访问都应落在“用户选择的文件夹 root + bookmark”内。
-
-1. **路径规范化**：见第 4 节；`standardizedFileURL` 只解 `..`/`//`，**不解符号链接**；大小写不同（APFS 默认不区分大小写）与 Unicode NFC/NFD 不同都没有处理。`WorkspaceSession.url(for:)`（`1052-1056`）对 `relativePath` 的每个 `/` 分段直接 `appendingPathComponent`，持久化/恢复的路径若含 `..` 或绝对分段会越出 root；`openRelative` 本身也不校验。
-2. **隐藏文件/跳过目录**：全局只有 `.git`、`node_modules`、`.build` 三个目录被跳过（`XYZCore/WorkspaceSearch.swift:339-347`）；`Pods`、`DerivedData`、`vendor`、`.venv`、`target` 等仍会被索引/内容搜索/Replace All。隐藏文件在“显示隐藏文件”关闭时仍会被内容搜索与 Replace All 命中（P1-4），这是“搜索/替换越界”的直接来源。
-3. **符号链接**：`WorkspaceDirectoryLoader` 把 symlink 当文件（`WorkspaceDirectoryLoader.swift:10-27`，`isDirectory = isDirectory && !isLink`），索引同样（`WorkspaceSession.swift:1957-1958`）。用户编辑后保存走 `Data.write(.atomic)`（`WorkspaceFileAccess.swift:139-142`），会**替换目录项**而不是写目标（P1-5）。索引/内容搜索会跟随链接读外内容（受沙箱限制）。
-4. **Quick Look / 外部打开**：`FileOpenRouting` 把 Office 等交给 Quick Look（`WorkspaceFilePolicy.swift:199-222`），`QuickLookSurface` 直接 `QLPreviewItem`（`FileSurfaces.swift:357-416`），安全性依赖系统预览扩展沙箱。`openLinked` 对 root 外链接直接 `NSWorkspace.shared.open`（`WorkspaceSession.swift:363-365`），Reading 里的相对链接可被 `<base href="xyz-asset://...">` 解析成任意绝对路径（`MarkdownWebView.swift:582-597` + `LocalAssets.swift:26-31`），恶意 Markdown 可以用“看起来像笔记”的链接让用户点开任意 app/文档（显式点击，但无确认）。`NSDocumentController.openDocument`（`DocumentEditorView.swift:178-182`, `WorkspaceSession.openInDocumentWindow`）是第二个入口。
-5. **WebView 内容**：自定义 scheme 只服务 image/audio/video（`LocalAssets.swift:33-39`），路径可以是任意绝对路径，靠沙箱兜底；`URLPolicy` 允许 http/https 图片（`HTMLRenderer.swift:481-499`），未受信 Markdown 打开时会**自动加载远程图片**（IP/跟踪像素泄露），无“阻止远程内容”开关；raw HTML 被转义（安全方向正确）。
-6. **NSSavePanel / NSDocumentController swizzling**（`FolderOpening.swift:64-111, 113-145, 160-236, 249-258`）：进程内全局改写系统/框架类方法，手写 `@convention(block)` 签名 + `unsafeBitCast` 转发，一旦 AppKit/SwiftUI 改实现或签名不匹配，后果是 File→Open、“新建文档”等行为静默改变甚至崩溃；`userAskedForUntitled()` 用 `NSApp.currentEvent` 猜“⌘N”（`239-246`），AppleScript/URL/菜单校验触发的合法新建会被取消；`suppressDocumentOpenPanel` 是全局一次性开关（`16-35, 278-283`）。这是明确的**升级风险面**，不应再扩大。
-7. **诊断/日志**：`WorkspaceLog` 对路径用 `.private`（`WorkspaceLog.swift:29-88`）正确；`XYZDiagnostics` 只应在显式开关下写统一日志+临时文件（`XYZDiagnostics.swift:16-56`），其中 `note` 高频同步 append（`192-204`）在设计上仅调试用，不要在生产默认开启。
+- Editor: the `XYZMacEditor` UI is held by `EditorPane`/`XYZMacTextView`, `EditorFindModel.editorView` is `weak` (`EditorChrome.swift:36`), and `find.edit` captures `[weak textView]` (`XYZMacEditor.swift:1193-1194`). `Coordinator.deinit` removes scroll observations (`XYZMacEditor.swift:1323-1327`).
+- Reading: one `PreviewWebHost` per session, lazily creating a `WKWebView` reused across files (`WorkspaceSession.swift:108-110`; `MarkdownWebView.swift:17-39`), with `PreviewWebCoordinator.openFile` capturing `[weak self]`. When `WorkspaceDetail` switches surfaces, `MarkdownPreview` reuses the same host and does not create another web view (as intended), but on session close it does not explicitly `stopLoading`/nil it out, relying on dealloc.
+- Callback capture audit: `onEditorState`/`onConflict`/`scrollLink.onViewportLine`/`previewHost.openFile`/monitor callbacks/`onTabsChanged`/`claimExistingFile`/`onMoveTab` are all `[weak self]` (`947-955, 149-151, 190-194, 983-987, 1068-1072, WorkspaceWindowController.swift:95-105`); no strong session↔controller cycle was found.
+- Remaining static/global holdings: `EditorCommands.shared` (weak `target`/`hostWindow`, `EditorCommands.swift:127-128`), `EditorMenuSupport.observers`/`FolderOpening.observers`/`EscapeKey.menuObservers`/`WorkspaceWindowController.phantomObservers` never unregister (app scope), `TabMiddleTarget.live` + the global `monitor` (`EditorChrome.swift:805-850`, weak view but `viewDidMoveToWindow` can append repeatedly), `AboutWindow.panel`, `GoToLinePanel.current` (cleared only on cancel/commit, not when a focus loss hides it, `EditorCommands.swift:1813-1918`). `EditorAnchorView` registers a `didBecomeKey` observation but **has no `deinit` to unregister** (`EditorCommands.swift:1159-1205`); although a second entry through `viewDidMoveToWindow` removes it first, adding a deinit is still recommended.
+- Third-party surfaces: `PDFSurface.Coordinator` has a deinit that unregisters (`FileSurfaces.swift:328-330`); `QuickLookHost` never calls `preview?.close()` (`371-416`); `MediaSurface` pauses on dismantle (`351-355`); `ImageSurface` decodes the whole image on the main thread with `NSImage(contentsOf:)` in `makeNSView/updateNSView` (`143-168, 180-187`), so large images/HEIC visibly stutter and there is no downsampling.
 
 ---
 
-## 6. 可验证性（结合现有 CI）
+## 4. Complexity Hotspots and Extraction Suggestions
 
-现有 CI（`.github/workflows/ci.yml`）：
+Statistics (`grep` of declarations + line counts): `WorkspaceSession.swift` 1978 lines/6 types/110 func; `EditorCommands.swift` 1919/21/143; `WorkspaceView.swift` 1852/21/110; `WorkspaceSidebar.swift` 1839/18/112; `EditorChrome.swift` 1395/26/62; `GlobalSearchPanel.swift` 908/6/51; `WorkspaceWindowController.swift` 744/9/33; `FolderOpening.swift` 530/6/17; `FileSurfaces.swift` 430/11/24.
 
-- `swift test --package-path XYZCore`（:59）→ `XYZCoreTests`：`WorkspaceTests`（573 行，覆盖分类器/路径/树过滤/隐藏/内容搜索/`WorkspaceFilePolicy` 全部判定：`WorkspaceTests.swift:508-573`）、`EditorShellTests`（tab strip 预览/固定/关闭/重排/MRU/`WorkspaceWindowState.normalized`/解码兼容：`:91-300`）、`GlobalSearchTests`、`CommandPaletteTests` 等。**只测纯函数，不触磁盘、不建窗口。**
-- macOS Debug 构建（:66）、iOS Simulator 构建（:200，均通过）。
-- `-XYZCheckGutter`（:77-101）：离屏渲染 + 真窗口截图 + Vision OCR。覆盖：编辑器行号（Edit/Reading、wrap on/off、light/dark）、真实文件夹窗口打开 fixture 并校验存储文本、模式切换、**顺序打开第二个文件**（`renderSwitchedFile`，`GutterSnapshot.swift:892-960`）、Reading WebView 快照、空文件、长文档滚动。
-- “Check original UI acceptance”（:103-122，`:XYZCheckGutter` 内 `runAcceptanceGestures`，`GutterSnapshot.swift:1604-1636`）：`create-file`、`create-folder`、`nested-file`、`refresh`、`collapse-header`、`dividers`、`mode-labels`、`empty-line-prefs` 共 8 个手势/窗口检查；另有 `SearchTypingCheck`（`GlobalSearchPanel.swift:841-895`，模拟逐字键入）、`EscapeCrashCheck`（`GutterSnapshot.swift:2435-2470`，防 `NSWindowController.cancelOperation` 崩溃）、`SidebarColumnFitCheck`（`WorkspaceSidebar.swift:724-847`）。
-- `Launch macOS app`（:125-148）只验证启动 8 秒不退；`-XYZCheckFileMenu`（:150-199，含中文环境）验证 File 菜单项与 OpenPanel/DocumentController hook 已装、Document Open 面板能选文件夹；`FolderLaunchArgument` 等只在 DEBUG。
-- 窗口/pixel 识别上限：截图里 WebView 像素可能拍不到（脚本用 WebKit snapshot 单独补，`GutterSnapshot.swift:640-700`），OCR 依赖语言与像素，且 CI 明确记录过本机截图失败/重试历史（CHANGELOG:11,16,17,38）。
+Concrete evidence of giant bodies / command dispatch:
 
-**有覆盖**：文件分类/编码换行/预览路由/内容搜索匹配/树过滤/隐藏/名称唯一/tab 模型/窗口状态归一化/命令面板匹配/行号渲染/单文件打开与切换/File 菜单/启动/Esc 崩溃/侧栏宽度。
-**只能人工验证（当前无自动化）**：
+- `EditorCommands.handleKeyEquivalent` matches 40+ sequential `if flags == ... && key == ...` checks (`159-265`), `run(_ id:)` is a 30-branch `switch` (`439-498`), plus 370 lines of imperative menu surgery (`EditorMenuSupport`, `776-1143`) and 3 panel classes.
+- `WorkspaceSession` simultaneously does: tree/expand/persistence, open generations, disk monitoring, indexing and content search, global-search aggregation, folder replacement (plan + write + undo), tabs/scroll/view mode, and CLI open helpers (`openInDocumentWindow`).
+- `WorkspaceView.swift` crams a full `NSSplitView` (`24-549`), titlebar AppKit injection (`1005-1383`), business detail (`1385-1658`), and the command bridge (`1660-1842`) into a SwiftUI file.
+- `WorkspaceSidebar.swift` is a single file containing the representable + NSOutlineView data source/drag-and-drop/rename (`84-705`), column-width fitting (`708-1047`), root header (`1050-1276`), row cells/drawing (`1392-1838`), and the CI self-check (`724-847`).
 
-1. 保存/自动保存/冲突/覆盖/缺失文件的行为（`save`、`startFolderReplace`/`applyFolderChange`）。
-2. 关窗口/退出/崩溃恢复时的未保存数据处理（P0-3）。
-3. 窗口恢复（多窗口、多标签、每 tab mode、preview/pinned）——CI 窗口检查是直接 new session 打开单文件，不走 `restoreTabs`（`GutterSnapshot.swift:573-700`）。
-4. 外部磁盘变更（干净文件重载、脏文件冲突、iCloud 同步）与横幅/提示是否出现。
-5. Replace in Folder：隐藏文件、打开/未打开文件、并发修改、undo。
-6. 大小写冲突、符号链接/硬链接、Unicode 归一化、只读卷、权限被撤销。
-7. security-scoped bookmark 失效/移动文件夹/重启恢复。
-8. 多窗口同文件夹、tab 拖出成新窗口、跨 DocumentGroup/工作区重复打开。
-9. 拖放移动、右键重命名/移到废纸篓、隐藏文件开关。
-10. Quick Look/PDF/视频/大图显示与释放。
+The 8 extractions most worth doing (ordered by payoff):
 
-建议的补测优先级（都可在 `XYZCore` 或离屏 AppKit 里做）：先给 `WorkspaceWindowState → restore 顺序`、`FolderOpening` 之外的 `unique`（大小写/归一化）、路径包含 helper、Replace 计划纯函数补单测；再给 `WorkspaceFileBuffer` 的保存/epoch/conflict 状态机做无窗口集成测试（注入 fake IO）；最后把 `restoreTabs` + 一次真实保存/退出加进 `-XYZCheckGutter` 的窗口检查。
+1. **`WorkspaceSession` → 4 collaborating objects**: `WorkspaceSession` (tree/selection/tab presentation), `WorkspaceOpenCoordinator` (openFile/generations/restoreTabs, including the "batch restore" path), `WorkspaceIndexer` (`scheduleIndex` + `WorkspaceIndexScan` + search-result aggregation), `FolderReplaceEngine` (plan/apply/undo). A fifth: split `WorkspaceFileBuffer` into its own file with a dedicated save coordinator.
+2. **Open/restore pure logic into XYZCore**: model the "apply order" of `restoreTabs` as a pure function (input `WorkspaceWindowState`, output tab sequence + per-tab mode/preview/pinned), which is the only way to write a regression unit test for P0-2.
+3. **`EditorCommands` → shortcut table + command registry + menu installer + individual panels**. Make shortcuts/validation declarative `[Shortcut]`, map `run(id:)` to `PaletteCommand` (`XYZCore/CommandPalette.swift` already has id/title), and eliminate the two command tables.
+4. **`WorkspaceView` → a separate file for the `XYZSplitView` machinery** (AppKit, ~730 lines), a separate file for window chrome/titlebar, a separate file for `WorkspaceDetail`, and a separate file for `WorkspaceCommandBridge`.
+5. **`WorkspaceSidebar` → Coordinator (data source) + SidebarColumnView/Header + SidebarRowCell drawing + width fitting/self-check**. The CI-only `SidebarColumnFitCheck` should not remain in a production file.
+6. **`GlobalSearchPanel` → panel construction/search cell + controller state machine**; move `QueryField`'s diagnostics overlay to DEBUG.
+7. **`EditorChrome` → find model/bar, tab bar, breadcrumb/status bar, outline, tab-switch picker** (26 types are currently mixed into one file).
+8. **`FolderOpening` → a standalone swizzling-hooks module + FileMenuSupport + AppDelegate**; split `FileSurfaces` by surface into separate files, and move the JSON/CSV views into their own files.
+
+Logic that belongs in `XYZCore` (unit-testable) but currently stays in the App:
+
+- **Path containment/normalization**: `openLinked` (`WorkspaceSession.swift:359-368`), CLI (`FolderOpening.swift:534-540`), drag-and-drop (`WorkspaceSidebar.swift:679-689`), and indexing (`WorkspaceSession.swift:1950-1964`) each hand-write `standardizedFileURL.path + hasPrefix(root + "/")`, with no shared function, no unit tests, and no coverage of symlinks/case/Unicode normalization.
+- **Case-/normalization-aware unique naming**: `WorkspaceItemName.unique` (`XYZCore WorkspaceSearch.swift:297-309`) only does an exact-string set check, inconsistent with the current volume's case-insensitive semantics (P0-1).
+- **Save state machine**: `WorkspaceFilePolicy` only has decision functions; the debounce/serial/epoch/conflict-notice **migration sequence** stays in `WorkspaceFileBuffer`, with no state-machine tests.
+- **Pure-function Replace planning**: extract "entries + text → change set" into a core type (IO stays in the App) so encoding/line endings/case/hidden-file filtering can be tested.
+- **Index-scan skip policy**: `WorkspaceIndexScan` is in the App (`1938-1976`); its skip/hidden/cap semantics should at least share core rules with `WorkspaceContentSearch` and be tested (currently the `.git/node_modules/.build` list lives only in core, while the scanner implements its own).
 
 ---
 
-## 7. 发现清单
+## 5. Security
 
-> 编号后括号为严重度定义：P0 = 数据丢失/崩溃/安全；P1 = 明显缺陷/高风险；P2 = 改进。
+Sandbox capabilities (`XYZ/XYZ-macOS.entitlements`): `app-sandbox`, `files.user-selected.read-write`, `files.bookmarks.app-scope`, `network.client`, iCloud CloudDocuments. All disk access should stay within "user-selected folder root + bookmark".
+
+1. **Path normalization**: see section 4; `standardizedFileURL` resolves only `..`/`//` and **does not resolve symlinks**; differing case (APFS is case-insensitive by default) and differing Unicode NFC/NFD are not handled. `WorkspaceSession.url(for:)` (`1052-1056`) appends each `/` segment of `relativePath` directly via `appendingPathComponent`; a persisted/restored path containing `..` or an absolute segment escapes the root, and `openRelative` itself does not validate either.
+2. **Hidden files/skipped directories**: globally only `.git`, `node_modules`, and `.build` are skipped (`XYZCore/WorkspaceSearch.swift:339-347`); `Pods`, `DerivedData`, `vendor`, `.venv`, `target`, etc. are still indexed/content-searched/Replace-All'd. When "show hidden files" is off, hidden files are still hit by content search and Replace All (P1-4), which is the direct source of "search/replace out of bounds".
+3. **Symlinks**: `WorkspaceDirectoryLoader` treats a symlink as a file (`WorkspaceDirectoryLoader.swift:10-27`, `isDirectory = isDirectory && !isLink`), and indexing does the same (`WorkspaceSession.swift:1957-1958`). After the user edits, saving goes through `Data.write(.atomic)` (`WorkspaceFileAccess.swift:139-142`), which **replaces the directory entry** instead of writing the target (P1-5). Indexing/content search follow links and read outside content (limited by the sandbox).
+4. **Quick Look / external open**: `FileOpenRouting` hands Office and similar formats to Quick Look (`WorkspaceFilePolicy.swift:199-222`), and `QuickLookSurface` uses `QLPreviewItem` directly (`FileSurfaces.swift:357-416`); security depends on the system preview extension sandbox. `openLinked` calls `NSWorkspace.shared.open` directly for links outside the root (`WorkspaceSession.swift:363-365`); a relative link in Reading can be resolved by `<base href="xyz-asset://...">` into an arbitrary absolute path (`MarkdownWebView.swift:582-597` + `LocalAssets.swift:26-31`), so a malicious Markdown can use a link that "looks like a note" to make the user open an arbitrary app/document (explicit click, but no confirmation). `NSDocumentController.openDocument` (`DocumentEditorView.swift:178-182`, `WorkspaceSession.openInDocumentWindow`) is a second entry point.
+5. **WebView content**: the custom scheme serves only image/audio/video (`LocalAssets.swift:33-39`), and the path may be any absolute path, caught by the sandbox as a backstop; `URLPolicy` allows http/https images (`HTMLRenderer.swift:481-499`), so opening untrusted Markdown **automatically loads remote images** (IP/tracking-pixel leak), with no "block remote content" switch; raw HTML is escaped (correct direction).
+6. **NSSavePanel / NSDocumentController swizzling** (`FolderOpening.swift:64-111, 113-145, 160-236, 249-258`): in-process global rewriting of system/framework class methods, with hand-written `@convention(block)` signatures + `unsafeBitCast` forwarding; if AppKit/SwiftUI changes its implementation or a signature mismatches, the consequences are silently changed behavior for File→Open, "new document", etc., or even crashes; `userAskedForUntitled()` guesses "⌘N" from `NSApp.currentEvent` (`239-246`), so legitimate new-document requests from AppleScript/URL/menu validation get cancelled; `suppressDocumentOpenPanel` is a global one-shot switch (`16-35, 278-283`). This is a definite **upgrade-risk surface** and should not be expanded further.
+7. **Diagnostics/logging**: `WorkspaceLog` uses `.private` for paths (`WorkspaceLog.swift:29-88`), which is correct; `XYZDiagnostics` should write unified logs + temp files only under an explicit switch (`XYZDiagnostics.swift:16-56`), where `note`'s high-frequency synchronous append (`192-204`) is debug-only by design and should not be enabled by default in production.
+
+---
+
+## 6. Verifiability (Against the Current CI)
+
+Current CI (`.github/workflows/ci.yml`):
+
+- `swift test --package-path XYZCore` (:59) → `XYZCoreTests`: `WorkspaceTests` (573 lines, covering the classifier/path/tree filtering/hidden/content search and all `WorkspaceFilePolicy` decisions: `WorkspaceTests.swift:508-573`), `EditorShellTests` (tab strip preview/pin/close/reorder/MRU/`WorkspaceWindowState.normalized`/decode compatibility: `:91-300`), `GlobalSearchTests`, `CommandPaletteTests`, etc. **Only pure functions are tested; no disk, no windows.**
+- macOS Debug build (:66), iOS Simulator build (:200), both passing.
+- `-XYZCheckGutter` (:77-101): offscreen rendering + real window screenshot + Vision OCR. Covers: editor line numbers (Edit/Reading, wrap on/off, light/dark), a real folder window opening a fixture and verifying the stored text, mode switching, **opening a second file sequentially** (`renderSwitchedFile`, `GutterSnapshot.swift:892-960`), Reading WebView snapshot, empty file, long-document scrolling.
+- "Check original UI acceptance" (:103-122, `runAcceptanceGestures` inside `:XYZCheckGutter`, `GutterSnapshot.swift:1604-1636`): `create-file`, `create-folder`, `nested-file`, `refresh`, `collapse-header`, `dividers`, `mode-labels`, `empty-line-prefs` — 8 gesture/window checks in total; plus `SearchTypingCheck` (`GlobalSearchPanel.swift:841-895`, simulates character-by-character typing), `EscapeCrashCheck` (`GutterSnapshot.swift:2435-2470`, guards against the `NSWindowController.cancelOperation` crash), `SidebarColumnFitCheck` (`WorkspaceSidebar.swift:724-847`).
+- `Launch macOS app` (:125-148) only verifies the app stays up for 8 seconds; `-XYZCheckFileMenu` (:150-199, including a Chinese-language environment) verifies that File menu items and the OpenPanel/DocumentController hooks are installed and that the Document Open panel can pick a folder; `FolderLaunchArgument` etc. are DEBUG-only.
+- Window/pixel recognition limits: WebView pixels in the screenshot may not be captured (the script supplements them separately with a WebKit snapshot, `GutterSnapshot.swift:640-700`), OCR depends on language and pixels, and CI has an explicit recorded history of local screenshot failures/retries (CHANGELOG:11,16,17,38).
+
+**Covered**: file classification/encoding and line endings/preview routing/content-search matching/tree filtering/hidden files/name uniqueness/tab model/window-state normalization/command-palette matching/line-number rendering/single-file open and switch/File menu/launch/Esc crash/sidebar width.
+**Manual-only today (no automation)**:
+
+1. Save/autosave/conflict/overwrite/missing-file behavior (`save`, `startFolderReplace`/`applyFolderChange`).
+2. Handling of unsaved data on window close/quit/crash recovery (P0-3).
+3. Window restore (multiple windows, multiple tabs, per-tab mode, preview/pinned) — the CI window check creates a new session and opens a single file directly; it does not go through `restoreTabs` (`GutterSnapshot.swift:573-700`).
+4. External disk changes (clean-file reload, dirty-file conflict, iCloud sync) and whether banners/notices appear.
+5. Replace in Folder: hidden files, opened/unopened files, concurrent modification, undo.
+6. Case collisions, symlinks/hard links, Unicode normalization, read-only volumes, revoked permissions.
+7. security-scoped bookmark invalidation/moved folder/restart restore.
+8. Multiple windows on the same folder, dragging a tab out into a new window, duplicate opens across DocumentGroup/workspace.
+9. Drag-and-drop moves, context-menu rename/move to Trash, hidden-file toggle.
+10. Quick Look/PDF/video/large-image display and release.
+
+Suggested test priorities (all doable in `XYZCore` or offscreen AppKit): first add unit tests for `WorkspaceWindowState → restore order`, for `unique` outside `FolderOpening` (case/normalization), for the path-containment helper, and for the pure Replace planning; then add a windowless integration test for `WorkspaceFileBuffer`'s save/epoch/conflict state machine (inject fake IO); finally add `restoreTabs` plus one real save/quit to the `-XYZCheckGutter` window checks.
+
+---
+
+## 7. Findings
+
+> The parentheses after each id define severity: P0 = data loss/crash/security; P1 = clear defect/high risk; P2 = improvement.
 
 ### P0
 
-**P0-1 新建文件在大小写不敏感卷上会截断已有文件**
-- 证据：`createItem` 用“已列名字 ∪ 磁盘名字”做唯一化（`WorkspaceSession.swift:410-421`），`WorkspaceItemName.unique` 是**精确字符串**比较（`XYZCore/WorkspaceSearch.swift:297-309`），随后 `try Data().write(to: destination, options: .atomic)`（`WorkspaceSession.swift:429-435`）。macOS 默认 APFS 不区分大小写：磁盘已有 `untitled.md` 时，`Untitled.md` 不在集合里，`.atomic` 写会用 rename 覆盖同一个目录项。
-- 本机实验（/tmp）：`printf 'IMPORTANT' > untitled.md` 后 `Data().write(to: "Untitled.md", options: .atomic)` → `untitled.md` 变为 0 字节（名称保持小写）；同样特性下 `.atomic` 也会覆盖任何在“列目录”与“写入”之间刚出现的同名文件。
-- 影响：New File / 右键 New File 静默清空用户文件（iCloud 同步、其他进程刚创建文件同理），属于数据丢失。
-- 建议：`createItem` 使用 `.withoutOverwriting`（或 `O_CREAT|O_EXCL`）并处理已存在错误；唯一化按卷的 case/normalization 语义做（`FileManager` 用 `isCaseSensitiveVolume` 探测，或直接尝试创建后重试）；`XYZCore` 里提供可测的 `uniqueName(preferred:existing:caseInsensitive:)`，并补单测（含 `Note.md`/`note.md`、NFC/NFD）。
+**P0-1 Creating a file on a case-insensitive volume truncates an existing file**
+- Evidence: `createItem` builds uniqueness from "listed names ∪ on-disk names" (`WorkspaceSession.swift:410-421`), `WorkspaceItemName.unique` compares **exact strings** (`XYZCore/WorkspaceSearch.swift:297-309`), and then `try Data().write(to: destination, options: .atomic)` runs (`WorkspaceSession.swift:429-435`). macOS's default APFS is case-insensitive: when `untitled.md` already exists on disk, `Untitled.md` is not in the set, and the `.atomic` write renames over the same directory entry.
+- Local experiment (/tmp): after `printf 'IMPORTANT' > untitled.md`, `Data().write(to: "Untitled.md", options: .atomic)` → `untitled.md` becomes 0 bytes (the name stays lowercase); under the same behavior, `.atomic` also overwrites any same-name file that appears between "list directory" and "write".
+- Impact: New File / context-menu New File silently empties the user's file (same for iCloud sync or another process creating the file concurrently); this is data loss.
+- Recommendation: have `createItem` use `.withoutOverwriting` (or `O_CREAT|O_EXCL`) and handle the already-exists error; make uniqueness follow the volume's case/normalization semantics (probe with `FileManager`'s `isCaseSensitiveVolume`, or just try to create and retry); provide a testable `uniqueName(preferred:existing:caseInsensitive:)` in `XYZCore` with unit tests (including `Note.md`/`note.md` and NFC/NFD).
 
-**P0-2 重启恢复标签被“全局打开串行号”击穿，并把保存的标签列表覆盖成空/单标签**
-- 证据：`openFile` 每次 `openSerial += 1` 并在异步读完成时要求 `self.openSerial == serial`（`WorkspaceSession.swift:539-563`）；`restoreTabs` 在同一同步循环里对每个 tab 调 `openRestored → openFile`（`727-747, 749-761`）；所有 Task 都在 `restoreTabs` 返回后才可能运行，因此只有**最后一次**请求能安装。紧接着 `WorkspaceWindowController.open(...)` 在 `restoreTabs` 后立即 `persistOpenWindows()`（`WorkspaceWindowController.swift:245-254`），此刻 `tabStrip` 仍为空，`windowState()`（`717-724`）写出空 tabs，覆盖 `UserDefaults` 里的 `xyz.workspace.windows`（`461-468`, `WorkspaceFileAccess.swift:326-332`）。
-- 影响：每次启动，窗口的多个标签只剩最后 1 个（甚至 0 个），且原始 tab 状态被修掉——`CHANGELOG.md:261`“next launch restores each window, its folder, and its tabs”失效。属状态数据丢失；由 `d5c4f25`（“Publish a file's tab only when its text is ready”）引入，`restoreTabs` 无集成测试。
-- 建议：把 `openSerial` 从“全局最新”改为 per-path（同 path 的 request 竞争）+ 显式的“用户主动打开”取消策略；`restoreTabs` 改成 async/await 串行恢复（或 `openRestored` 走不受 serial 限制的专用安装路径）；`persistOpenWindows` 仅在恢复完成后（或 `restoreTabs` 内部逐个 `present` 后）才允许覆盖；补 `WorkspaceWindowState → restore` 的回归测试（core 纯函数 + 一个离屏 AppKit 测试）。
+**P0-2 Restart tab restore is defeated by the "global open serial number" and overwrites the saved tab list with an empty/single tab**
+- Evidence: `openFile` does `openSerial += 1` every time and requires `self.openSerial == serial` when the async read completes (`WorkspaceSession.swift:539-563`); `restoreTabs` calls `openRestored → openFile` for each tab inside the same synchronous loop (`727-747, 749-761`); all Tasks can only run after `restoreTabs` returns, so only the **last** request can install. Immediately afterwards, `WorkspaceWindowController.open(...)` calls `persistOpenWindows()` right after `restoreTabs` (`WorkspaceWindowController.swift:245-254`); at that moment `tabStrip` is still empty, `windowState()` (`717-724`) writes empty tabs, and `xyz.workspace.windows` in `UserDefaults` is overwritten (`461-468`, `WorkspaceFileAccess.swift:326-332`).
+- Impact: on every launch a window's multiple tabs shrink to only the last one (or even zero), and the original tab state is destroyed — `CHANGELOG.md:261` "next launch restores each window, its folder, and its tabs" no longer holds. This is state-data loss; introduced by `d5c4f25` ("Publish a file's tab only when its text is ready"), and `restoreTabs` has no integration test.
+- Recommendation: change `openSerial` from "global latest" to per-path (requests for the same path compete) plus an explicit "user-initiated open" cancellation policy; make `restoreTabs` an async/await serial restore (or give `openRestored` a dedicated install path not limited by serial); allow `persistOpenWindows` to overwrite only after restore completes (or after `restoreTabs` presents each tab); add a `WorkspaceWindowState → restore` regression test (a pure core function + one offscreen AppKit test).
 
-**P0-3 关窗/退出不保证未保存编辑落盘，失败无阻塞提示**
-- 证据：`windowWillClose` 直接 `session.shutdown()`（`WorkspaceWindowController.swift:129-137`）；`applicationShouldTerminate` 永远返回 `.terminateNow`（`:652-657`），`prepareForQuit` 只做一次 `session.shutdown()`（`:445-451`）；`shutdown` 对每个 buffer `flush()`（`WorkspaceSession.swift:211-223`），`flush` 只调用一次 `save(force: false)`（`:1767-1770`），`save` 在 catch 里只设置 `status`（`:1929-1933`），conflict 分支只调 `publishConflict`（`:1925-1927`）→ `offerExternalChange` 又要求 `buffer === self.buffer`（`:961-963`），后台标签/当前标签的冲突、编码错误、IO 错误都不会阻止关闭。
-- 影响：多标签里有未保存编辑时，用户关窗/⌘Q 可能静默丢失（特别是文件被外部删除/修改、iCloud 断网、只读卷）；`trash` 场景同理会丢编辑（`:479-489` 先 force close 再 trash，异步 flush 到已删除路径失败）。
-- 建议：增加 `windowShouldClose` / `applicationShouldTerminate` 的 `.terminateCancel` 路径：先尝试 flush 所有 buffer，若有 `isDirty || isMissing || status != nil` 未解决，弹“保存/放弃/取消”；让 `flush()` 返回成功/失败结果；`trash` 前同步 flush 并对失败提示；退出时不要无条件 `.terminateNow`。
+**P0-3 Window close/quit does not guarantee unsaved edits reach disk, and failures have no blocking prompt**
+- Evidence: `windowWillClose` calls `session.shutdown()` directly (`WorkspaceWindowController.swift:129-137`); `applicationShouldTerminate` always returns `.terminateNow` (`:652-657`), and `prepareForQuit` performs a single `session.shutdown()` (`:445-451`); `shutdown` calls `flush()` on every buffer (`WorkspaceSession.swift:211-223`), `flush` calls `save(force: false)` only once (`:1767-1770`), the `catch` in `save` only sets `status` (`:1929-1933`), and the conflict branch only calls `publishConflict` (`:1925-1927`) → `offerExternalChange` in turn requires `buffer === self.buffer` (`:961-963`); conflicts, encoding errors, and IO errors — for background tabs or the current tab — never block closing.
+- Impact: when multiple tabs hold unsaved edits, closing the window/⌘Q can silently lose them (especially when the file was deleted/modified externally, iCloud is offline, or the volume is read-only); the `trash` case likewise loses edits (`:479-489` force-closes before trashing, and the async flush to the deleted path fails).
+- Recommendation: add a `.terminateCancel` path to `windowShouldClose`/`applicationShouldTerminate`: first try to flush all buffers, and if any `isDirty || isMissing || status != nil` remains unresolved, show Save/Discard/Cancel; make `flush()` return a success/failure result; flush synchronously before `trash` and report failures; do not return `.terminateNow` unconditionally at quit.
 
 ### P1
 
-**P1-1 `WorkspaceFileBuffer` 的 `@Published` 没有订阅者，外部变更/保存失败/文件消失的 UI 可能长期不刷新**
-- 证据：buffer 声明了 `@Published kind/reloadToken/conflictText/isMissing/status`（`WorkspaceSession.swift:1636-1640`），但全仓库没有 `@ObservedObject var buffer` / `.onReceive(buffer...)` / Combine `sink`（grep 仅 `WorkspaceSession/WorkspaceView` 的 `@ObservedObject session`）；视图读 `session.buffer?.text/editorToken/status`（`WorkspaceView.swift:1439-1448, 1590-1617, 1628-1653`）。`onEditorState` 只在 dirty 变化时改 `tabStrip`（`WorkspaceSession.swift:947-952`，`EditorTabs.swift:118-125`）。干净文件外部修改路径 `noteExternalChange → apply`（`1782-1841, 1867-1879`）不会触发 session 发布；`save` 失败也不触发（`1929-1933`）。
-- 影响：编辑器/Reading 可能持续显示旧文本（“clean file reloads quietly”不成立），保存失败横幅不出现，用户误以为已保存；与 P0-3 叠加会放大数据丢失风险。
-- 建议：让 `WorkspaceSession` 订阅每个 buffer 的 `objectWillChange`（`sink` 到 session 的 `objectWillChange.send()`，注意避免循环），或把 buffer 变成 `@ObservedObject` 传入 `WorkspaceDetail`；为 `status/conflictText/isMissing/reloadToken` 的变化补 UI 测试。
+**P1-1 `WorkspaceFileBuffer`'s `@Published` has no subscribers, so the UI for external changes/save failures/missing files may stay stale indefinitely**
+- Evidence: the buffer declares `@Published kind/reloadToken/conflictText/isMissing/status` (`WorkspaceSession.swift:1636-1640`), yet the whole repository has no `@ObservedObject var buffer` / `.onReceive(buffer...)` / Combine `sink` (grep finds only `@ObservedObject session` in `WorkspaceSession/WorkspaceView`); views read `session.buffer?.text/editorToken/status` (`WorkspaceView.swift:1439-1448, 1590-1617, 1628-1653`). `onEditorState` only touches `tabStrip` when dirty changes (`WorkspaceSession.swift:947-952`, `EditorTabs.swift:118-125`). The clean-file external-modification path `noteExternalChange → apply` (`1782-1841, 1867-1879`) does not trigger a session publication, and `save` failures do not either (`1929-1933`).
+- Impact: the editor/Reading may keep showing stale text ("clean file reloads quietly" does not hold), the save-failure banner never appears, and the user believes the save succeeded; combined with P0-3 this amplifies data-loss risk.
+- Recommendation: have `WorkspaceSession` subscribe to each buffer's `objectWillChange` (`sink` into the session's `objectWillChange.send()`, minding cycles), or pass the buffer into `WorkspaceDetail` as an `@ObservedObject`; add UI tests for changes to `status/conflictText/isMissing/reloadToken`.
 
-**P1-2 保存路径在主线程同步做 `NSFileCoordinator` + 整文件读 + 整文件写**
-- 证据：`save` 在 `@MainActor WorkspaceFileBuffer` 内同步调用 `WorkspaceFileCoordination.updateText`（`WorkspaceSession.swift:1890-1934`），后者在 `NSFileCoordinator` 块里 `Data(contentsOf:)` 整文件解码、再 `TextBytes.encode` + `bytes.write(.atomic)`（`WorkspaceFileAccess.swift:112-150`，写盘 `:139-146`）；而读路径是 `readForEditing` 的 `Task.detached`（`WorkspaceSession.swift:1564-1610`）。debounce 只有 500ms（`:1881-1888`），即连续输入时每 0.5s 主线程做一次 0→5MB 的全量读写；每次保存还会触发自身文件监听再整文件读一次（`watchFile` `:980-993` → `noteExternalChange` `:1802-1840`）。
-- 影响：大文件/iCloud/网络卷/外接盘上输入掉帧甚至 beachball；这是本层最直接的性能风险。
-- 建议：把“读盘校验—编码—写入”移到专用串行 actor（或 `DispatchQueue` background）并在完成后回 MainActor 更新 buffer；`TextBytes.encode` 与“上次保存文本快照”可在主线程准备；保存失败/conflict 结果回主线程统一提示。顺带把“自己写入触发的监听事件”用 mtime/内容比较短路（`observationEpoch` 已能处理丢失，但仍会整文件读）。
+**P1-2 The save path does `NSFileCoordinator` + full-file read + full-file write synchronously on the main thread**
+- Evidence: `save`, inside the `@MainActor WorkspaceFileBuffer`, calls `WorkspaceFileCoordination.updateText` synchronously (`WorkspaceSession.swift:1890-1934`), which inside the `NSFileCoordinator` block does `Data(contentsOf:)` full-file decode, then `TextBytes.encode` + `bytes.write(.atomic)` (`WorkspaceFileAccess.swift:112-150`, disk write `:139-146`); the read path by contrast is `readForEditing`'s `Task.detached` (`WorkspaceSession.swift:1564-1610`). The debounce is only 500 ms (`:1881-1888`), so during continuous typing the main thread does a full 0→5 MB read and write every 0.5 s; each save also triggers its own file monitor and reads the whole file once more (`watchFile` `:980-993` → `noteExternalChange` `:1802-1840`).
+- Impact: dropped frames or even a beachball when typing on large files/iCloud/network volumes/external drives; this is the layer's most direct performance risk.
+- Recommendation: move "read-disk validate — encode — write" to a dedicated serial actor (or a background `DispatchQueue`) and return to the MainActor to update the buffer afterward; `TextBytes.encode` and the "last saved text snapshot" can be prepared on the main thread; report save failures/conflicts back on the main thread uniformly. Also short-circuit monitor events caused by our own writes via mtime/content comparison (`observationEpoch` already handles loss, but a full-file read still happens).
 
-**P1-3 窗口恢复不保存每标签的 Reading/Editing 模式**
-- 证据：`windowState()` 对所有 tab 写死 `mode: .reading`（`WorkspaceSession.swift:717-724`）；`openRestored` 固定 `mode: .reading`（`:749-761`）；`restoreTabs` 只恢复 preview/pinned/active，不 `setMode`（`:727-747`）；`WorkspaceTabState.mode` 只在 `normalized`/编解码测试里被验证（`EditorTabs.swift:254-327`，`EditorShellTests.swift:234, 256`）。
-- 影响：用户在 Editing 里留下的标签重启后全部回到 Reading（Markdown 从源码变渲染页，其他文本变只读），与“每个 tab 保留自己的 mode”的模型设计冲突。
-- 建议：`windowState` 用 `$0.mode`；`openRestored` 传 `tab.mode` 并在 `restoreTabs` 里 `strip.setMode`；给 core 补“state→mode 保真”测试，给 restore 加集成测试。
+**P1-3 Window restore does not save each tab's Reading/Editing mode**
+- Evidence: `windowState()` hardcodes `mode: .reading` for every tab (`WorkspaceSession.swift:717-724`); `openRestored` fixes `mode: .reading` (`:749-761`); `restoreTabs` restores only preview/pinned/active and never calls `setMode` (`:727-747`); `WorkspaceTabState.mode` is only verified in `normalized`/encode-decode tests (`EditorTabs.swift:254-327`, `EditorShellTests.swift:234, 256`).
+- Impact: tabs the user left in Editing all come back in Reading after restart (Markdown moves from source to rendered page, other text becomes read-only), conflicting with the model design that "each tab keeps its own mode".
+- Recommendation: use `$0.mode` in `windowState`; pass `tab.mode` in `openRestored` and call `strip.setMode` in `restoreTabs`; add a "state→mode fidelity" test to core and an integration test to restore.
 
-**P1-4 Replace in Folder 会改隐藏文件，且对未打开文件不做磁盘再校验（TOCTOU 覆盖）**
-- 证据：内容搜索的同名文件列表只过滤 `!isDirectory && !shouldSkipRelativePath`（`WorkspaceSession.swift:1148-1150`）；Replace 计划同样（`:1241-1243`）；而 `searchPanelContents` 会按 `showsHiddenFiles` 过滤（`:1183, 1189-1194`）。计划在后台读取内容（`:1416-1478`），用户确认后 `applyFolderChange` 对未打开文件直接 `writeEncodedText/writeData`（`:1326-1369`），不复读磁盘；只有“当前打开 buffer”检查 `buffer.text == expected`（`:1313-1315`）。`undoManager` 的 undo 也是直接写回旧字节（`:1311-1324`）。
-- 影响：① 用户关掉“显示隐藏文件”时，Replace All 静默改写 `.env`、`.obsidian/…` 等不可见文件；② 计划与执行之间被外部修改的文件会被旧计划覆盖（违反 `WorkspaceFilePolicy` 的“不静默覆盖”原则），undo 也可能覆盖更新的内容。
-- 建议：文件列表与内容搜索统一使用“可见性 + 跳过目录”函数（放进 `XYZCore` 并单测）；Replace 计划带上每个文件的 `expectedData`/mtime，执行时在 `NSFileCoordinator` 内比对并跳过冲突（或整批 abort），undo 只恢复“仍然等于替换后内容”的文件；对隐藏文件单独提示。
+**P1-4 Replace in Folder modifies hidden files and does not re-validate unopened files on disk (TOCTOU coverage)**
+- Evidence: the file list for content search filters only `!isDirectory && !shouldSkipRelativePath` (`WorkspaceSession.swift:1148-1150`); the Replace plan does the same (`:1241-1243`); while `searchPanelContents` filters by `showsHiddenFiles` (`:1183, 1189-1194`). The plan reads contents in the background (`:1416-1478`), and after user confirmation `applyFolderChange` calls `writeEncodedText/writeData` directly on unopened files (`:1326-1369`) without re-reading disk; only the "currently open buffer" is checked via `buffer.text == expected` (`:1313-1315`). `undoManager`'s undo also writes the old bytes back directly (`:1311-1324`).
+- Impact: (1) with "show hidden files" off, Replace All silently rewrites invisible files such as `.env` and `.obsidian/…`; (2) files modified externally between plan and execution get overwritten by the stale plan (violating `WorkspaceFilePolicy`'s "no silent overwrite" principle), and undo may also overwrite newer content.
+- Recommendation: use one shared "visibility + skipped directories" function for file lists and content search (put it in `XYZCore` with unit tests); carry each file's `expectedData`/mtime in the Replace plan, compare and skip conflicts inside `NSFileCoordinator` at execution time (or abort the whole batch), and let undo restore only files that "still equal the replacement result"; notify separately about hidden files.
 
-**P1-5 保存用原子替换，会破坏符号链接与硬链接**
-- 证据：目录加载把 symlink 当普通文件（`WorkspaceDirectoryLoader.swift:10-27`，`isDirectory = isDirectory && !isLink`；索引扫描同 `WorkspaceSession.swift:1957-1958`）；保存走 `bytes.write(to:, options: .atomic)`（`WorkspaceFileAccess.swift:139-146`，`writeData` 同 `:170-186`）。
-- 本机实验（/tmp）：`link.md -> target.md`，`Data.write(.atomic)` 后 `link.md` 变成普通文件（3 字节，不再是 symlink），`target.md` 内容未改；`hard.md` 与 `hard2.md` 硬链接经原子写后内容分叉（`hard2.md` 仍是旧内容）。
-- 影响：用户编辑的是“链接指向的笔记”但实际保存把链接替换成新文件、真实目标未更新（数据看起来“没保存”）；硬链接/共享文件的另一端看到旧内容；Finder 标签/xattr 等元数据在 replace 语义下也可能丢失。
-- 建议：打开/保存前用 `.isSymbolicLinkKey` 识别链接并解析目标（或在 UI 上标为只读/警告）；保存改为 `.forReplacing` 协调 + 写回解析后的目标 URL；若必须原子替换，至少保留链接语义（对 symlink 写目标、对 hard link 走 in-place 写）。
+**P1-5 Saving uses atomic replacement, which breaks symlinks and hard links**
+- Evidence: directory loading treats a symlink as an ordinary file (`WorkspaceDirectoryLoader.swift:10-27`, `isDirectory = isDirectory && !isLink`; index scanning does the same, `WorkspaceSession.swift:1957-1958`); saving goes through `bytes.write(to:, options: .atomic)` (`WorkspaceFileAccess.swift:139-146`, `writeData` likewise `:170-186`).
+- Local experiment (/tmp): with `link.md -> target.md`, after `Data.write(.atomic)` `link.md` becomes a regular file (3 bytes, no longer a symlink) and `target.md` is unchanged; hard-linked `hard.md` and `hard2.md` diverge after an atomic write (`hard2.md` still has the old content).
+- Impact: the user edits "the note the link points to", but saving actually replaces the link with a new file and leaves the real target unupdated (the data looks "not saved"); the other end of a hard link/shared file sees stale content; Finder tags/xattrs and other metadata may also be lost under replace semantics.
+- Recommendation: detect links with `.isSymbolicLinkKey` before opening/saving and resolve the target (or mark them read-only/warn in the UI); switch saving to `.forReplacing` coordination + writing back to the resolved target URL; if atomic replacement is mandatory, at least preserve link semantics (write the target for symlinks, write in place for hard links).
 
-**P1-6 取消对 `Task.detached` 无效：索引与内容搜索/替换计划会叠加执行，每次展开目录都全根重扫**
-- 证据：`scheduleIndex` 取消旧 `indexTask` 后仍 `await Task.detached { WorkspaceIndexScan.entries(at: root) }.value`（`WorkspaceSession.swift:1110-1127`），`WorkspaceIndexScan` 内的 `Task.isCancelled`（`:1953`）在 detached 任务里通常恒为 false；`searchContents`/`planFolderReplace` 同样整段在 `Task.detached` 里（`:1386-1413, 1426-1477`），其中的 `Task.isCancelled`（`:1389, 1430`）无效。`load(parent:)` 成功后无条件 `scheduleIndex()`（`:1523-1534`），而 `refreshFileTree`（`:268-275`）和每次展开都会 `load`。
-- 影响：大仓库下每次展开/刷新都递归枚举全根（cap 20,000）+ stat 每个 URL；快速键入内容搜索会启动多个全目录扫描且旧扫描不会停，CPU/磁盘/耗电高，还可能挤压主线程（索引结果 `@Published` 触发视图重算，见 P2-9）。
-- 建议：把扫描改成可取消的 structured concurrency（`withTaskGroup` + `checkCancellation`，或 `Task.detached` 内显式传递 `CancellationHandle`）；索引结果按“脏目录”增量更新而不是全根重扫；对 `Task.detached` 结果落地前已有 generation 保护，但工作本身也要能停。
+**P1-6 Cancellation is ineffective on `Task.detached`: indexing, content search, and Replace planning pile up, and every directory expansion rescans the whole root**
+- Evidence: `scheduleIndex` cancels the old `indexTask` but still does `await Task.detached { WorkspaceIndexScan.entries(at: root) }.value` (`WorkspaceSession.swift:1110-1127`); the `Task.isCancelled` inside `WorkspaceIndexScan` (`:1953`) is usually always false in a detached task; `searchContents`/`planFolderReplace` likewise run their entire bodies in `Task.detached` (`:1386-1413, 1426-1477`), where the `Task.isCancelled` checks (`:1389, 1430`) are ineffective. `load(parent:)` calls `scheduleIndex()` unconditionally after success (`:1523-1534`), and `refreshFileTree` (`:268-275`) plus every expansion call `load`.
+- Impact: on large repositories, every expand/refresh recursively enumerates the whole root (cap 20,000) and stats every URL; rapid typing in content search starts multiple full-directory scans and the old ones never stop, driving CPU/disk/power use and potentially starving the main thread (index results are `@Published` and trigger view recomputation, see P2-6).
+- Recommendation: turn scanning into cancellable structured concurrency (`withTaskGroup` + `checkCancellation`, or pass an explicit `CancellationHandle` into `Task.detached`); update index results incrementally per "dirty directory" instead of rescanning the whole root; generation guards already protect result landing, but the work itself must also be stoppable.
 
-**P1-7 侧栏选中文件夹后，Header 的 New File/New Folder 仍落在“打开文件旁边”**
-- 证据：`creationParent()` 用 `selectedPath ?? buffer?.relativePath`（`WorkspaceSession.swift:261-265`）；但 NSOutlineView 选中目录时 `outlineViewSelectionDidChange` 只处理文件（`WorkspaceSidebar.swift:289-299`），`selectedPath` 只在 `present`/`selectTab`/`revealCrumb`/`revealActiveFile` 写（`WorkspaceSession.swift:576, 837, 860, 816`）。Header 的 `New File/New Folder` 走 `session.createItem(..., session.creationParent())`（`WorkspaceSidebar.swift:170-185`），因此刚点过的文件夹不是父目录；`newItem` 的“选中目录”分支（`WorkspaceSession.swift:580-590`）近乎死代码。CI 的 `acceptCreateFile`（`GutterSnapshot.swift:1638-1675`）只测未选中文件夹的情况。
-- 影响：文件被创建到错误目录（用户以为在选中文件夹里），属于明显功能缺陷；也说明“选中项”有两个事实来源（`selectedPath` vs `buffer`）。
-- 建议：目录选中时也更新一个 `sidebarSelection`（与 `buffer` 分离），`creationParent` 只读它；或让 Header 显式使用 `outline.selectedRow` 的节点；补 UI acceptance（先选中子文件夹再点 New File）。
+**P1-7 After a folder is selected in the sidebar, the Header's New File/New Folder still lands "next to the open file"**
+- Evidence: `creationParent()` uses `selectedPath ?? buffer?.relativePath` (`WorkspaceSession.swift:261-265`); but when NSOutlineView selects a directory, `outlineViewSelectionDidChange` only handles files (`WorkspaceSidebar.swift:289-299`), and `selectedPath` is written only in `present`/`selectTab`/`revealCrumb`/`revealActiveFile` (`WorkspaceSession.swift:576, 837, 860, 816`). The Header's `New File/New Folder` go through `session.createItem(..., session.creationParent())` (`WorkspaceSidebar.swift:170-185`), so the folder just clicked is not the parent directory; the "selected directory" branch of `newItem` (`WorkspaceSession.swift:580-590`) is nearly dead code. CI's `acceptCreateFile` (`GutterSnapshot.swift:1638-1675`) only tests the case where no folder is selected.
+- Impact: files are created in the wrong directory (the user thinks they are in the selected folder), a clear functional defect; it also shows that "the selection" has two sources of truth (`selectedPath` vs `buffer`).
+- Recommendation: when a directory is selected, also update a `sidebarSelection` (separate from `buffer`), and have `creationParent` read only that; or have the Header explicitly use the node at `outline.selectedRow`; add UI acceptance (select a subfolder first, then click New File).
 
-**P1-8 标签恢复/持久化之外，`openFile` 对“快速连续打开”会丢标签**
-- 证据：`openSerial` 是全局的（`WorkspaceSession.swift:126-127, 539-563`）；用户快速点 A、B（或 ⌘P 连续回车）时 A 的读完成晚于 B 的发起，A 被丢弃，只剩 B 一个标签。设计注释只保证“较旧的读不能发布 tab”，但没有“用户点过的文件都保留”的语义。
-- 影响：多选/快速导航时标签丢失、⌘⇧T 历史也记录不到 A；与 P0-2 同源，建议一并修。
-- 建议：保留 per-path request 竞争；对“用户主动打开”允许乱序安装（最新 active，其余 tab 后台安装），或用串行打开队列 + 每项完成即呈现。
+**P1-8 Beyond tab restore/persistence, `openFile` drops tabs on "rapid consecutive opens"**
+- Evidence: `openSerial` is global (`WorkspaceSession.swift:126-127, 539-563`); when the user quickly clicks A then B (or hits Enter repeatedly in ⌘P), A's read completes after B was started, so A is discarded and only B remains as a tab. The design comment only guarantees "older reads cannot publish a tab"; it has no semantics for "every file the user clicked is kept".
+- Impact: tabs are lost during multi-select/rapid navigation, and A is not recorded in the ⌘⇧T history either; same root cause as P0-2, so fix them together.
+- Recommendation: keep per-path request competition; allow out-of-order installs for "user-initiated opens" (newest becomes active, the rest install in background), or use a serial open queue that presents each item as soon as it completes.
 
 ### P2
 
-**P2-1 系统类 swizzling 是最大升级脆弱面（Lead 线索 b）**
-- 证据：`FolderOpening.hookOpenPanelPresentation` 对 `NSSavePanel` 的 `beginWithCompletionHandler:`/`beginSheetModalForWindow:completionHandler:`/`runModal` 做 `method_setImplementation`（`FolderOpening.swift:64-111`）；`hookOpenDocument` 对 `PlatformDocumentController` 的 `openDocumentWithContentsOfURL:display:completionHandler:`（`:113-145`）；`hookAutomaticUntitled` 对 `openUntitledDocumentAndDisplay:error:`、`reopenDocumentForURL:…`、`makeUntitledDocumentOfType:error:`、`newDocument:`（`:160-236`）；所有转发都是手写 `@convention(block)` + `unsafeBitCast`（`:66-108, 118-138, 164-234, 249-258`）。
-- 影响：AppKit/SwiftUI 实现或签名变化即可造成 File→Open 静默异常、新建文档被取消、面板无法取消等；`userAskedForUntitled()` 依赖 `NSApp.currentEvent`（`:239-246`），非键盘来源的合法新建会被误杀；swizzling 失败时只有 `-XYZCheckFileMenu` 能发现（CI :150-199）。
-- 建议：把 hooks 隔离成独立模块并加版本探测/启动自检（已有）；能不用 swizzling 的路径改回 `Commands`/`NSOpenSavePanelDelegate`；对 `openUntitledDocument` 的拦截改为 `applicationShouldOpenUntitledFile` 或 `NSDocumentController` 子类（项目文档已解释 DocumentGroup 限制，但可评估 `DocumentGroup` 替代方案）；至少把 block 签名集中封装、加断言与失败日志。
+**P2-1 System-class swizzling is the biggest upgrade fragility (the Lead's clue b)**
+- Evidence: `FolderOpening.hookOpenPanelPresentation` applies `method_setImplementation` to `NSSavePanel`'s `beginWithCompletionHandler:`/`beginSheetModalForWindow:completionHandler:`/`runModal` (`FolderOpening.swift:64-111`); `hookOpenDocument` targets `PlatformDocumentController`'s `openDocumentWithContentsOfURL:display:completionHandler:` (`:113-145`); `hookAutomaticUntitled` targets `openUntitledDocumentAndDisplay:error:`, `reopenDocumentForURL:…`, `makeUntitledDocumentOfType:error:`, and `newDocument:` (`:160-236`); every forward is a hand-written `@convention(block)` + `unsafeBitCast` (`:66-108, 118-138, 164-234, 249-258`).
+- Impact: a change in AppKit/SwiftUI implementation or signature is enough to cause silent File→Open misbehavior, cancelled new-document requests, panels that cannot be cancelled, etc.; `userAskedForUntitled()` depends on `NSApp.currentEvent` (`:239-246`), so legitimate non-keyboard new-document requests are killed by mistake; when swizzling fails, only `-XYZCheckFileMenu` detects it (CI :150-199).
+- Recommendation: isolate the hooks into a standalone module with version probing/launch self-checks (already present); move paths that do not need swizzling back to `Commands`/`NSOpenSavePanelDelegate`; replace the `openUntitledDocument` interception with `applicationShouldOpenUntitledFile` or an `NSDocumentController` subclass (the project docs already explain the DocumentGroup limitation, but DocumentGroup alternatives can be evaluated); at minimum encapsulate the block signatures in one place and add assertions and failure logging.
 
-**P2-2 路径包含判断重复 4 处、无 core helper / 单测，且 symlink/大小写/归一化未处理**
-- 证据：`WorkspaceSession.openLinked`（`:359-368`）、`CLIOpen.openOne`（`FolderOpening.swift:534-540`）、侧栏拖放（`WorkspaceSidebar.swift:679-689`）、索引扫描（`WorkspaceSession.swift:1950-1964`）各自 `standardizedFileURL.path + root + "/"` 前缀判断；`WorkspaceSession.url(for:)`（`:1052-1056`）不做 `..`/绝对路径校验。root 为 `/` 时前缀变成 `//`，索引会全部丢弃（`:1950-1964`）。
-- 影响：符号链接/大小写不同的路径绕过或误判；持久化 tab 路径被篡改/损坏时越出 root；四处行为可能不一致（有无 trailing slash、`/private` vs `/var`）。
-- 建议：`XYZCore` 新增 `WorkspacePathContainment`（`resolve(relativeTo:)`、`contains(root:url:)`、`normalizedRelativePath`），对 `..`、绝对路径、大小写、NFC/NFD、symlink 选项显式测试；所有 4 处改用它；恢复的 tab 路径先校验再 `url(for:)`。
+**P2-2 Path containment is duplicated 4 times, with no core helper/unit tests, and symlink/case/normalization are unhandled**
+- Evidence: `WorkspaceSession.openLinked` (`:359-368`), `CLIOpen.openOne` (`FolderOpening.swift:534-540`), sidebar drag-and-drop (`WorkspaceSidebar.swift:679-689`), and index scanning (`WorkspaceSession.swift:1950-1964`) each do their own `standardizedFileURL.path + root + "/"` prefix check; `WorkspaceSession.url(for:)` (`:1052-1056`) validates neither `..` nor absolute paths. When root is `/`, the prefix becomes `//` and indexing discards everything (`:1950-1964`).
+- Impact: symlinked or differently-cased paths bypass or are misjudged; tampered/corrupt persisted tab paths escape the root; the four sites may behave inconsistently (trailing slash present or not, `/private` vs `/var`).
+- Recommendation: add `WorkspacePathContainment` to `XYZCore` (`resolve(relativeTo:)`, `contains(root:url:)`, `normalizedRelativePath`) with explicit tests for `..`, absolute paths, case, NFC/NFD, and the symlink option; switch all 4 sites to it; validate restored tab paths before `url(for:)`.
 
-**P2-3 未受信 Markdown 会自动加载远程图片**
-- 证据：`URLPolicy.imageSchemes = ["http","https"]`（`HTMLRenderer.swift:481-489`）；WKWebView 配置允许 JavaScript/网络（`MarkdownWebView.swift:434-447`），entitlement 含 `network.client`；Reading 直接用 `xyz-asset` base + 远程图片。
-- 影响：打开从网上下载的 .md 时自动请求远程图片（IP、User-Agent、跟踪像素），无“阻止远程内容”选项。
-- 建议：Reading 设置里加“阻止远程内容/仅按需加载”；或在 `URLPolicy` 里对未受信文件默认剥离 http(s) image，点击后在默认浏览器打开。
+**P2-3 Untrusted Markdown automatically loads remote images**
+- Evidence: `URLPolicy.imageSchemes = ["http","https"]` (`HTMLRenderer.swift:481-489`); the WKWebView configuration allows JavaScript/network (`MarkdownWebView.swift:434-447`), and the entitlement includes `network.client`; Reading uses the `xyz-asset` base directly plus remote images.
+- Impact: opening a `.md` downloaded from the web automatically requests remote images (IP, User-Agent, tracking pixels), with no "block remote content" option.
+- Recommendation: add "block remote content / load only on demand" to Reading settings; or, in `URLPolicy`, strip http(s) images by default for untrusted files and open them in the default browser when clicked.
 
-**P2-4 图片/QuickLook/视频表面的主线程解码与释放**
-- 证据：`ImageSurface` 在 `makeNSView/updateNSView` 中 `NSImage(contentsOf:)` 并整图 `image.draw`（`FileSurfaces.swift:139-168, 180-205`）；`QuickLookHost` 无 `close`（`:371-416`）；`JSONReadingView`/`CSVReadingView` 每次 body 重新 `JSONText.pretty`/`CSVText.parse`（`:43-44, 83-84`），大文件会重复解析。
-- 影响：打开大图/大 CSV 时主线程卡顿与内存峰值；QuickLook 预览进程可能长期驻留。
-- 建议：图片走 `CGImageSourceCreateThumbnailAtIndex` 后台降采样；Reading 的 JSON/CSV 解析结果缓存到 `@State`/`task`；`QuickLookHost` 在 `dismantleNSView` 里 `preview?.close()`；媒体 surface 加 `dismantle`（已有 pause）。
+**P2-4 Main-thread decode and release for image/QuickLook/video surfaces**
+- Evidence: `ImageSurface` calls `NSImage(contentsOf:)` in `makeNSView/updateNSView` and does a full-image `image.draw` (`FileSurfaces.swift:139-168, 180-205`); `QuickLookHost` has no `close` (`:371-416`); `JSONReadingView`/`CSVReadingView` re-run `JSONText.pretty`/`CSVText.parse` on every body (`:43-44, 83-84`), so large files are parsed repeatedly.
+- Impact: main-thread stutter and memory spikes when opening large images/large CSVs; the QuickLook preview process may stay resident for a long time.
+- Recommendation: downsample images in the background via `CGImageSourceCreateThumbnailAtIndex`; cache Reading's JSON/CSV parse results in `@State`/`task`; call `preview?.close()` in `QuickLookHost`'s `dismantleNSView`; add `dismantle` to the media surface (pause already exists).
 
-**P2-5 巨型文件/类型集中与拆分边界**
-- 证据与拆分清单见第 4 节（`WorkspaceSession.swift:14-1611` 一个类型 110 个方法；`WorkspaceView.swift:24-549` 一个文件塞 730 行 NSSplitView；`WorkspaceSidebar.swift` 18 个类型/1839 行；`EditorCommands.swift:159-265, 439-498` 巨型快捷键/命令 switch；`FolderOpening.swift:64-497` swizzling + 菜单手术）。
-- 影响：单测无法覆盖 session 行为；改动易互相回归（P0-2 即由 `openFile` 局部改动引入）。
-- 建议：按第 4 节 8 个边界拆文件；命令/快捷键表驱动化；把 `restore`/保存序列/路径/替换计划等纯逻辑下沉 `XYZCore`。
+**P2-5 Giant files/type concentration and extraction boundaries**
+- Evidence and extraction list in section 4 (`WorkspaceSession.swift:14-1611` — one type with 110 methods; `WorkspaceView.swift:24-549` — 730 lines of NSSplitView stuffed into one file; `WorkspaceSidebar.swift` — 18 types/1839 lines; `EditorCommands.swift:159-265, 439-498` — giant shortcut/command switch; `FolderOpening.swift:64-497` — swizzling + menu surgery).
+- Impact: unit tests cannot cover session behavior; changes easily regress each other (P0-2 was introduced by a local change to `openFile`).
+- Recommendation: split files along the 8 boundaries in section 4; make commands/shortcuts table-driven; move pure logic such as `restore`/save sequence/paths/Replace planning down into `XYZCore`.
 
-**P2-6 主线程 O(n) 计算与高频 `@Published` 触发整棵 SwiftUI 重算**
-- 证据：`session.searchTree` 每次访问都重新过滤（`WorkspaceSession.swift:303-308` → `WorkspaceTreeQuery.filter`，最多 20k entries），而 `WorkspaceSidebar.Snapshot(session)`（`WorkspaceSidebar.swift:1294-1345`）和 `rebuild`（`:494-522`）每次 update 都调用；`caret`/`viewportLine` 是 `@Published`（`WorkspaceSession.swift:93-95`），编辑器滚动/选区变化每帧触发 `WorkspaceView`/`WorkspaceDetail`/`OutlineSidebar` 重算与 `updateNSView`。
-- 影响：大目录 + 大文件下侧栏/状态栏/滚动掉帧。
-- 建议：缓存 `searchTree`（按 query/indexedEntries/hidden 的版本号失效）；`Snapshot` 用轻量哈希比较；`caret/viewport` 用去抖或独立 Observable 对象只让状态栏/outline 订阅。
+**P2-6 Main-thread O(n) computation and high-frequency `@Published` triggering whole-SwiftUI-tree recomputation**
+- Evidence: `session.searchTree` re-filters on every access (`WorkspaceSession.swift:303-308` → `WorkspaceTreeQuery.filter`, up to 20k entries), while `WorkspaceSidebar.Snapshot(session)` (`WorkspaceSidebar.swift:1294-1345`) and `rebuild` (`:494-522`) call it on every update; `caret`/`viewportLine` are `@Published` (`WorkspaceSession.swift:93-95`), so every frame of editor scrolling/selection change triggers recomputation of `WorkspaceView`/`WorkspaceDetail`/`OutlineSidebar` and `updateNSView`.
+- Impact: dropped frames in the sidebar/status bar/scrolling with large directories + large files.
+- Recommendation: cache `searchTree` (invalidate by version number of query/indexedEntries/hidden); compare snapshots via a lightweight hash; debounce `caret/viewport` or put them in a separate Observable object subscribed to only by the status bar/outline.
 
-**P2-7 书签 stale 从不刷新，面板路径与 `capture` 约定不一致**
-- 证据：`WorkspaceBookmarks.resolve` 的 `isStale` 被丢弃（`WorkspaceFileAccess.swift:255-270`）；`WorkspaceWindowController.open(bookmark:)`（`:200-209`）与 `open(url:...)`（`:222-232`）只记 `bookmarkRestored(stale:)` 日志，不回写；面板路径直接 `WorkspaceBookmarks.make`（`WorkspaceWindowController.swift:54-60, 185-193`），CLI/拖放用 `capture`（`FolderOpening.swift:574`, `WorkspaceWindowController.swift:222`）。
-- 影响：文件夹移动/重命名后，restore 可能永久失败且没有 fallback（`reopenLastFolder` 只取第一个 window/recent）；面板创建的 bookmark 在特殊路径下可能失败（返回 nil 后该窗口不持久化）。
-- 建议：解析时若 `stale`，立即 `make` 新 bookmark 并 `WorkspaceLibrary.syncWindows` 回写；统一走 `capture`；restore 失败时降级到“取消该窗口并提示选择文件夹”。
+**P2-7 Bookmark staleness is never refreshed, and panel paths are inconsistent with the `capture` convention**
+- Evidence: `WorkspaceBookmarks.resolve`'s `isStale` is discarded (`WorkspaceFileAccess.swift:255-270`); `WorkspaceWindowController.open(bookmark:)` (`:200-209`) and `open(url:...)` (`:222-232`) only log `bookmarkRestored(stale:)` and never write back; panel paths call `WorkspaceBookmarks.make` directly (`WorkspaceWindowController.swift:54-60, 185-193`), while CLI/drag-and-drop use `capture` (`FolderOpening.swift:574`, `WorkspaceWindowController.swift:222`).
+- Impact: after a folder is moved/renamed, restore may fail permanently with no fallback (`reopenLastFolder` only takes the first window/recent); bookmarks created by panels may fail on special paths (returning nil means that window is not persisted).
+- Recommendation: when resolution finds `stale`, immediately `make` a new bookmark and write it back via `WorkspaceLibrary.syncWindows`; go through `capture` uniformly; on restore failure, degrade to "cancel that window and prompt for folder selection".
 
-**P2-8 同一文件可能同时被工作区与 DocumentGroup 两套模型打开**
-- 证据：`claimExistingFile` 只在 `WorkspaceWindowController.controllers` 之间去重（`WorkspaceWindowController.swift:95-98, 259-272`）；`openInDocumentWindow` 用 `NSDocumentController` 打开（`WorkspaceSession.swift:1021-1027`），`WorkspaceCommandBridge.paletteOpen(newWindow:)` 与 `DocumentEditorView` 的 Reading 链接处理器（`DocumentEditorView.swift:178-182`, `WorkspaceView.swift:1731-1738`）都走 `NSDocumentController`。
-- 影响：同一路径两个编辑模型各自自动保存，只在磁盘层靠 `WorkspaceFilePolicy` 冲突兜底；用户看到两份不同内容、互相覆盖。
-- 建议：DocumentGroup 侧也通过一个进程级“文件占用表”做 claim（或禁止从工作区打开 DocumentGroup 窗口）；至少在检查/提示上对齐。
+**P2-8 The same file can be open under both the workspace and DocumentGroup models**
+- Evidence: `claimExistingFile` deduplicates only among `WorkspaceWindowController.controllers` (`WorkspaceWindowController.swift:95-98, 259-272`); `openInDocumentWindow` opens via `NSDocumentController` (`WorkspaceSession.swift:1021-1027`), and both `WorkspaceCommandBridge.paletteOpen(newWindow:)` and `DocumentEditorView`'s Reading link handler (`DocumentEditorView.swift:178-182`, `WorkspaceView.swift:1731-1738`) go through `NSDocumentController`.
+- Impact: two edit models for the same path each autosave, with only disk-level `WorkspaceFilePolicy` conflict handling as a backstop; the user sees two different contents overwriting each other.
+- Recommendation: make the DocumentGroup side claim through the same process-wide "file ownership table" (or forbid opening DocumentGroup windows from the workspace); at minimum align the checks/notices.
 
-**P2-9 `WorkspaceSidebar.updateNSView` 内修改 `@Published`（SwiftUI 反模式）**
-- 证据：`reloadIfNeeded` 在 `updateNSView` 调用链里执行 `session.actionMessage = nil`（`WorkspaceSidebar.swift:70-74, 113-135`）；`WorkspaceChromeView.layout()` 里 `onTitlebarInset` 回写 SwiftUI `@State`（`WorkspaceView.swift:1068-1092`），`layout()` 为 AppKit 布局阶段。
-- 影响：可能出现 “Modifying state during view update / Publishing changes from within view updates” 的未定义行为；标题栏 inset 在布局中改状态可能触发额外布局轮次。
-- 建议：把 `actionMessage` 消费挪到 `MainActor.async`/`.onReceive`；`onTitlebarInset` 用 `DispatchQueue.main.async` 合并；或把状态变化通过显式事件而非视图 update 传递。
+**P2-9 Mutating `@Published` inside `WorkspaceSidebar.updateNSView` (SwiftUI anti-pattern)**
+- Evidence: `reloadIfNeeded` executes `session.actionMessage = nil` in the `updateNSView` call chain (`WorkspaceSidebar.swift:70-74, 113-135`); `WorkspaceChromeView.layout()` writes back SwiftUI `@State` via `onTitlebarInset` (`WorkspaceView.swift:1068-1092`), and `layout()` is an AppKit layout phase.
+- Impact: possible undefined behavior ("Modifying state during view update / Publishing changes from within view updates"); changing state during layout for the titlebar inset may trigger extra layout rounds.
+- Recommendation: move consumption of `actionMessage` to `MainActor.async`/`.onReceive`; coalesce `onTitlebarInset` with `DispatchQueue.main.async`; or pass state changes through explicit events instead of view update.
 
-**P2-10 高频诊断同步写文件**
-- 证据：`XYZDiagnostics.note` 每次调用 `append` 打开/写入临时文件（`XYZDiagnostics.swift:58-62, 192-204`），而 `viewportLine`/侧栏 fit/模式切换/窗口 pass 都会调用它（`WorkspaceSession.swift:154-159`、`WorkspaceSidebar.swift:1028-1031` 等）。
-- 影响：诊断开关打开时，滚动/布局高频同步 IO 拖慢主线程（仅调试场景，但容易误开）。
-- 建议：诊断写入移到后台串行队列/缓冲批量写；热路径（viewport）降级为 os_log 或采样。
+**P2-10 High-frequency diagnostics synchronously writing files**
+- Evidence: `XYZDiagnostics.note` opens/writes a temp file on every `append` call (`XYZDiagnostics.swift:58-62, 192-204`), and `viewportLine`/sidebar fit/mode switches/window passes all call it (`WorkspaceSession.swift:154-159`, `WorkspaceSidebar.swift:1028-1031`, etc.).
+- Impact: with diagnostics enabled, high-frequency synchronous IO during scrolling/layout slows the main thread (debug-only, but easy to turn on by mistake).
+- Recommendation: move diagnostic writes to a background serial queue/buffered batch writes; downgrade hot paths (viewport) to os_log or sampling.
 
 ---
 
-## 附：本次核实过的关键行号索引（便于复核）
+## Appendix: Verified Line-Number Index (for Review)
 
-- 打开串行号/恢复：`WorkspaceSession.swift:126-127, 539-563, 717-761`；`WorkspaceWindowController.swift:245-254, 461-468, 428-443`；`EditorShellTests.swift:256-284`。
-- 新建/替换：`WorkspaceSession.swift:410-455, 1241-1258, 1306-1375, 1416-1478`；`XYZCore/WorkspaceSearch.swift:281-318`。
-- buffer 发布/保存：`WorkspaceSession.swift:1632-1935`（`1636-1640, 1651-1658, 1767-1770, 1782-1841, 1867-1879, 1881-1934`）；`WorkspaceFileAccess.swift:99-154`。
-- 监听：`WorkspaceFileAccess.swift:8-74`；`WorkspaceSession.swift:980-993, 1067-1073, 1502-1509`。
-- 索引/搜索取消：`WorkspaceSession.swift:1110-1167, 1377-1414, 1938-1976`。
-- 路径/安全：`WorkspaceSession.swift:359-368, 1052-1056, 1950-1964`；`WorkspaceDirectoryLoader.swift:10-27`；`LocalAssets.swift:26-39`；`HTMLRenderer.swift:481-499`；`WorkspaceSearch.swift:339-347`；`XYZ/XYZ-macOS.entitlements`。
-- 生命周期：`WorkspaceWindowController.swift:8-34, 106-115, 129-137, 445-451, 472-498, 652-657`；`WorkspaceSession.swift:186-223`；`docs/architecture.md:7-9`。
-- swizzling：`FolderOpening.swift:64-111, 113-145, 160-236, 239-246, 249-258, 349-497, 499-527`。
-- CI：`.github/workflows/ci.yml:59, 66, 77-101, 103-122, 125-148, 150-199, 200-208`；`GutterSnapshot.swift:533-700, 892-960, 1604-1636, 2435-2470`；`WorkspaceSidebar.swift:724-847`；`GlobalSearchPanel.swift:841-895`。
+- Open serial/restore: `WorkspaceSession.swift:126-127, 539-563, 717-761`; `WorkspaceWindowController.swift:245-254, 461-468, 428-443`; `EditorShellTests.swift:256-284`.
+- Create/replace: `WorkspaceSession.swift:410-455, 1241-1258, 1306-1375, 1416-1478`; `XYZCore/WorkspaceSearch.swift:281-318`.
+- Buffer publish/save: `WorkspaceSession.swift:1632-1935` (`1636-1640, 1651-1658, 1767-1770, 1782-1841, 1867-1879, 1881-1934`); `WorkspaceFileAccess.swift:99-154`.
+- Monitoring: `WorkspaceFileAccess.swift:8-74`; `WorkspaceSession.swift:980-993, 1067-1073, 1502-1509`.
+- Index/search cancellation: `WorkspaceSession.swift:1110-1167, 1377-1414, 1938-1976`.
+- Paths/security: `WorkspaceSession.swift:359-368, 1052-1056, 1950-1964`; `WorkspaceDirectoryLoader.swift:10-27`; `LocalAssets.swift:26-39`; `HTMLRenderer.swift:481-499`; `WorkspaceSearch.swift:339-347`; `XYZ/XYZ-macOS.entitlements`.
+- Lifecycle: `WorkspaceWindowController.swift:8-34, 106-115, 129-137, 445-451, 472-498, 652-657`; `WorkspaceSession.swift:186-223`; `docs/architecture.md:7-9`.
+- Swizzling: `FolderOpening.swift:64-111, 113-145, 160-236, 239-246, 249-258, 349-497, 499-527`.
+- CI: `.github/workflows/ci.yml:59, 66, 77-101, 103-122, 125-148, 150-199, 200-208`; `GutterSnapshot.swift:533-700, 892-960, 1604-1636, 2435-2470`; `WorkspaceSidebar.swift:724-847`; `GlobalSearchPanel.swift:841-895`.

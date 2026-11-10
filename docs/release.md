@@ -99,7 +99,7 @@ acceptance gate has never passed (0/7); the failures are recorded in `CHANGELOG.
 7. Open the stapled app and run the manual check that CI cannot: open a folder through
    the panel, quit with unsaved edits, reopen and look for the restored tabs, open a
    note with a relative picture and one with a bad remote picture, switch the app
-   language to 简体中文, and type Chinese through a real input method.
+   language to Simplified Chinese, and type Chinese through a real input method.
 8. Leave one app on the machine. Quit the running app, replace
    `/Applications/XYZ.app` with `ditto build/export/XYZ.app /Applications/XYZ.app`,
    then delete the other bundles (`find build -name XYZ.app -type d -exec rm -rf {} +`,
@@ -146,7 +146,7 @@ work: archive and export succeeded, the app zip was notarized
 notarized (`3229b1fa-6c13-41a9-b203-6d9f3c347156`, Accepted), stapled, and `spctl`
 accepted both. 0.5.31 replaces 0.5.30 in `/Applications` and is the only `XYZ.app` on
 the machine; it was launched hidden once with no crash report. The owner confirmed the
-slide and the sidebar text on the running app ("好了").
+slide and the sidebar text on the running app ("done").
 
 - Certificate: `Developer ID Application: Zhichao Li (Z4FMG2KTPM)`, created
   2026-11-07; `security find-identity -v -p codesigning` lists it.
@@ -186,7 +186,7 @@ The sidebar round (folder clicks, selection, rapid clicking, disclosure drawing)
 - Installed over `/Applications/XYZ.app`; `mdfind` lists only that bundle. The hidden
   launch check was used after earlier builds; the owner then ran the interactive checks
   (open/close folders, rapid clicking, selection, open-file marker, scoped
-  Collapse/Expand button) and confirmed the sidebar is "丝滑多了" (much smoother).
+  Collapse/Expand button) and confirmed the sidebar is "much smoother".
 - Not touched: tag, upload, GitHub release. Everything unverified in 0.5.29 stays
   unverified (sandbox/iCloud/quit behaviour, Chinese UI).
 
@@ -203,7 +203,7 @@ opening a folder patches the index in place instead of walking the vault). Same 
   (submission `1339a0e1-7c43-4194-8a9d-9c7e48674d3d`, **Accepted**), stapled;
   `spctl -a -t open --context context:primary-signature -vv` **accepted**.
 - Installed over `/Applications/XYZ.app`; `mdfind` lists only that bundle. The owner had
-  already tried the equivalent test build and called the performance "差不多了".
+  already tried the equivalent test build and called the performance "good enough".
 
 ## 0.5.37 on 2026-11-08
 

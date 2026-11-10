@@ -40,7 +40,7 @@ Launching with nothing to restore now opens a start page instead of a folder pan
 XYZ → Settings… is one pane:
 
 - Appearance: System, Light, or Dark, for the whole app.
-- Language: System, English, or 简体中文. It sets the app's own language list; XYZ uses the new language after it restarts, and Restart Now does that.
+- Language: System, English, or Simplified Chinese. It sets the app's own language list; XYZ uses the new language after it restarts, and Restart Now does that.
 - Text: one fixed bilingual family—bundled Sarasa Gothic SC for prose and headings, Sarasa Mono SC for code; there are no font selectors, and old choices are ignored. Size is 11 to 24 pt and line spacing is 1.0 to 2.0, shared by Editing and Reading (code sits a fixed step tighter than prose). Reading and Editing use the pane width; Reading keeps its original insets. View → Zoom In (⌘+), Zoom Out (⌘−), and Actual Size (⌘0) step the size.
 - Editing numbers each source line. A wrapped row keeps that number on its first fragment and does not add one. Reading does not show line numbers.
 - Reading: Load remote images. Off by default, so opening a note never contacts another server; a picture next to the note still loads through the note's own folder.

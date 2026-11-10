@@ -1109,7 +1109,7 @@ enum EditorMenuSupport {
         menu.insertItem(item, at: min(adjusted, menu.items.count))
     }
 
-    /// Found by what it holds, not its title, which is 显示 in Chinese.
+    /// Found by what it holds, not its title, which is localized.
     private static func viewMenu(in main: NSMenu) -> NSMenu? {
         let menus = main.items.compactMap(\.submenu)
         if let ours = menus.first(where: { $0.items.contains { $0.identifier?.rawValue == "xyz.mode.source" } }) {

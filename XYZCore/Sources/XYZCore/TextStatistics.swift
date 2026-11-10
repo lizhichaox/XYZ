@@ -2,7 +2,7 @@ import Foundation
 
 /// Word and character counts for the status line.
 ///
-/// Chinese, Japanese, and Korean are counted a character at a time, the way 字数 is counted;
+/// Chinese, Japanese, and Korean are counted a character at a time, the way a character count is usually reported;
 /// other scripts count runs of letters and digits as words. Markdown punctuation counts as
 /// neither, so `**bold**` is one word.
 public struct TextStatistics: Equatable, Sendable {

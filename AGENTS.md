@@ -118,6 +118,14 @@ the plugin.
   Host-half changes need a DSH restart; `client.js`-only changes hot-reload (refresh with
   Cmd+R if they do not).
 
+## Language of code and documentation
+
+- Code comments and repository documentation are English only. Do not add Chinese prose
+  or Chinese comments to Swift, JavaScript, shell, Python, YAML, plist, or Markdown files.
+- Chinese is allowed only where it is product data: `XYZ/Resources/Localizable.xcstrings`,
+  `tools/dsh-open-in-xyz/locale/zh.json`, the `zh` strings in `client.js`, and CJK test
+  fixtures that verify Chinese layout, counting, or localization.
+
 ## Theming and display style
 
 - **Every color comes from `XYZTheme`.** The model lives in XYZCore as `XYZColor` (RGBA,
@@ -177,7 +185,7 @@ them back:
 - **No extensions marketplace and no remote development.**
 - **No code outline panel.** The right-hand outline is Markdown headings only; code and
   JSON do not get symbol breadcrumbs or a section list.
-- Deferred, not forbidden: manual language mode and the minimap ("先不做").
+- Deferred, not forbidden: manual language mode and the minimap ("not now").
 
 ## AppKit sidebar: what not to repeat
 

@@ -148,7 +148,7 @@ enum EscapeKey {
 
 extension NSAlert {
     /// `runModal()`, with Esc choosing the last button: Cancel when there is one, OK when it is alone.
-    /// AppKit only maps Esc to a button titled “Cancel”, which misses 取消 and single-button alerts.
+    /// AppKit only maps Esc to a button titled “Cancel”, which misses localized Cancel titles and single-button alerts.
     @MainActor
     func runModalClosingOnEscape() -> NSApplication.ModalResponse {
         let last = NSApplication.ModalResponse.alertFirstButtonReturn.rawValue + max(buttons.count - 1, 0)

@@ -1,406 +1,409 @@
-# XYZ 项目分析报告
+# XYZ Project Analysis Report
 
-- **分析对象**：`/Users/lizhichao/Developer/XYZ`，HEAD `db12a62`（2026-11-07 11:12 +0800，merge PR #4），版本 **0.5.28 (build 44)**。
-- **分析方式**：本机构建/测试基线（Xcode 27.2、Swift 6.4.2、macOS 27.2）+ 4 路并行静态深读（Core / Workspace / Editor+Preview / 工程化与 CI）+ GitHub Actions API 交叉核对 + 少量 AppKit/文件系统行为探针。未启动 GUI 应用、未跑 Instruments、未修改仓库代码。
-- **证据口径**：下文 `file:line` 均指 HEAD 工作树；标"本机复现"的结论由本次分析实际执行过。原始深度报告见 `docs/analysis/`（core / workspace / editor / process，共约 1,700 行）。
-- **报告时间**：2026-11-07。
-
----
-
-## 一、执行摘要
-
-**项目画像。** XYZ 是一个原生 SwiftUI 文本/Markdown 编辑器：macOS 上提供"文件夹工作区 + 标签页 + 侧栏 Explorer + 命令面板 + Reading/Editing 双模式"，iPhone/iPad 走 `DocumentGroup` 文档浏览器。代码约 **28.4k 行 / 66 个 Swift 文件**（App 20.5k、XYZCore 5.8k、测试 2.2k），15 天内产生 156 个提交、42 个版本段落，当前树为 0.5.28。代码和文档呈现出明显的 **AI 代理高频迭代**特征（提交信息是逐步调试日志，CHANGELOG 记录失败运行与撤回的声明）。
-
-**工程质量的基本盘不差。** 本次本机验证：macOS Debug / macOS Release / iOS Simulator 三个构建全部成功，仅 1 条脚本阶段警告；`swift test --package-path XYZCore` **191 个测试、0 失败**；`Scripts/xyz-test.sh` 6/6 通过。`XYZCore` 的分层、纯函数策略（`WorkspaceFilePolicy`）、编码/行尾保真、Markdown 渲染的转义与 URL 白名单都达到了高于一般个人项目的水平；CHANGELOG 对"未安装、未验证、失败项"的诚实记录也是明显优点。
-
-**但当前不是可发布状态，且存在真实的数据丢失与崩溃风险。**
-
-1. **HEAD 在自家 CI 上是红的。** 新增的 UI acceptance 门禁（`da9730d` 引入）**自引入以来 7 次运行 0 次通过**；最近 100 次 CI 只有 10 次成功（详见 §4.4）。0.5.28 的 18 个提交共用同一个版本号、没有任何 tag，"候选版本"从未在门禁下绿过。
-2. **4 个高严重度缺陷**（详见 §5）：
-   - New File 在大小写不敏感 APFS 上会**清空**已有同名文件（本机复现：已有 `untitled.md` 时创建 `Untitled.md` → 0 字节）；
-   - 重启恢复标签的回归（全局 `openSerial` + 过早 `persistOpenWindows`）会把恢复状态**覆盖成空/单标签**；
-   - 关窗/⌘Q 的 flush 是 best-effort，冲突/IO 失败不会阻止退出，后台标签编辑可能**静默丢失**；
-   - 文件夹窗口跨 tab 复用文本视图但**不清 undo 栈**，⌘Z 可能抛 `NSRangeException` 崩溃或把上一篇的编辑写到当前文档（AppKit 层已复现，产品内需按步骤确认）。
-3. **验证体系与产品形态错位。** App target 没有测试 target；UI 验收靠 2,459 行、**随 Release 一起发布**的 `GutterSnapshot` 自检 + 窗口截图 OCR；CI 构建的是无签名、**无 entitlements** 的 app（本机实测 `codesign -d --entitlements -` 为空），沙盒、iCloud、security-scoped bookmark 从未进入 CI。
-4. **发布链路不存在**：无 tag、无 release workflow、Release 关闭 Hardened Runtime、安装版用 Apple Development 证书（实测 `/Applications/XYZ.app` = 0.5.27/43，TeamIdentifier Z4FMG2KTPM），不可公证/分发。
-
-**一句话判断：** 功能完成度和"单点代码质量"明显高于"验证与发布能力"。**先修 4 个 P0，再让门禁真实有意义，最后谈发布**；在此之前，任何"0.5.28 是候选版本"的说法都不成立。
+- **Subject**: `/Users/lizhichao/Developer/XYZ`, HEAD `db12a62` (2026-11-07 11:12 +0800, merge of PR #4), version **0.5.28 (build 44)**.
+- **Method**: local build/test baseline (Xcode 27.2, Swift 6.4.2, macOS 27.2) + four parallel static deep reads (Core / Workspace / Editor+Preview / engineering and CI) + cross-checking against the GitHub Actions API + a few AppKit/filesystem behavior probes. The GUI app was not launched, no Instruments run was performed, and no repository code was modified.
+- **Evidence basis**: every `file:line` below refers to the HEAD working tree; conclusions marked "reproduced locally" were actually executed during this analysis. The original deep-dive reports are in `docs/analysis/` (core / workspace / editor / process, about 1,700 lines in total).
+- **Report date**: 2026-11-07.
 
 ---
 
-## 二、项目全景
+## 1. Executive Summary
 
-### 2.1 功能面
+**Project profile.** XYZ is a native SwiftUI text/Markdown editor: on macOS it offers "folder workspace + tabs + sidebar Explorer + command palette + Reading/Editing dual modes", while iPhone/iPad use the `DocumentGroup` document browser. The code is about **28.4k lines / 66 Swift files** (App 20.5k, XYZCore 5.8k, tests 2.2k); 156 commits and 42 version sections in 15 days, and the current tree is 0.5.28. Both the code and the docs clearly carry the hallmark of **high-frequency AI-agent iteration** (commit messages are step-by-step debugging logs; the CHANGELOG records failed runs and retracted claims).
 
-| 能力 | macOS | iOS/iPadOS | 证据/备注 |
+**The engineering baseline is not bad.** Local verification in this analysis: the macOS Debug / macOS Release and iOS Simulator builds all succeeded, with a single script-phase warning; `swift test --package-path XYZCore` gave **191 tests, 0 failures**; `Scripts/xyz-test.sh` passed 6/6. XYZCore's layering and pure-function policy (`WorkspaceFilePolicy`), its encoding/line-ending fidelity, and the Markdown renderer's escaping and URL allowlist are all above the level of a typical personal project; the CHANGELOG's honest record of "not installed, not verified, failed" items is a real strength as well.
+
+**But it is not in a shippable state, and there are genuine data-loss and crash risks.**
+
+1. **HEAD is red on its own CI.** The newly added UI acceptance gate (introduced by `da9730d`) has **0 passes in 7 runs since it was introduced**; only 10 of the last 100 CI runs succeeded (details in §4.4). The 18 commits of 0.5.28 share one version number and there is no tag; the "release candidate" has never been green under the gate.
+2. **Four high-severity defects** (details in §5):
+   - On a case-insensitive APFS volume, New File **empties** an existing file with the same name (reproduced locally: with `untitled.md` present, creating `Untitled.md` → 0 bytes);
+   - A regression in tab restore on relaunch (global `openSerial` + premature `persistOpenWindows`) **overwrites the restored state with nothing / a single tab**;
+   - The flush on window close / ⌘Q is best-effort; conflicts or I/O failures do not block quitting, so edits to background tabs can be **silently lost**;
+   - A folder window reuses the text view across tabs but **does not clear the undo stack**, so ⌘Z can throw an `NSRangeException` crash or write the previous document's edits into the current one (reproduced at the AppKit layer; needs step-by-step confirmation inside the product).
+3. **The verification system does not match the product shape.** The App target has no test target; UI acceptance relies on the 2,459-line `GutterSnapshot` self-check, which **ships with the Release build**, plus window-screenshot OCR; CI builds an unsigned app **with no entitlements** (measured locally: `codesign -d --entitlements -` is empty), so the sandbox, iCloud and security-scoped bookmarks never enter CI.
+4. **The release chain does not exist**: no tag, no release workflow, Release turns Hardened Runtime off, and the installed build uses an Apple Development certificate (measured: `/Applications/XYZ.app` = 0.5.27/43, TeamIdentifier Z4FMG2KTPM), so it cannot be notarized or distributed.
+
+**One-line verdict:** functional completeness and "per-location code quality" are clearly ahead of "verification and release capability". **Fix the four P0s first, then make the gate actually mean something, and only then talk about release**; until then, any statement that "0.5.28 is a release candidate" does not hold.
+
+---
+
+## 2. Project Overview
+
+### 2.1 Feature coverage
+
+| Capability | macOS | iOS/iPadOS | Evidence / notes |
 |---|---|---|---|
-| Markdown Reading（WebView）与 Editing（NSTextView/UITextView） | ✅ | ✅（Source 端能力弱） | Reading 渲染 heading/表格/代码/任务列表/相对图片 |
-| 文件夹工作区、侧栏 Explorer、拖动移动、新建/重命名/回收站 | ✅ | ❌ | iOS 只有 `DocumentGroup` 文档浏览器 |
-| 标签页（预览 tab、pin、关闭历史 ⇧⌘T） | ✅ | ❌ | |
-| 命令面板（⌘P）、Go to Line、大纲（⌥⌘B）、⌘K 文件名+全文搜索 | ✅ | 部分（无 ⌘K 面板） | |
-| 查找/替换（⌘F/⌥⌘F/⌘G）、文件夹级 Replace All | ✅ | ❌（iOS 无 find） | |
-| 行号、当前行 band、语法着色 | ✅ | ❌（iOS 无行号/着色） | |
-| 编码与行尾保真（UTF-8/BOM、UTF-16、Windows-1252、LF/CRLF/CR） | ✅（文件夹路径） | ❌（文档场景仅 UTF-8） | 见 §5 P1-11 |
-| 图片/PDF/音视频查看器、Quick Look、JSON/CSV Reading | ✅ | 部分 | |
-| `xyz` 命令行（`open -b` 语义）、中英双语、设置 | ✅ | 部分 | CLI 有边界小 bug，见 §5 P2 |
-| iCloud Documents、App Sandbox、书签恢复 | 声明完成 | 声明完成 | **未在签名/iCloud 环境验证** |
-| AI 能力 | ❌ | ❌ | GitHub 仓库描述是 "An AI Editor."，代码中无任何 AI/LLM 功能 |
+| Markdown Reading (WebView) + Editing (NSTextView/UITextView) | ✅ | ✅ (weaker feature set on the Source side) | Reading renders headings/tables/code/task lists/relative images |
+| Folder workspace, sidebar Explorer, drag to move, new/rename/Trash | ✅ | ❌ | iOS only has the `DocumentGroup` document browser |
+| Tabs (preview tab, pin, close history ⇧⌘T) | ✅ | ❌ | |
+| Command palette (⌘P), Go to Line, outline (⌥⌘B), ⌘K filename + full-text search | ✅ | Partial (no ⌘K palette) | |
+| Find/replace (⌘F/⌥⌘F/⌘G), folder-level Replace All | ✅ | ❌ (no find on iOS) | |
+| Line numbers, current-line band, syntax coloring | ✅ | ❌ (no line numbers/coloring on iOS) | |
+| Encoding and line-ending fidelity (UTF-8/BOM, UTF-16, Windows-1252, LF/CRLF/CR) | ✅ (folder path) | ❌ (the document scene is UTF-8 only) | see §5 P1-10 |
+| Image/PDF/audio and video viewers, Quick Look, JSON/CSV Reading | ✅ | Partial | |
+| `xyz` command line (`open -b` semantics), English/Chinese UI, settings | ✅ | Partial | the CLI has small edge-case bugs, see §5 P2 |
+| iCloud Documents, App Sandbox, bookmark restore | Declared done | Declared done | **not verified in a signed/iCloud environment** |
+| AI capabilities | ❌ | ❌ | the GitHub repository description is "An AI Editor.", but the code has no AI/LLM feature at all |
 
-### 2.2 规模画像
+### 2.2 Size profile
 
-| 指标 | 数值 | 备注 |
+| Metric | Value | Notes |
 |---|---|---|
-| Swift 文件 / 行数 | 66 / 约 28,429 | App 20,456；XYZCore 源 5,761；测试 2,177 |
-| 类型 / 函数（启发式解析） | 359 / 1,645 | 最大文件 `XYZ/Editor/GutterSnapshot.swift`（2,459 行） |
-| 测试 | 9 文件 / 27 个 suite / **191 test / 741 XCTAssert** | 全部在 XYZCore；App target 0 单测 |
-| 第三方依赖 | `swift-markdown` 0.9.0（+ swift-cmark 0.9.0）；`highlight.js` 11.11.1 内置 | 依赖面很小，是优点 |
-| 版本 / 安装状态 | 树内 0.5.28/44；`/Applications/XYZ.app` = 0.5.27/43（本机实测） | 与 CHANGELOG 一致 |
-| 发布状态 | 0 tag / 0 release；GitHub 仓库 public、MIT、2026-10-23 创建 | |
-| 提交历史 | 156 个提交；151 个在 2026-11-03；0.5.x 版本共 42 段 | 明显的 agent 迭代节奏 |
+| Swift files / lines | 66 / about 28,429 | App 20,456; XYZCore sources 5,761; tests 2,177 |
+| Types / functions (heuristic parse) | 359 / 1,645 | largest file `XYZ/Editor/GutterSnapshot.swift` (2,459 lines) |
+| Tests | 9 files / 27 suites / **191 tests / 741 XCTAssert** | all in XYZCore; the App target has 0 unit tests |
+| Third-party dependencies | `swift-markdown` 0.9.0 (+ swift-cmark 0.9.0); `highlight.js` 11.11.1 bundled | a very small dependency surface, which is a strength |
+| Version / install state | tree at 0.5.28/44; `/Applications/XYZ.app` = 0.5.27/43 (measured locally) | consistent with the CHANGELOG |
+| Release state | 0 tags / 0 releases; GitHub repository public, MIT, created 2026-10-23 | |
+| Commit history | 156 commits; 151 on 2026-11-03; 42 sections for 0.5.x | a clear agent iteration cadence |
 
-**文件/类型热点**（行数）：`GutterSnapshot.swift` 2,459（单个 enum 2,400 行）、`XYZMacEditor.swift` 2,003（`XYZMacTextView` 922 + `EditorTypography` 520 + 入口 440）、`WorkspaceSession.swift` 1,977（`WorkspaceSession` 1,597 + `WorkspaceFileBuffer` 303）、`EditorCommands.swift` 1,918、`WorkspaceView.swift` 1,851、`WorkspaceSidebar.swift` 1,838、`EditorChrome.swift` 1,394、`MarkdownWebView.swift` 1,284。最长函数是 `MarkdownWebView.swift:839` 的 `shell`（433 行 HTML 字符串拼接）。
+**File/type hotspots** (line counts): `GutterSnapshot.swift` 2,459 (a single 2,400-line enum), `XYZMacEditor.swift` 2,003 (`XYZMacTextView` 922 + `EditorTypography` 520 + entry point 440), `WorkspaceSession.swift` 1,977 (`WorkspaceSession` 1,597 + `WorkspaceFileBuffer` 303), `EditorCommands.swift` 1,918, `WorkspaceView.swift` 1,851, `WorkspaceSidebar.swift` 1,838, `EditorChrome.swift` 1,394, `MarkdownWebView.swift` 1,284. The longest function is `shell` at `MarkdownWebView.swift:839` (433 lines of HTML string concatenation).
 
-### 2.3 本次本机基线验证（全部实际执行）
+### 2.3 Local baseline verification for this analysis (all actually executed)
 
-| 检查 | 命令 | 结果 |
+| Check | Command | Result |
 |---|---|---|
-| Core 单元测试 | `swift test --package-path XYZCore` | ✅ **191 tests / 0 failures** |
-| macOS Debug 构建 | `xcodebuild … -configuration Debug -destination 'platform=macOS'` | ✅ BUILD SUCCEEDED（1 条警告） |
-| macOS Release 构建 | 同上 `-configuration Release` | ✅ BUILD SUCCEEDED（CI 不做 Release） |
-| iOS Simulator 构建 | `-destination 'generic/platform=iOS Simulator'` | ✅ BUILD SUCCEEDED |
-| CLI 脚本 | `sh Scripts/xyz-test.sh` | ✅ 6/6 |
-| 编译警告 | `xcodebuild … \| grep -c warning:` | **1**（`Make xyz executable` 脚本阶段未声明 outputs） |
-| 代码卫生扫描 | `grep TODO/FIXME/HACK` | 0；`assert/precondition/fatalError` 1 处；`print()` 43 处（诊断） |
-| SwiftLint（默认规则，仓库无配置） | `swiftlint lint` | App 468 / Core 138 条，绝大多数是 `identifier_name`、`line_length`、`trailing_comma` 等风格项 |
+| Core unit tests | `swift test --package-path XYZCore` | ✅ **191 tests / 0 failures** |
+| macOS Debug build | `xcodebuild … -configuration Debug -destination 'platform=macOS'` | ✅ BUILD SUCCEEDED (1 warning) |
+| macOS Release build | the same with `-configuration Release` | ✅ BUILD SUCCEEDED (CI does not build Release) |
+| iOS Simulator build | `-destination 'generic/platform=iOS Simulator'` | ✅ BUILD SUCCEEDED |
+| CLI script | `sh Scripts/xyz-test.sh` | ✅ 6/6 |
+| Compiler warnings | `xcodebuild … \| grep -c warning:` | **1** (`Make xyz executable` script phase declares no outputs) |
+| Code-hygiene scan | `grep TODO/FIXME/HACK` | 0; 1 occurrence of `assert/precondition/fatalError`; 43 `print()` (diagnostics) |
+| SwiftLint (default rules, no config in the repo) | `swiftlint lint` | App 468 / Core 138 findings, the vast majority style items such as `identifier_name`, `line_length`, `trailing_comma` |
 
-> 注意：Release 构建、`swift test` 都不是 CI 的一部分；CI 只构建 Debug，且不运行 App 层测试。
+> Note: neither the Release build nor `swift test` is part of CI; CI builds Debug only and does not run App-layer tests.
 
 ---
 
-## 三、架构评估
+## 3. Architecture Assessment
 
-### 3.1 分层与数据流
+### 3.1 Layering and data flow
 
 ```
-XYZCore（纯逻辑、可单测）                  App target（AppKit/SwiftUI 集成）
-├─ 文本 IO：TextBytes / TextDocument       ├─ 文档场景：DocumentGroup + MarkdownFileDocument
-├─ 编辑纯函数：SourceEditing / Transforms  ├─ 文件夹场景：WorkspaceSession / Buffer / WindowController
-├─ Markdown：Parser → ReadingSource → HTML ├─ 编辑器：XYZMacEditor / XYZIOSEditor（+ GutterSnapshot 自检）
-├─ 策略：WorkspaceFilePolicy（分类/写入）   ├─ 预览：MarkdownWebView（每窗口一个 WKWebView）
-├─ 工作区：Node / Loader / Search / Tabs   ├─ 菜单/命令：EditorCommands + FolderOpening（swizzling）
-└─ 杂项：CommandPalette / SyntaxColoring   └─ 视图：WorkspaceView / Sidebar / EditorChrome
+XYZCore (pure logic, unit-testable)                      App target (AppKit/SwiftUI integration)
+├─ text IO: TextBytes / TextDocument                     ├─ document scene: DocumentGroup + MarkdownFileDocument
+├─ editing pure functions: SourceEditing / Transforms    ├─ folder scene: WorkspaceSession / Buffer / WindowController
+├─ Markdown: Parser → ReadingSource → HTML               ├─ editor: XYZMacEditor / XYZIOSEditor (+ GutterSnapshot self-check)
+├─ policy: WorkspaceFilePolicy (classify/write)          ├─ preview: MarkdownWebView (one WKWebView per window)
+├─ workspace: Node / Loader / Search / Tabs              ├─ menus/commands: EditorCommands + FolderOpening (swizzling)
+└─ misc: CommandPalette / SyntaxColoring                 └─ views: WorkspaceView / Sidebar / EditorChrome
 ```
 
-**做得好的地方：**
+**What is done well:**
 
-- `WorkspaceFilePolicy` 把"读安装/磁盘变化/写冲突/跟进保存"抽成可测纯函数（`XYZCore/.../WorkspaceFilePolicy.swift:237-280`），App 只消费决策；CHANGELOG 0.5.28 的三条竞态修复与代码一致（本次核对一致）。
-- Markdown 管线边界清晰：public 只有 `MarkdownHTML` / `MarkdownOutline`，parser/renderer/预处理均 internal；原文 HTML 转义 + `javascript:/vbscript:/data:` 拒绝 + link/image scheme 白名单，静态审查未发现注入路径（`HTMLRenderer.swift:448-511`）。
-- 编码与行尾保真是真实差异化能力：`TextBytes` 支持 7 种形态，保存写回原编码/行尾（`WorkspaceFileAccess.swift:99-154`）。
+- `WorkspaceFilePolicy` turns "install read / disk change / write conflict / follow-up save" into testable pure functions (`XYZCore/.../WorkspaceFilePolicy.swift:237-280`), and the App only consumes decisions; the three race-condition fixes in the 0.5.28 CHANGELOG match the code (verified in this analysis).
+- The Markdown pipeline has clean boundaries: the only public API is `MarkdownHTML` / `MarkdownOutline`, while parser/renderer/preprocessing stay internal; source HTML is escaped, `javascript:/vbscript:/data:` are rejected and the link/image schemes are allowlisted, and the static review found no injection path (`HTMLRenderer.swift:448-511`).
+- Encoding and line-ending fidelity is a genuine differentiator: `TextBytes` supports 7 forms and writes the original encoding/line ending back on save (`WorkspaceFileAccess.swift:99-154`).
 
-**主要架构矛盾：**
+**Main architectural conflicts:**
 
-1. **SwiftUI `DocumentGroup` 与"文件夹窗口"的冲突，用运行时 swizzling 化解。** `FolderOpening.swift:64-258` 对 `NSSavePanel` 的 `beginWithCompletionHandler:` / `beginSheetModalForWindow:completionHandler:` / `runModal`，以及 `PlatformDocumentController` 的 `openDocumentWithContentsOfURL:display:completionHandler:`、`openUntitledDocumentAndDisplay:error:`、`reopenDocumentForURL:…`、`makeUntitledDocumentOfType:error:`、`newDocument:` 做 `method_setImplementation` + 手写 `unsafeBitCast` 转发。这是 OS 升级时最先碎的一层，且只有 `-XYZCheckFileMenu` 自检能发现失效。
-2. **macOS 编辑器实际运行在 TextKit 1 上，但这不是设计选择。** `makeNSView` 先创建 TextKit 2 视图（`XYZMacEditor.swift:1058`），最后读取 `.layoutManager`（`:1128`）触发 AppKit 未公开的惰性降级；本次探针复现"读 `layoutManager` 后 `textLayoutManager` 变 nil"。这是为绕开"SwiftUI 图层不合成 TextKit 2 fragment 子视图，窗口空白"（CHANGELOG 0.5.26）而选择的逃生路径，代价是 acquire 了未公开行为、注释与文档仍在说 TextKit 2（`XYZMacEditor.swift:6`、`XYZEditor.swift:114`）。
-3. **UI 验收是产品代码的一部分。** `GutterSnapshot.swift`（2,459 行，含 Vision OCR、截图、合成窗口）编进 Sources，无 `#if DEBUG`；Release 二进制中仍能 `strings` 到 `ACCEPTANCE_*`/`GUTTER_*`。`-XYZCheckGutter` / `-XYZCheckFileMenu` / `-XYZDiagnostics` / `-XYZOpenFolder` 四个调试入口都在发布包里。它既不是 XCTest，也没有 test target 可以承载 App 层测试。
-4. **两条文本 IO 栈**：文件夹路径走 `TextBytes`（编码保真），文档场景（iOS 唯一入口、Mac ⌘O）只走 `TextDocument`（仅 UTF-8、剥 BOM）。同一产品的"打开文本"语义不一致（见 §5 P1-11）。
+1. **The conflict between SwiftUI `DocumentGroup` and the "folder window" is resolved with runtime swizzling.** `FolderOpening.swift:64-258` performs `method_setImplementation` + hand-written `unsafeBitCast` forwarding on `NSSavePanel`'s `beginWithCompletionHandler:` / `beginSheetModalForWindow:completionHandler:` / `runModal`, and on `PlatformDocumentController`'s `openDocumentWithContentsOfURL:display:completionHandler:`, `openUntitledDocumentAndDisplay:error:`, `reopenDocumentForURL:…`, `makeUntitledDocumentOfType:error:` and `newDocument:`. This is the layer most likely to shatter on an OS upgrade, and only the `-XYZCheckFileMenu` self-check can detect it breaking.
+2. **The macOS editor actually runs on TextKit 1, but that is not a design choice.** `makeNSView` first creates a TextKit 2 view (`XYZMacEditor.swift:1058`) and finally reads `.layoutManager` (`:1128`), triggering AppKit's undocumented lazy downgrade; a probe in this analysis reproduced "after reading `layoutManager`, `textLayoutManager` becomes nil". This is the escape hatch chosen to work around "SwiftUI's layer does not composite TextKit 2 fragment subviews, so the window is blank" (CHANGELOG 0.5.26), at the cost of acquiring undocumented behavior while the comments and docs still say TextKit 2 (`XYZMacEditor.swift:6`, `XYZEditor.swift:114`).
+3. **UI acceptance is part of the product code.** `GutterSnapshot.swift` (2,459 lines, including Vision OCR, screenshots and synthesized windows) is compiled into Sources with no `#if DEBUG`; `strings` on the Release binary still finds `ACCEPTANCE_*`/`GUTTER_*`. All four debug entry points `-XYZCheckGutter` / `-XYZCheckFileMenu` / `-XYZDiagnostics` / `-XYZOpenFolder` are in the shipping build. It is not XCTest either, and there is no test target that could host App-layer tests.
+4. **Two text IO stacks**: the folder path goes through `TextBytes` (encoding fidelity), while the document scene (the only iOS entry point, and Mac ⌘O) goes only through `TextDocument` (UTF-8 only, BOM stripped). "Open a text file" has inconsistent semantics within one product (see §5 P1-10).
 
-### 3.2 文档声明 vs 代码（重点抽查）
+### 3.2 Documented claims vs. code (spot check)
 
-| 声明（README/CHANGELOG/docs） | 代码事实 | 判定 |
+| Claim (README/CHANGELOG/docs) | Code fact | Verdict |
 |---|---|---|
-| Mac 编辑器走 TextKit 1（README:11） | 运行时确实被降级；但没有断言，注释仍写 TextKit 2 | ⚠️ 行为对、机制未固化 |
-| Reading 每窗口一个 WKWebView、shell 只加载一次、220ms debounce | 成立（`MarkdownWebView.swift:536-644`、`MarkdownPreview.swift:46-79`）；`MarkdownWebView.swift:16` 的"one web view for one open note"注释错误 | ✅ 基本成立 |
-| "The renderer still does not request remote images"（README:16） | `URLPolicy.imageSchemes = ["http","https"]`（`HTMLRenderer.swift:482`），无 CSP，单测甚至断言远程 `<img src>` 必须输出（`MarkdownHTMLTests.swift:156`） | ❌ **不成立**：远程图片会联网（P1-1） |
-| Raw HTML 当文本、`javascript:`/`data:` 不成链接 | 成立（`HTMLRenderer.swift:128-134,279-281,500-510`） | ✅ |
-| 文件 >5MB 不进编辑器 | 成立；另有 2MB 只读预览截断（两个阈值，README 未区分） | ✅ |
-| 文件夹窗口恢复"每个窗口的文件夹与标签"（README / CHANGELOG） | 恢复路径被全局 `openSerial` + 过早持久化击穿（P0-B） | ❌ 回归 |
-| 0.5.28/44 是候选版本、CI accepted `02dac3c` | 0.5.28 号段含 18 个提交、无 tag；`02dac3c` 的绿是无 acceptance 门禁时的绿，且早于 0.5.28 记录中的两个修复 | ⚠️ 表述需修正 |
-| docs/architecture.md:15 的 gutter 算法"由 layoutManager 提供，跳过时重测" | live 代码在 `LineNumberGutter.swift`；XYZCore 的 `LogicalLineGutter` 同名算法大部分是死代码 | ⚠️ 归属描述错位 |
-| README:53 "text view 的 undo 指向 document scene 的 undo manager" | 文件夹窗口下 `@Environment(\.undoManager)` 为 nil，文本视图用自身 NSUndoManager，且跨 tab 不清栈 | ❌ 与 P0-D 相关 |
+| The Mac editor runs on TextKit 1 (README:11) | it is indeed downgraded at runtime; but there is no assertion, and the comments still say TextKit 2 | ⚠️ behavior correct, mechanism not pinned down |
+| Reading uses one WKWebView per window, the shell is loaded once, 220 ms debounce | holds (`MarkdownWebView.swift:536-644`, `MarkdownPreview.swift:46-79`); the "one web view for one open note" comment at `MarkdownWebView.swift:16` is wrong | ✅ mostly holds |
+| "The renderer still does not request remote images" (README:16) | `URLPolicy.imageSchemes = ["http","https"]` (`HTMLRenderer.swift:482`), no CSP, and a unit test even asserts that remote `<img src>` must be emitted (`MarkdownHTMLTests.swift:156`) | ❌ **does not hold**: remote images do go online (P1-1) |
+| Raw HTML is treated as text, `javascript:`/`data:` do not become links | holds (`HTMLRenderer.swift:128-134,279-281,500-510`) | ✅ |
+| Files >5MB do not enter the editor | holds; there is also a 2MB read-only preview truncation (two thresholds, which the README does not distinguish) | ✅ |
+| Folder windows restore "each window's folder and tabs" (README / CHANGELOG) | the restore path is broken by the global `openSerial` + premature persistence (P0-2) | ❌ regression |
+| 0.5.28/44 is a release candidate and CI accepted `02dac3c` | the 0.5.28 number span covers 18 commits with no tag; `02dac3c` was green when no acceptance gate existed, and it predates two fixes recorded in 0.5.28 | ⚠️ the wording needs correcting |
+| The gutter algorithm at docs/architecture.md:15 "is provided by layoutManager and re-measured when skipped" | the live code is in `LineNumberGutter.swift`; most of the same-named algorithm `LogicalLineGutter` in XYZCore is dead code | ⚠️ wrong code ownership in the description |
+| README:53 "the text view's undo points at the document scene's undo manager" | in a folder window `@Environment(\.undoManager)` is nil, so the text view uses its own NSUndoManager and does not clear the stack across tabs | ❌ related to P0-4 |
 
 ---
 
-## 四、代码与测试质量
+## 4. Code and Test Quality
 
-### 4.1 优点（应保留）
+### 4.1 Strengths (worth keeping)
 
-- **零编译警告、零 TODO/FIXME**；命名与注释普遍解释"为什么"而不是"是什么"。
-- **纯函数策略层**：`WorkspaceFilePolicy`、`SourceEditing`、`TextFind`、`EditorTabs` 都有直接测试；`shouldInstallRead`/`isCurrentObservation`/`needsFollowUpSave` 与 0.5.28 CHANGELOG 声明一一对应。
-- **错误处理意识**：保存前二次读盘、编码不可表示时拒绝写入（`TextBytes.EncodingError.unrepresentable`）、文件被删/外部冲突有 UI 分支、`NSFileCoordinator` 协调读写。
-- **安全边界总体扎实**：Markdown 注入面未发现绕过；`WKScriptMessageHandler` 未发现循环引用；`LocalAssetSchemeHandler` 对 `stop` 的竞态处理正确；Release 不开 `isInspectable`。
-- **版本单一来源成立**：`Config/Base.xcconfig` 的 `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION` 在 pbxproj 无覆盖，Debug/Release/iOS 产物实测均为 0.5.28/44。
-- **CHANGELOG 的诚实性**：记录失败运行、撤回旧声明、列出未验证项；这在 AI 驱动项目里是难得的纪律。
+- **Zero compiler warnings, zero TODO/FIXME**; names and comments generally explain "why" rather than "what".
+- **A pure-function policy layer**: `WorkspaceFilePolicy`, `SourceEditing`, `TextFind` and `EditorTabs` all have direct tests; `shouldInstallRead`/`isCurrentObservation`/`needsFollowUpSave` map one-to-one onto the 0.5.28 CHANGELOG claims.
+- **Error-handling awareness**: re-read from disk before saving, refuse to write when the encoding cannot represent the text (`TextBytes.EncodingError.unrepresentable`), UI branches for deleted files / external conflicts, and `NSFileCoordinator` for coordinated reads and writes.
+- **The security boundary is solid overall**: no bypass of the Markdown injection surface was found; no retain cycles were found in `WKScriptMessageHandler`; `LocalAssetSchemeHandler` handles the `stop` race correctly; Release does not enable `isInspectable`.
+- **Single source of truth for the version holds**: `MARKETING_VERSION`/`CURRENT_PROJECT_VERSION` in `Config/Base.xcconfig` are not overridden in the pbxproj, and Debug/Release/iOS products were all measured at 0.5.28/44.
+- **The CHANGELOG's honesty**: it records failed runs, retracts old claims and lists unverified items; that is rare discipline in an AI-driven project.
 
-### 4.2 结构性问题
+### 4.2 Structural problems
 
-1. **巨型类型/文件**：`GutterSnapshotCheck` 2,400 行（测试夹具）、`WorkspaceSession` 1,597 行/约 110 个方法、`XYZMacTextView` 922 行、`PreviewPage.shell` 一条 433 行字符串。`WorkspaceSidebar.swift` 1,838 行内含 18 个类型；`WorkspaceSearch.swift` 438 行混了 15 个 public 类型（名字匹配、侧栏几何、图标、新建名、内容搜索）。
-2. **重复实现**：编辑器的行号/行计算至少 **6 套**（`LineIndex`、`TextFind.lineNumber`、`EditorScrollAnchor`、`SourceEditing.lineRange`、`TextTransforms.coveringLines`、`WorkspaceContentSearch.newlineCount`，其中 2 套只数 `\n`，CR-only 文本会错）；扩展名/分类知识分散 5 处并已漂移（bmp/ico 是 image viewer，但没有对应图标，`WorkspaceSearch.swift:252`）；`EditorCommands` 与 `GlobalSearchPanel` 各有一份浮层面板代码（自动扫描出 42 处 ≥8 行重复块，最大簇在这两个文件之间）。
-3. **死代码**：`SourceFormatting.swift`（283 行）+ `SourceEditing` 行内 toggle 是已移除的格式化功能，App 零调用，却有 16 个测试在维持；`LogicalLineGutter` 的 Reading 行号 API 在 0.5.26 删除 Reading 行号后遗留；`ReadingLineMap`、`ExplorerSection.fileCount`、`TextFind.step` 等只剩测试引用。
-4. **App 层可测性差**：`WorkspaceSession` 的保存/恢复/替换逻辑大量留在 App target，核心决策没有单测入口；P0-B 这类回归属于"一改就坏、CI 看不见"的典型。
+1. **Giant types/files**: `GutterSnapshotCheck` is 2,400 lines (a test fixture), `WorkspaceSession` is 1,597 lines with about 110 methods, `XYZMacTextView` is 922 lines, and `PreviewPage.shell` is one 433-line string. `WorkspaceSidebar.swift` is 1,838 lines containing 18 types; `WorkspaceSearch.swift` mixes 15 public types in 438 lines (name matching, sidebar geometry, icons, new-item names, content search).
+2. **Duplicated implementations**: editor line-number/line computation has at least **6 variants** (`LineIndex`, `TextFind.lineNumber`, `EditorScrollAnchor`, `SourceEditing.lineRange`, `TextTransforms.coveringLines`, `WorkspaceContentSearch.newlineCount`, of which 2 count only `\n`, so CR-only text is wrong); extension/classification knowledge is spread over 5 places and has already drifted (bmp/ico use the image viewer but have no matching icons, `WorkspaceSearch.swift:252`); `EditorCommands` and `GlobalSearchPanel` each carry their own overlay-panel code (an automated scan found 42 duplicate blocks of ≥8 lines, with the largest cluster between these two files).
+3. **Dead code**: `SourceFormatting.swift` (283 lines) + the `SourceEditing` inline toggle are the removed formatting feature, called nowhere in the App yet kept alive by 16 tests; `LogicalLineGutter`'s Reading line-number API is left over from deleting Reading line numbers in 0.5.26; `ReadingLineMap`, `ExplorerSection.fileCount`, `TextFind.step` and others are referenced only by tests.
+4. **Poor App-layer testability**: much of `WorkspaceSession`'s save/restore/replace logic lives in the App target, and the core decisions have no unit-test entry point; a regression like P0-2 is the classic "breaks on any change and CI cannot see it" case.
 
-### 4.3 测试覆盖画像
+### 4.3 Test coverage profile
 
-- XYZCore：**191 tests / 741 asserts / 2,177 行测试 vs 5,761 行源码（≈0.38:1）**。覆盖厚的是 `TextBytes`、`TextFind`、`WorkspaceFilePolicy`、`EditorTabs`；薄的是 `SyntaxColoring`（488 行源码仅 4 个测试）、`HTMLRenderer`（无独立测试文件，经 `MarkdownHTML` 间接覆盖）、`FileOutline`。
-- 主要缺口：UTF-16 无 BOM 启发式、`TextFind.scan/replacement/lineNumber`（查找条主路径）、`MarkdownFileDocument` 的 `init(configuration:)`/`fileWrapper`/脏标记、>5MB 打开路由、front matter + CRLF、`WorkspaceItemName.unique` 边界、`SyntaxColoring` 的 20 种语言。
-- **没有任何 async/并发测试**；App target **没有测试 target**（pbxproj 只有 1 个 target，scheme 的 `TestAction` 为空）。
-- 部分测试与实现细节耦合：HTML 断言精确到属性顺序；`testFacadeMatchesDecoupledRenderer` 用 `@testable` 比较门面与内部管线；依赖 8,192/250k 常量与真实符号链接。
+- XYZCore: **191 tests / 741 asserts / 2,177 lines of tests vs. 5,761 lines of source (≈0.38:1)**. Coverage is thick for `TextBytes`, `TextFind`, `WorkspaceFilePolicy` and `EditorTabs`, and thin for `SyntaxColoring` (488 source lines with only 4 tests), `HTMLRenderer` (no dedicated test file, covered indirectly through `MarkdownHTML`) and `FileOutline`.
+- Main gaps: the UTF-16-without-BOM heuristic; `TextFind.scan/replacement/lineNumber` (the find bar's main path); `MarkdownFileDocument`'s `init(configuration:)`/`fileWrapper`/dirty flag; the >5MB open route; front matter + CRLF; the `WorkspaceItemName.unique` boundary; the 20 languages of `SyntaxColoring`.
+- **There are no async/concurrency tests at all**; the App target **has no test target** (the pbxproj has 1 target and the scheme's `TestAction` is empty).
+- Some tests are coupled to implementation details: HTML assertions check attribute order exactly; `testFacadeMatchesDecoupledRenderer` uses `@testable` to compare the facade with the internal pipeline; tests depend on the 8,192/250k constants and on real symlinks.
 
-### 4.4 CI 的真实状态（GitHub Actions API 交叉核对）
+### 4.4 The real state of CI (cross-checked against the GitHub Actions API)
 
-| 指标 | 数值 |
+| Metric | Value |
 |---|---|
-| 累计运行 | **380 runs**：success 137（36%）/ failure 172 / cancelled 71 |
-| 最近 100 runs | **10 success（10%）** |
-| acceptance 门禁（run 374 起，共 7 次） | **0 success** |
-| HEAD `db12a62`（run `42332912178`） | ❌ 失败于 `Check original UI acceptance`；其后的 `Launch macOS app`、`Check Open Folder menu`、`Check Open Folder menu in Chinese` 因隐式 `success()` 语义被 **skip**；`Build iOS Simulator`、`Test XYZCore` 通过 |
-| 最后一次绿 push | run 364（`ecd4594`，11-06 10:18 UTC）；最后一次绿 PR 为 run 373（`56bd310`）——与 CHANGELOG 记录一致 |
-| 单个 CI run 结构 | `macos-latest` + "选最新 Xcode"（浮动工具链）；Debug 构建；`-XYZCheckGutter` 90 秒硬超时；acceptance 失败仍上传截图；无 Release/archive、无 lint、无缓存、无 `timeout-minutes`、无 app 测试 |
+| Total runs | **380 runs**: success 137 (36%) / failure 172 / cancelled 71 |
+| Last 100 runs | **10 successes (10%)** |
+| Acceptance gate (from run 374, 7 runs in total) | **0 successes** |
+| HEAD `db12a62` (run `42332912178`) | ❌ failed at `Check original UI acceptance`; the following `Launch macOS app`, `Check Open Folder menu` and `Check Open Folder menu in Chinese` were **skipped** because of implicit `success()` semantics; `Build iOS Simulator` and `Test XYZCore` passed |
+| Last green push | run 364 (`ecd4594`, 11-06 10:18 UTC); last green PR was run 373 (`56bd310`) — consistent with the CHANGELOG |
+| Structure of a single CI run | `macos-latest` + "pick the newest Xcode" (floating toolchain); Debug build; a 90-second hard timeout on `-XYZCheckGutter`; screenshots are still uploaded when acceptance fails; no Release/archive, no lint, no caching, no `timeout-minutes`, no app tests |
 
-**两个结构性问题：**
+**Two structural problems:**
 
-1. **CI 跑的不是用户运行的那个 app。** CI 用 `CODE_SIGNING_ALLOWED=NO` 构建（`ci.yml:71-75`）后 `codesign --force --deep --sign -`（`:83/135/156/180`）ad-hoc 重签；本机同类产物实测 `--entitlements` 为空，而安装版带 App Sandbox / iCloud / bookmarks / network.client。也就是说 **沙盒、iCloud、书签、容器路径从未被 CI 执行过**——这解释了 CHANGELOG 里"iCloud 未验证"的结构性原因，也让"UI 检查通过"与"沙盒里可用"之间没有等号。
-2. **自检 ≠ 验收。** acceptance 自 `da9730d` 引入后 0/7 通过，代码随后未再修改该文件；失败项包括 nested-file 点击、Collapse All、divider 双击、mode label、empty-line preferences。窗口截图看不到 WKWebView 像素（CHANGELOG 自述），而 Reading 是产品核心，属于验证盲区。
-
----
-
-## 五、风险清单
-
-> 编号前的 P0/P1/P2 是本次分析的统一严重度：P0 = 数据丢失/崩溃/发布阻断；P1 = 明显缺陷、安全隐私、高风险；P2 = 改进。每条给出主证据，完整证据见 `docs/analysis/`。
-
-### 5.1 P0（4 个缺陷 + 1 个发布阻断）
-
-**P0-1 New File 在大小写不敏感卷上截断已有文件（数据丢失，本机复现）**
-`createItem` 用"树里已列名字 ∪ 目录实际名字"做唯一化（`WorkspaceSession.swift:410-421`），`WorkspaceItemName.unique` 是**精确字符串比较**（`WorkspaceSearch.swift:297-309`），随后 `Data().write(to:, options: .atomic)`（`WorkspaceSession.swift:429-435`）。macOS 默认 APFS 大小写不敏感：磁盘已有 `untitled.md` 时 `Untitled.md` 不在集合里，原子写覆盖同一目录项。
-本机复现：`fmt 'precious content' > untitled.md`，再向 `Untitled.md` 做原子写 → `untitled.md` 变 0 字节。修复：`.withoutOverwriting`/`O_CREAT|O_EXCL` + 按卷大小写/Unicode 归一化语义做唯一化，把 `unique` 下沉到 Core 并补测试。
-
-**P0-2 重启恢复标签被"全局打开串行号"击穿，并覆盖持久化状态（状态丢失，代码确认）**
-`openFile` 每个请求递增全局 `openSerial`，异步读完成时要求 `openSerial == serial`（`WorkspaceSession.swift:539-563`）；`restoreTabs` 在同一个同步循环里打开所有 tab（`:727-761`），只有最后一次请求能安装；紧接着 `WorkspaceWindowController.open` 立即 `persistOpenWindows()`（`WorkspaceWindowController.swift:245-254`），此时 `tabStrip` 仍为空，把 `xyz.workspace.windows` 覆盖成空/单标签。该回归由 `d5c4f25` 引入，`restoreTabs` 无集成测试。修复：per-path 请求竞争 + 恢复完成后才允许持久化，或 `restoreTabs` 改为 async 串行。
-
-**P0-3 关窗/⌘Q 不保证未保存编辑落盘（数据丢失风险，代码确认）**
-`windowWillClose` 直接 `shutdown()`（`WorkspaceWindowController.swift:129-137`）；`applicationShouldTerminate` 恒返回 `.terminateNow`（`:652-657`），`prepareForQuit` 只做一次 `shutdown()`（`:445-451`）。`flush()` 只调用一次 `save(force:false)`，冲突/编码/IO 错误仅写 `status`（`WorkspaceSession.swift:1925-1933`），冲突弹窗还只对当前 buffer 生效（`:961-963`）。多标签未保存编辑在文件被外部修改/删除、iCloud 断网、只读卷时可能静默丢失。修复：`windowShouldClose`/`applicationShouldTerminate` 返回 `.terminateCancel` 并弹出保存/放弃/取消；`flush()` 返回结果；trash 前同步 flush。
-
-**P0-4 跨文档 undo 栈未清空：⌘Z 崩溃或串改当前文档（崩溃/损坏，AppKit 层已复现）**
-文件夹窗口的 `XYZEditor` 拿到 `@Environment(\.undoManager)`（`WorkspaceView.swift:1626-1658`；无 document scene 时为 nil），`XYZMacTextView.undoManager` 回退到自身的 `NSUndoManager`（`XYZMacEditor.swift:43-45`）；程序性替换只 `disableUndoRegistration` 不清栈（`XYZMacEditor.swift:1376-1393`），全仓库无 `removeAllActions`。本次 AppKit 探针复现：输入后 `canUndo=true`，`textView.string = "XY"` 后 `canUndo` 仍为 true（旧 typing action 仍在，undo 时 `NSRangeException`；先 `removeAllActions()` 则安全）。修复：`replaceContents`/buffer 切换时 `removeAllActions(withTarget:)` 或 per-buffer undo manager；补一个"切 tab 后 ⌘Z"回归用例。
-
-**P0-5 发布阻断：HEAD CI 红、acceptance 从未通过、无 tag/release/公证/Developer ID（发布阻断）**
-见 §4.4 与 §4.4 的签名差异。`git tag` 为空；无 release workflow；Release `ENABLE_HARDENED_RUNTIME=NO`（`project.pbxproj:487`）；安装版是 Apple Development 证书（非 Developer ID），无法公证分发。0.5.28/44 号段覆盖 18 个提交，`docs/architecture.md:3` 的 rollback commit `02dac3c` 早于 0.5.28 记录中的两个修复（`ee0b4bd`、`d834720`），"回滚到 0.5.28"不可执行。
-
-### 5.2 P1（按主题）
-
-**安全/隐私**
-
-1. **预览远程图片静默联网，且与 README 相反。** `URLPolicy.imageSchemes = ["http","https"]`（`HTMLRenderer.swift:482`）、`visitImage` 原样输出（`:301-318`），shell 无 CSP，应用带 `network.client` 权限；打开含 `![](https://…)` 的笔记会在 Reading 首次渲染时请求第三方（IP/时间/阅读回执泄露）。建议：默认只允许本地图片（经 `xyz-asset`），或加 CSP 并显式提示。
-2. **`xyz-asset` 无根目录约束。** `LocalAssets.fileURL(for:)` 只检查 scheme 与 `/` 前缀（`LocalAssets.swift:26-31`），不 canonicalize、不校验是否在笔记目录下；文件夹窗口持有整棵树授权，笔记 A 可用 `../../` 显示文件夹 B 的图片/媒体（而链接打开反而有 root 限制，`WorkspaceSession.swift:360-368`）。
-
-**数据/正确性**
-
-3. **陈旧 `LineIndex`。** `warmLineIndex` 只在 `makeNSView`/程序性 reload 调用（`XYZMacEditor.swift:1124,1386`），gutter 优先读 `textView.cachedLineIndex()`（`LineNumberGutter.swift:59-68`）；按一次 Return 后行号/状态栏行列/Source↔Reading 锚点会整体偏移。
-4. **Gutter 全量排版 + 行盒不一致。** TK1+折行时每次重绘都在 `lineFragmentRows` 里 `ensureLayout(0..<全长)`（`LineNumberGutter.swift:313-322`），判断"跳过"发生在这之后，跳过时排两次；无折行时 gutter 行盒来自 gutter 字体而非编辑器字体（`:346-361`），行距 1.0–1.1 时每行漂移 2.84pt（本机探针实测，测试夹具恰好用 1.2 掩盖）。
-5. **保存阻塞主线程。** `WorkspaceFileBuffer.save` 在 `@MainActor` 上同步执行 `NSFileCoordinator` + 整文件读 + 整文件写（`WorkspaceSession.swift:1890-1935`、`WorkspaceFileAccess.swift:112-150`），500ms debounce；大文件/iCloud/网络卷会掉帧甚至 beachball（读路径却用了 `Task.detached`）。
-6. **Buffer 的 `@Published` 没有订阅者。** `kind/reloadToken/conflictText/isMissing/status` 全仓库无 `@ObservedObject`/sink（`WorkspaceSession.swift:1636-1640`）；外部文件变更、保存失败、文件消失可能长期不刷新 UI，`onEditorState` 只更新 tab 脏标记（`:947-952`）。
-7. **Replace in Folder 可改隐藏文件，且对未打开文件不做磁盘再校验。** 计划扫描不过滤隐藏文件（`WorkspaceSession.swift:1241-1243`），执行时对未打开文件直接写（`:1326-1369`），计划与执行之间的外部修改会被旧计划覆盖；undo 同样直接写回旧字节。
-8. **原子写破坏符号链接/硬链接。** 目录加载把 symlink 当普通文件（`WorkspaceDirectoryLoader.swift:10-27`），保存用 `bytes.write(.atomic)`（`WorkspaceFileAccess.swift:139-146`）→ 链接被替换成普通文件、真实目标未更新（本机实验证实）。
-9. **`Task.detached` 取消失效 + 每次展开目录全根重扫。** `Task.isCancelled` 在 detached 任务里通常恒 false（`WorkspaceSession.swift:1110-1127,1386-1413,1938-1976`）；`load(parent:)` 成功后无条件 `scheduleIndex()`，大仓库下展开/刷新会产生叠加的全目录枚举。
-10. **文档场景只支持 UTF-8。** `TextDocument` 仅 UTF-8、读时剥 BOM（`TextDocument.swift:5-40`），`MarkdownFileDocument.init` 失败即抛（`MarkdownFileDocument.swift:33-38`）；iOS 只能走文档浏览器（README:4-7），Windows-1252/UTF-16 文本在 iOS/⌘O 打不开，带 BOM 文件经文档场景保存后 BOM 消失。
-11. **CRLF front matter 行号错位 + 大纲幽灵标题。** `ReadingSource.swift:65-71` 逐 `Character` 掩码，`"\r\n"` 是一个 Character → CRLF front matter 换行被吃掉、`data-line` 整体前移；`MarkdownOutline.swift:20-26` 直接解析原始文本，不经 `ReadingSource.prepare`，YAML front matter 会变成标题、wiki-link 标题与预览不一致。
-12. **`MarkdownFileDocument.objectWillChange` 从不发送。** `MarkdownFileDocument.swift:16` 声明 publisher，`storeEditorText`（`:48-52`）从不 `send`；文档脏状态完全依赖 undo manager 这一条路，无测试证明"程序化替换/IME 提交/重载后关闭会提示保存"。
-
-**性能**
-
-13. 每击键把全文 String 同步外传（editor → buffer → preview bridge → outline → word count），1–5MB 文件输入延迟与内存抖动（`WorkspaceView.swift:1642-1657`、`XYZMacEditor.swift:1440`）；outline/字数也在每键重算。
-14. `TextFind.matches` 无上限、`replaceAll` 对每个 match 做 `NSMutableString→String` 拷贝、`lineNumber` 复制前缀串；5MB 高频词可产生百万级 match（`TextFind.swift:29-39,66-79,126-136`）。
-15. `SyntaxColoring` 每个字符一次 `NSMutableString.substring`（`SyntaxColoring.swift:154-157`），256KB 文件滚动可感；`TextBytes` 对 UTF-8 解码两次（`:187`）、逐 scalar 拼接（`:255-308`）。
-
-**跨平台/产品一致性**
-
-16. **iOS Source 端明显落后**：忽略字号/行距/字体/可读宽度/spellCheck（`XYZIOSEditor.swift:210-219,285-311`；`XYZEditor.swift:254-263`），无行号、无查找、无语法着色；而 Reading 用 `@AppStorage` 的字号/行距（`MarkdownWebView.swift:97-111`）→ 同一设置下 Source/Reading 不一致。
-17. **国际化承诺未完成**：catalog 234 key / 232 zh-Hans，但源码抽取发现至少 47 条用户可见文案不在 catalog（菜单、tab 右键 Pin/Unpin/Close All、Find and Replace、Search Notes、Explorer/Collapse All、搜索面板、Settings 等）；CI 只 `grep` 一个"打开文件夹…"（`ci.yml:190`）。
-18. **系统类 swizzling 是最大升级脆弱面**：`NSSavePanel`/`PlatformDocumentController` 共 5 处 hook（`FolderOpening.swift:64-258`），没有版本探测/回退；AppKit/SwiftUI 内部签名变化即可让"文件→打开/新建文档"静默失效。
-
-**验证/工程**
-
-19. **2,459 行自检代码常驻发布包**：`GutterSnapshot.swift` 是单个 enum，含 Vision OCR/WebKit/截图；其 offscreen 用例测的是 TK2 detached 路径，**不覆盖生产 TK1 窗口路径**（`GutterSnapshot.swift:1279-1281`），存在"自检绿但窗口错"的结构性风险。
-20. **手写 pbxproj**（无 `project.yml`、UUID 为 `8A/8B/8C0…` 顺序合成）：新增/改名文件靠手工登记，漏登记会静默不参与编译；无 CI 一致性校验。
-21. **无 tag/release/公证/Developer ID**（见 P0-5）；CHANGELOG 依赖 90 天过期的 Actions artifact 作为证据。
-
-### 5.3 P2（摘要）
-
-- **死代码**：`SourceFormatting` + 行内 toggle（283 行 + 16 测试）、`LogicalLineGutter` 大部分、`ReadingLineMap`、`ExplorerSection.fileCount`。
-- **6 套行号实现不一致**（2 套只数 `\n`）；扩展名/分类知识 5 处漂移；`bmp/ico` 查看器可开但图标错。
-- **`FileFormats.isTextualName` 对 dotfile 永远 false**（`FileFormat.swift:189-196`），`.gitignore` 的 textual 条目不可达 → 非 UTF-8 dotfile 被当二进制。
-- **BOM-less UTF-16 若字节恰好合法 UTF-8 会被误判**，编辑保存后字节被改写（`TextBytes.swift:187-222`）。
-- **`WorkspaceItemName.unique` 1 万次冲突后静默返回重名**（`WorkspaceSearch.swift:297-309`）。
-- **CLI `xyz` 边界 bug**：`case` 中的 `~`/`~/*` 分支对字面量 `"~"` 永不匹配（POSIX 波浪号展开），交互 shell 因先展开而通常正常，但从脚本/引号传入会失败；`/tmp/xyz-cli-*.$$` 可预测临时文件有符号链接/并发风险（`XYZ/Resources/bin/xyz:53-54,98-117`）。
-- **无 lint/format 配置**（本机已装 swiftlint/swiftformat），默认规则 app 468 / core 138 条；Swift 语言模式仍是 5.0（`SWIFT_STRICT_CONCURRENCY` 非 complete），大量 `Task`/`@MainActor` 代码的并发正确性不设防。
-- **macOS 产物含 iOS-only plist 键**（`UILaunchScreen`、`UISupportsDocumentBrowser` 等，`project.pbxproj:447-500`）。
-- **`tools/make_icons.py` 不可复现**：顶层 `import fontTools`（本机 `--help` 即 ModuleNotFoundError）、硬编码 Chrome 路径、无版本 pin/requirements。
-- **可访问性**：全仓库仅 33 处 accessibility 标记，无 VoiceOver/键盘完整性验收；设置面板、状态栏、Reading 的 a11y 声明值得单列测试。
-- **产品定位不一致**：GitHub 仓库描述 "An AI Editor."，但代码/README 无任何 AI 功能；若这是路线图，应在 README 说明，否则建议改掉描述。
+1. **CI does not run the app the user runs.** CI builds with `CODE_SIGNING_ALLOWED=NO` (`ci.yml:71-75`) and then re-signs ad hoc with `codesign --force --deep --sign -` (`:83/135/156/180`); a local product of the same kind measured an empty `--entitlements`, whereas the installed build carries App Sandbox / iCloud / bookmarks / network.client. In other words **the sandbox, iCloud, bookmarks and container paths have never been exercised by CI** — which explains the structural reason behind the CHANGELOG's "iCloud not verified", and means there is no equals sign between "the UI checks pass" and "it works inside the sandbox".
+2. **Self-check ≠ acceptance.** Acceptance has passed 0/7 since it was introduced in `da9730d`, and the file has not been touched since; the failing items include the nested-file click, Collapse All, the divider double-click, the mode label and the empty-line preferences. Window screenshots cannot see WKWebView pixels (as the CHANGELOG itself notes), and Reading is core to the product, so this is a verification blind spot.
 
 ---
 
-## 六、产品评估
+## 5. Risk List
 
-**优势（值得继续投入）：**
+> The P0/P1/P2 in front of each number is the unified severity used in this analysis: P0 = data loss/crash/release blocker; P1 = obvious defect, security or privacy, high risk; P2 = improvement. Each entry gives its primary evidence; the full evidence is in `docs/analysis/`.
 
-- 原生（非 Electron）的 macOS 质感 + 真实的文件夹工作区 + 标签/命令面板/大纲，组合上更接近"轻量 IDE 化的 Typora"，在 Markdown 编辑器赛道有明确差异点。
-- 文本保真（编码/行尾/BOM/混合行尾）是许多同类产品忽略的能力，对中文/Windows 迁移用户尤其有价值。
-- Reading（WebView）与 Editing（原生 TextKit）两条渲染路径都认真做了：相对图片、`#fragment`、外链、ASCII 表格、highlight.js、查找高亮、滚动锚点。
-- README/CHANGELOG 的详细程度和"不把未验证写成通过"的纪律，是项目最可信的资产之一。
+### 5.1 P0 (4 defects + 1 release blocker)
 
-**主要产品缺口：**
+**P0-1 New File truncates an existing file on a case-insensitive volume (data loss, reproduced locally)**
+`createItem` uniquifies against "the names already listed in the tree ∪ the actual names in the directory" (`WorkspaceSession.swift:410-421`), `WorkspaceItemName.unique` does an **exact string comparison** (`WorkspaceSearch.swift:297-309`), and the file is then written with `Data().write(to:, options: .atomic)` (`WorkspaceSession.swift:429-435`). macOS APFS is case-insensitive by default: when `untitled.md` already exists on disk, `Untitled.md` is not in the set, and the atomic write overwrites the same directory entry.
+Reproduced locally: `fmt 'precious content' > untitled.md`, then an atomic write to `Untitled.md` → `untitled.md` becomes 0 bytes. Fix: `.withoutOverwriting`/`O_CREAT|O_EXCL` + uniquification that follows the volume's case/Unicode-normalization semantics, moving `unique` down into Core with tests.
 
-1. **发布与分发不存在**：没有下载页/公证/自动更新/TestFlight；用户拿不到 0.5.28，安装的是开发签名 0.5.27。
-2. **iOS 只是"文档场景的最小实现"**：没有文件夹工作区、标签、查找、语法着色；Source 端与 Reading 端设置不一致。若"一个 SwiftUI 代码库跑三端"是卖点，这是当前最大落差。
-3. **同步只停留在 entitlements 声明**：iCloud 容器、书签、沙盒路径都未经签名环境验证，"iCloud Drive 里是普通文档"的产品承诺目前无法证明。
-4. **验证盲区与产品核心错位**：Reading 窗口截图看不到 WebView 像素、真实 IME/iCloud/手势未跑；UI 验收失败的 5 项（Explorer 点击、Collapse All、divider、mode label、空行偏好）正好是"文件夹窗口好不好用"的关键交互。
-5. **定位未落地**："An AI Editor." 没有对应功能；若未来要做 AI 能力，需要先解决隐私边界（远程请求默认关闭）、数据出域提示与本地/云端模型的选择。
+**P0-2 Tab restore on relaunch is broken by the "global open serial number" and overwrites the persisted state (state loss, confirmed in code)**
+`openFile` increments a global `openSerial` for every request and requires `openSerial == serial` when the async read completes (`WorkspaceSession.swift:539-563`); `restoreTabs` opens all tabs in one synchronous loop (`:727-761`), so only the last request can install; immediately afterwards `WorkspaceWindowController.open` calls `persistOpenWindows()` right away (`WorkspaceWindowController.swift:245-254`), but `tabStrip` is still empty at that point, so `xyz.workspace.windows` is overwritten with nothing / a single tab. The regression was introduced by `d5c4f25`, and `restoreTabs` has no integration test. Fix: per-path request contention + allow persistence only after the restore completes, or make `restoreTabs` async and serial.
 
-**竞品简评（定性）：** 与 Typora 相比，XYZ 多文件夹工作区/标签/命令面板，但 Typora 更成熟、跨平台、已发布；与 Obsidian 相比，XYZ 更轻、更原生，但插件生态/同步/移动端不可比；与 VS Code 相比，XYZ 的 Markdown 阅读体验更专注，但没有扩展生态与发布渠道；与 MarkEdit 等原生小工具相比，XYZ 功能面更大，但工程风险也更大。**现实路径是"小而精的原生 macOS Markdown/文本工作台 + 后续 iOS 补齐"，而不是"通用编辑器平台"。**
+**P0-3 Window close / ⌘Q does not guarantee unsaved edits reach disk (data-loss risk, confirmed in code)**
+`windowWillClose` calls `shutdown()` directly (`WorkspaceWindowController.swift:129-137`); `applicationShouldTerminate` always returns `.terminateNow` (`:652-657`), and `prepareForQuit` does a single `shutdown()` (`:445-451`). `flush()` calls `save(force:false)` only once, writing conflict/encoding/IO errors to `status` only (`WorkspaceSession.swift:1925-1933`), and the conflict dialog applies only to the current buffer (`:961-963`). Unsaved edits in multiple tabs can be silently lost when files were modified/deleted externally, when iCloud is offline, or on a read-only volume. Fix: return `.terminateCancel` from `windowShouldClose`/`applicationShouldTerminate` with a Save/Discard/Cancel prompt; make `flush()` return a result; flush synchronously before trashing.
+
+**P0-4 The undo stack is not cleared across documents: ⌘Z crashes or corrupts the current document (crash/corruption, reproduced at the AppKit layer)**
+A folder window's `XYZEditor` gets `@Environment(\.undoManager)` (`WorkspaceView.swift:1626-1658`; nil when there is no document scene), so `XYZMacTextView.undoManager` falls back to its own `NSUndoManager` (`XYZMacEditor.swift:43-45`); programmatic replacement only calls `disableUndoRegistration` without clearing the stack (`XYZMacEditor.swift:1376-1393`), and there is no `removeAllActions` anywhere in the repository. An AppKit probe in this analysis reproduced it: after typing, `canUndo=true`, and after `textView.string = "XY"`, `canUndo` is still true (the old typing action is still there and undo throws `NSRangeException`; calling `removeAllActions()` first is safe). Fix: `removeAllActions(withTarget:)` in `replaceContents` / on buffer switches, or a per-buffer undo manager; add a "⌘Z after switching tabs" regression case.
+
+**P0-5 Release blocker: HEAD CI is red, acceptance never passed, no tag/release/notarization/Developer ID (release blocker)**
+See §4.4, and the signature discrepancy discussed in §4.4. `git tag` is empty; there is no release workflow; Release has `ENABLE_HARDENED_RUNTIME=NO` (`project.pbxproj:487`); the installed build uses an Apple Development certificate (not Developer ID) and cannot be notarized or distributed. The 0.5.28/44 number span covers 18 commits, while the rollback target `02dac3c` in `docs/architecture.md:3` predates two fixes recorded in 0.5.28 (`ee0b4bd`, `d834720`), so "roll back to 0.5.28" is not actionable.
+
+### 5.2 P1 (by theme)
+
+**Security/Privacy**
+
+1. **Preview requests remote images silently, contrary to the README.** `URLPolicy.imageSchemes = ["http","https"]` (`HTMLRenderer.swift:482`) and `visitImage` emits them verbatim (`:301-318`); the shell has no CSP and the app carries the `network.client` entitlement; opening a note containing `![](https://…)` contacts a third party on Reading's first render (leaking IP/time/read receipt). Recommendation: allow only local images by default (through `xyz-asset`), or add a CSP and an explicit prompt.
+2. **`xyz-asset` has no root-directory restriction.** `LocalAssets.fileURL(for:)` checks only the scheme and the leading `/` (`LocalAssets.swift:26-31`) and neither canonicalizes the path nor verifies that it stays under the note's directory; a folder window holds authorization for the whole tree, so note A can use `../../` to show folder B's images/media (whereas opening links does have a root restriction, `WorkspaceSession.swift:360-368`).
+
+**Data/Correctness**
+
+3. **Stale `LineIndex`.** `warmLineIndex` is called only from `makeNSView` / programmatic reload (`XYZMacEditor.swift:1124,1386`), and the gutter reads `textView.cachedLineIndex()` first (`LineNumberGutter.swift:59-68`); after a single Return, line numbers/status-bar line:column/Source↔Reading anchors all shift.
+4. **Gutter full layout + inconsistent line box.** With TK1 + wrapping, every redraw runs `ensureLayout(0..<full length)` inside `lineFragmentRows` (`LineNumberGutter.swift:313-322`), and the "skip" decision happens after that, so a skip lays out twice; without wrapping the gutter line box comes from the gutter font rather than the editor font (`:346-361`), drifting 2.84pt per line at line spacing 1.0–1.1 (measured with a local probe; the test fixture happens to use 1.2, which masks it).
+5. **Saving blocks the main thread.** `WorkspaceFileBuffer.save` synchronously performs `NSFileCoordinator` + whole-file read + whole-file write on the `@MainActor` (`WorkspaceSession.swift:1890-1935`, `WorkspaceFileAccess.swift:112-150`) with a 500ms debounce; large files/iCloud/network volumes will drop frames or even beachball (the read path, by contrast, uses `Task.detached`).
+6. **The buffer's `@Published` has no subscribers.** Nowhere in the repository are `kind/reloadToken/conflictText/isMissing/status` consumed via `@ObservedObject`/sink (`WorkspaceSession.swift:1636-1640`); external file changes, save failures and disappearing files may never refresh the UI, and `onEditorState` only updates the tab dirty flag (`:947-952`).
+7. **Replace in Folder can modify hidden files and does not re-verify unopened files on disk.** The planned scan does not filter hidden files (`WorkspaceSession.swift:1241-1243`), execution writes unopened files directly (`:1326-1369`), external changes between planning and execution are overwritten by the stale plan, and undo likewise writes the old bytes back directly.
+8. **Atomic writes break symlinks/hard links.** Directory loading treats a symlink as an ordinary file (`WorkspaceDirectoryLoader.swift:10-27`), and saving uses `bytes.write(.atomic)` (`WorkspaceFileAccess.swift:139-146`) → the link is replaced by a regular file and the real target is not updated (confirmed by a local experiment).
+9. **`Task.detached` cancellation does not work + every directory expansion rescans the whole root.** `Task.isCancelled` is usually always false inside a detached task (`WorkspaceSession.swift:1110-1127,1386-1413,1938-1976`); `load(parent:)` unconditionally calls `scheduleIndex()` on success, so in a large repository expanding/refreshing stacks up whole-directory enumerations.
+10. **The document scene supports UTF-8 only.** `TextDocument` is UTF-8 only and strips the BOM on read (`TextDocument.swift:5-40`), and `MarkdownFileDocument.init` throws on failure (`MarkdownFileDocument.swift:33-38`); iOS can only go through the document browser (README:4-7), so Windows-1252/UTF-16 text cannot be opened on iOS/⌘O, and a BOM disappears after a BOM-bearing file is saved through the document scene.
+11. **CRLF front matter line numbers are off + ghost outline headings.** `ReadingSource.swift:65-71` masks per `Character`, and `"\r\n"` is a single Character → the CRLF front-matter newline is swallowed and `data-line` shifts by one; `MarkdownOutline.swift:20-26` parses the raw text directly without `ReadingSource.prepare`, so YAML front matter becomes a heading and wiki-link headings disagree with the preview.
+12. **`MarkdownFileDocument.objectWillChange` is never sent.** `MarkdownFileDocument.swift:16` declares the publisher and `storeEditorText` (`:48-52`) never calls `send`; the document's dirty state depends entirely on the undo manager, and no test proves that "closing after a programmatic replacement / IME commit / reload prompts to save".
+
+**Performance**
+
+13. **Every keystroke synchronously hands the whole document String around** (editor → buffer → preview bridge → outline → word count), causing input latency and memory churn on 1–5MB files (`WorkspaceView.swift:1642-1657`, `XYZMacEditor.swift:1440`); the outline/word count are also recomputed on every keystroke.
+14. **`TextFind.matches` has no cap**: `replaceAll` copies `NSMutableString→String` for every match, and `lineNumber` copies a prefix string; a frequent word in a 5MB file can produce millions of matches (`TextFind.swift:29-39,66-79,126-136`).
+15. **`SyntaxColoring` does one `NSMutableString.substring` per character** (`SyntaxColoring.swift:154-157`), which is noticeable when scrolling a 256KB file; `TextBytes` decodes UTF-8 twice (`:187`) and concatenates per scalar (`:255-308`).
+
+**Cross-platform/Product consistency**
+
+16. **The iOS Source side is clearly behind**: it ignores font size/line spacing/font/readable width/spellCheck (`XYZIOSEditor.swift:210-219,285-311`; `XYZEditor.swift:254-263`) and has no line numbers, no find and no syntax coloring; meanwhile Reading uses the `@AppStorage` font size/line spacing (`MarkdownWebView.swift:97-111`) → Source/Reading disagree under the same settings.
+17. **The internationalization promise is unfinished**: the catalog has 234 keys / 232 zh-Hans, but source extraction finds at least 47 user-visible strings missing from the catalog (menus, tab context menu Pin/Unpin/Close All, Find and Replace, Search Notes, Explorer/Collapse All, the search panel, Settings, etc.); CI only `grep`s one "Open Folder…" (`ci.yml:190`).
+18. **Swizzling system classes is the biggest upgrade fragility**: 5 hooks in total across `NSSavePanel`/`PlatformDocumentController` (`FolderOpening.swift:64-258`), with no version probing or fallback; a change in AppKit/SwiftUI internals is enough to silently break "File → Open/New Document".
+
+**Verification/Engineering**
+
+19. **2,459 lines of self-check code ship in the release build**: `GutterSnapshot.swift` is a single enum including Vision OCR/WebKit/screenshots; its offscreen cases exercise the TK2 detached path and **do not cover the production TK1 window path** (`GutterSnapshot.swift:1279-1281`), so there is a structural risk of "the self-check is green but the window is wrong".
+20. **Hand-written pbxproj** (no `project.yml`, UUIDs synthesized sequentially as `8A/8B/8C0…`): adding/renaming files requires manual registration, and a missed registration silently keeps the file out of the build; there is no CI consistency check.
+21. **No tag/release/notarization/Developer ID** (see P0-5); the CHANGELOG relies on Actions artifacts that expire after 90 days as evidence.
+
+### 5.3 P2 (summary)
+
+- **Dead code**: `SourceFormatting` + the inline toggle (283 lines + 16 tests), most of `LogicalLineGutter`, `ReadingLineMap`, `ExplorerSection.fileCount`.
+- **6 inconsistent line-number implementations** (2 of them count only `\n`); extension/classification knowledge drifts across 5 places; the `bmp/ico` viewer opens but shows the wrong icon.
+- **`FileFormats.isTextualName` is always false for dotfiles** (`FileFormat.swift:189-196`), so the textual entries of `.gitignore` are unreachable → non-UTF-8 dotfiles are treated as binary.
+- **BOM-less UTF-16 is misdetected if the bytes happen to be valid UTF-8**, and the bytes are rewritten after editing and saving (`TextBytes.swift:187-222`).
+- **`WorkspaceItemName.unique` silently returns a duplicate name after 10,000 conflicts** (`WorkspaceSearch.swift:297-309`).
+- **CLI `xyz` edge-case bugs**: the `~`/`~/*` branches in `case` never match the literal `"~"` (POSIX tilde expansion); an interactive shell usually works because it expands first, but passing it from a script or in quotes fails; the predictable `/tmp/xyz-cli-*.$$` temp file carries symlink/concurrency risk (`XYZ/Resources/bin/xyz:53-54,98-117`).
+- **No lint/format configuration** (swiftlint/swiftformat are installed locally), default rules give App 468 / Core 138 findings; the Swift language mode is still 5.0 (`SWIFT_STRICT_CONCURRENCY` is not complete), so the concurrency correctness of the many `Task`/`@MainActor` code paths is undefended.
+
+- **The macOS product contains iOS-only plist keys** (`UILaunchScreen`, `UISupportsDocumentBrowser`, etc., `project.pbxproj:447-500`).
+- **`tools/make_icons.py` is not reproducible**: a top-level `import fontTools` (locally `--help` immediately raises ModuleNotFoundError), a hardcoded Chrome path, and no version pin/requirements.
+- **Accessibility**: only 33 accessibility markers in the whole repository, with no VoiceOver/keyboard-completeness acceptance; the a11y declarations of the settings panel, status bar and Reading deserve dedicated tests.
+- **Inconsistent product positioning**: the GitHub repository description says "An AI Editor.", but the code/README have no AI feature; if that is the roadmap, the README should say so, otherwise the description should be changed.
 
 ---
 
-## 七、建议路线图
+## 6. Product Assessment
 
-### 立即（本周内，修 P0 + 让门禁可信）
+**Strengths (worth continued investment):**
 
-1. **P0-1 新建文件安全**：改用 `withoutOverwriting`/`O_EXCL`；`unique` 按卷大小写/Unicode 归一化语义实现并下沉到 XYZCore + 单测（含 `Note.md`/`note.md`、NFC/NFD）。
-2. **P0-2 标签恢复**：改为 per-path 请求竞争 + `restoreTabs` 完成后再持久化；补 restore 回归测试（纯函数 + 离屏 AppKit）。
-3. **P0-3 退出保护**：`windowShouldClose` + `applicationShouldTerminate` 走 `.terminateCancel`；`flush()` 返回成功/失败；冲突/编码错误弹窗覆盖所有标签。
-4. **P0-4 undo 清理**：`replaceContents`/切 buffer 时清 undo 栈（或 per-buffer undo manager）；补"切 tab 后 ⌘Z"用例。
-5. **CI 可信化**：把 `Launch`/菜单检查的 `if` 改为 `always()`（否则 acceptance 失败会把它们永久 skip）；固定 Xcode 版本；加 `timeout-minutes`；acceptance 失败时输出结构化失败清单。若短期修不完 5 个 case，就把 acceptance 标为 advisory 并明确"HEAD 不绿"，不要继续用"候选版本"。
-6. **冻结发布点**：在 acceptance 全绿（或明确豁免）的 commit 上打 annotated tag `v0.5.28`；Release 打开 Hardened Runtime；CI 增加 Release 构建（至少 macOS）+ archive/notary 脚本骨架（Developer ID 证书走 secrets）。
+- Native (not Electron) macOS feel + a real folder workspace + tabs/command palette/outline, a combination closer to "a lightweight, IDE-like Typora", giving a clear differentiator in the Markdown-editor lane.
+- Text fidelity (encoding/line endings/BOM/mixed line endings) is a capability many competitors ignore, and is especially valuable to users migrating from Windows or legacy toolchains.
+- Both rendering paths, Reading (WebView) and Editing (native TextKit), are taken seriously: relative images, `#fragment`, external links, ASCII tables, highlight.js, find highlighting, scroll anchors.
+- The thoroughness of the README/CHANGELOG and the discipline of "never record an unverified item as passing" are among the project's most credible assets.
 
-### 短期（1–2 个月，修 P1 与验证体系）
+**Main product gaps:**
 
-7. **把自检移出产品**：`GutterSnapshotCheck`/`FileMenuCheck` 拆到独立 UI test target（或至少 `#if DEBUG`），Release 二进制不再含 Vision/截图/OCR 依赖；同时让 offscreen 用例覆盖生产 TK1 路径。
-8. **安全默认值**：Reading 默认不加载远程图片（或加 CSP + 设置项）；`xyz-asset` 增加根目录约束（canonicalize + `hasPrefix(allowedRoot)`，handler 按 webview/session 实例化）。
-9. **正确性小修**：LineIndex 失效策略（`textDidChange` 清缓存/异步重建）；gutter 行盒统一用编辑器字体、去掉全量 `ensureLayout`；`ReadingSource` 按 scalar 掩码修 CRLF front matter；`MarkdownOutline` 复用 `ReadingSource.prepare`；文档场景编码接手 `TextBytes`。
-10. **App 可测化**：为 `WorkspaceSession` 抽纯逻辑（恢复计划、保存序列、替换计划、路径包含）到 XYZCore；加 App 测试 target，先覆盖 5 条 P0/P1 路径。
-11. **保存移出主线程**：读盘校验—编码—写入放到串行 actor/后台队列，结果回 MainActor；buffer 变化正确发布（订阅 buffer 的 `objectWillChange` 或让视图 `@ObservedObject`）。
-12. **国际化/本地化**：抽取 47 条硬编码文案；CI 加 catalog diff 检查；补中文菜单/搜索面板。
-13. **swizzling 收敛**：集中到一个模块，启动时做版本/选择器自检并写诊断；评估能否用 `NSOpenSavePanelDelegate`/`applicationShouldOpenUntitledFile` 替代部分 hook。
+1. **Release and distribution do not exist**: no download page/notarization/auto-update/TestFlight; users cannot get 0.5.28, and the installed build is the development-signed 0.5.27.
+2. **iOS is only "a minimal implementation of the document scene"**: no folder workspace, tabs, find or syntax coloring; the Source and Reading sides disagree on settings. If "one SwiftUI codebase for three platforms" is the selling point, this is the biggest gap right now.
+3. **Sync exists only as entitlement declarations**: the iCloud container, bookmarks and sandbox paths have not been verified in a signed environment, so the product promise "plain documents in iCloud Drive" cannot be proven today.
+4. **The verification blind spot is misaligned with the product core**: window screenshots cannot see WebView pixels, and real IME/iCloud/gestures are not exercised; the 5 failing UI-acceptance items (Explorer click, Collapse All, divider, mode label, empty-line preference) are exactly the key interactions for "does the folder window work well".
+5. **The positioning has not landed**: "An AI Editor." has no corresponding feature; if AI capabilities are planned, the privacy boundary (remote requests off by default), an outbound-data notice and the choice between local and cloud models must be settled first.
 
-### 中期（3–6 个月，发布与平台）
-
-14. **发布流水线**：Developer ID 签名 + notarytool + 下载页 + Sparkle 自动更新；iOS 走 TestFlight；版本号→tag→build 一一对应；CHANGELOG 关联 tag 而非易失的 run URL。
-15. **真实环境验收**：签名沙盒构建的 smoke（含 security-scoped bookmark、iCloud Drive、sandbox 路径）；真实中文输入法；真实窗口手势/Explorer 点击（XCUITest 在 GitHub runner 上启动失败已被记录，需要自托管 runner 或人工验收清单）。
-16. **iOS 补齐**：Source 端接入共享样式/查找/着色；评估 iPad 文件夹工作区（`WorkspaceSession` 已在 Core 侧预留模型，但当前 `XYZ/Workspace/*` 全是 macOS-only）。
-17. **性能目标化**：定义并测量 1MB/5MB 打开、输入延迟、300KB 滚动、⌘K 搜索的 p95；按 §5 P1-13/14/15 的顺序优化。
-
-### 长期（架构与产品方向）
-
-18. **TextKit 策略定案**：显式声明 TextKit 1（`usingTextLayoutManager: false`）或验证 SwiftUI 窗口合成问题在目标 macOS 版本已修复后再迁 TextKit 2；无论哪条路，都用断言/诊断锁定运行时路径，避免未公开降级。
-19. **单文件/工作区两条 IO 栈统一**（`TextBytes` 作为唯一编解码入口），消除 BOM/编码语义漂移。
-20. **产品定位落地**：要么实现 AI 能力（先解决隐私/出域/本地模型），要么把仓库描述改成"native Markdown editor"；补齐可访问性与主题化，形成可宣传的差异点。
+**Competitive summary (qualitative):** compared with Typora, XYZ has the folder workspace/tabs/command palette, but Typora is more mature, cross-platform and already shipped; compared with Obsidian, XYZ is lighter and more native, but its plugin ecosystem/sync/mobile cannot compare; compared with VS Code, XYZ's Markdown reading experience is more focused, but it lacks an extension ecosystem and a release channel; compared with small native tools such as MarkEdit, XYZ has a larger feature surface but also greater engineering risk. **The realistic path is "a small, polished native macOS Markdown/text workbench + iOS catch-up afterwards", not "a general-purpose editor platform".**
 
 ---
 
-## 八、分析口径与局限
+## 7. Recommended Roadmap
 
-- **已验证**：本机三套构建 + Core 测试 + CLI 脚本；GitHub Actions API 的 380 次运行元数据（结论、步骤、提交）；4 路静态深读覆盖全部 66 个 Swift 文件、CI/构建配置、文档与本地化 catalog；AppKit 探针（TextKit 降级、undo 栈、行盒）、文件系统探针（大小写截断、原子写破坏链接）。
-- **未验证**：未启动 GUI 应用（会在用户屏幕打开窗口）；未跑 Instruments/性能实测；未在 macOS 14/15 上实测；未跑真实中文 IME、iCloud、签名沙盒；GitHub 的 job 原生日志需管理员权限（API 返回 403），只能使用运行元数据与 CHANGELOG 记录；因此 P0-4 是 AppKit 机制已复现、产品内路径待按步骤确认。
-- **团队产出**：`docs/analysis/core.md`、`workspace.md`、`editor.md`、`process.md` 为四路并行深读的原始报告（约 1,700 行，全部 file:line），未经合并润色，可作为本报告的附录与复核依据。
-- **行号基准**：HEAD `db12a62`。后续提交会使行号漂移，复核时请以符号/函数名定位。
+### Immediate (this week: fix P0 and make the gate trustworthy)
+
+1. **P0-1 safe new files**: switch to `withoutOverwriting`/`O_EXCL`; implement `unique` following the volume's case/Unicode-normalization semantics, move it into XYZCore and unit-test it (including `Note.md`/`note.md`, NFC/NFD).
+2. **P0-2 tab restore**: change to per-path request contention + persist only after `restoreTabs` completes; add restore regression tests (pure functions + offscreen AppKit).
+3. **P0-3 quit protection**: `windowShouldClose` + `applicationShouldTerminate` go through `.terminateCancel`; `flush()` returns success/failure; conflict/encoding-error dialogs cover all tabs.
+4. **P0-4 undo cleanup**: clear the undo stack in `replaceContents`/on buffer switches (or use a per-buffer undo manager); add a "⌘Z after switching tabs" case.
+5. **Make CI trustworthy**: change the `if` on the `Launch`/menu checks to `always()` (otherwise an acceptance failure skips them forever); pin the Xcode version; add `timeout-minutes`; output a structured failure list when acceptance fails. If the 5 cases cannot be fixed soon, mark acceptance as advisory and state plainly that "HEAD is not green"; stop using "release candidate".
+6. **Freeze a release point**: put an annotated tag `v0.5.28` on a commit where acceptance is fully green (or explicitly waived); enable Hardened Runtime in Release; add a Release build to CI (macOS at least) plus a skeleton archive/notarize script (the Developer ID certificate comes from secrets).
+
+### Short term (1–2 months: fix P1 and the verification system)
+
+7. **Move the self-checks out of the product**: split `GutterSnapshotCheck`/`FileMenuCheck` into a separate UI test target (or at least `#if DEBUG`) so the Release binary no longer contains the Vision/screenshot/OCR dependencies; also make offscreen cases cover the production TK1 path.
+8. **Secure defaults**: Reading does not load remote images by default (or adds a CSP + a setting); `xyz-asset` gains a root restriction (canonicalize + `hasPrefix(allowedRoot)`, with the handler instantiated per webview/session).
+9. **Small correctness fixes**: LineIndex invalidation strategy (clear the cache / rebuild asynchronously in `textDidChange`); unify the gutter line box on the editor font and remove the full `ensureLayout`; fix CRLF front matter in `ReadingSource` by masking per scalar; reuse `ReadingSource.prepare` in `MarkdownOutline`; have the document scene take over encoding from `TextBytes`.
+10. **Make the App testable**: extract pure logic (restore plan, save sequence, replace plan, path containment) from `WorkspaceSession` into XYZCore; add an App test target and cover the 5 P0/P1 paths first.
+11. **Move saving off the main thread**: put the disk re-verification, encoding and writing on a serial actor/background queue and bring the result back to the MainActor; publish buffer changes correctly (subscribe to the buffer's `objectWillChange` or make the view `@ObservedObject`).
+
+12. **Internationalization/localization**: extract the 47 hardcoded strings; add a catalog diff check to CI; finish the Chinese menus/search panel.
+13. **Converge swizzling**: gather it into one module, run a version/selector self-check at launch and log diagnostics; evaluate whether `NSOpenSavePanelDelegate`/`applicationShouldOpenUntitledFile` can replace some hooks.
+
+### Mid term (3–6 months: release and platform)
+
+14. **Release pipeline**: Developer ID signing + notarytool + a download page + Sparkle auto-update; iOS through TestFlight; a one-to-one mapping of version number → tag → build; the CHANGELOG links to tags instead of volatile run URLs.
+15. **Acceptance in a real environment**: smoke tests on a signed sandboxed build (including security-scoped bookmarks, iCloud Drive, sandbox paths); a real Chinese input method; real window gestures/Explorer clicks (XCUITest failing to launch on GitHub runners is already recorded, so a self-hosted runner or a manual acceptance checklist is needed).
+16. **iOS catch-up**: wire the Source side into the shared styles/find/coloring; evaluate an iPad folder workspace (`WorkspaceSession` already has the model reserved on the Core side, but `XYZ/Workspace/*` is entirely macOS-only today).
+17. **Turn performance into targets**: define and measure the p95 of 1MB/5MB open, input latency, 300KB scrolling and ⌘K search; optimize in the order given in §5 P1-13/14/15.
+
+### Long term (architecture and product direction)
+
+18. **Settle the TextKit strategy**: either declare TextKit 1 explicitly (`usingTextLayoutManager: false`) or verify that the SwiftUI window-composition problem is fixed on the target macOS version before migrating to TextKit 2; either way, lock the runtime path down with assertions/diagnostics to avoid the undocumented downgrade.
+19. **Unify the two IO stacks** for single files and workspaces (`TextBytes` as the only encode/decode entry point) to eliminate BOM/encoding semantic drift.
+
+20. **Land the product positioning**: either implement AI capabilities (settling privacy/outbound data/local models first) or change the repository description to "native Markdown editor"; finish accessibility and theming to form a promotable differentiator.
 
 ---
 
-## 九、修复进展（按本报告优先级）
+## 8. Analysis Scope and Limitations
 
-本节记录实际落地的改动，对应版本 0.5.29（build 45），详细叙述见 `CHANGELOG.md` 同号条目。行号以 HEAD `db12a62` 为基准；本节按函数名定位。
+- **Verified**: the three local builds + Core tests + the CLI script; the metadata of 380 GitHub Actions runs (conclusions, steps, commits); 4 static deep reads covering all 66 Swift files, the CI/build configuration, the docs and the localization catalog; AppKit probes (TextKit downgrade, undo stack, line box) and filesystem probes (case-insensitive truncation, atomic writes breaking links).
+- **Not verified**: the GUI app was not launched (it would open windows on the user's screen); no Instruments/performance measurement was run; nothing was tested on macOS 14/15; the real Chinese IME, iCloud and the signed sandbox were not run; GitHub job logs require admin rights (the API returns 403), so only run metadata and CHANGELOG records could be used; therefore P0-4 has the AppKit mechanism reproduced, with the in-product path still to be confirmed step by step.
+- **Team output**: `docs/analysis/core.md`, `workspace.md`, `editor.md` and `process.md` are the original reports from the four parallel deep reads (about 1,700 lines, all with file:line), not merged or polished, and can serve as the appendix and review basis for this report.
+- **Line-number basis**: HEAD `db12a62`. Later commits will shift line numbers, so locate by symbol/function name when re-checking.
 
-### 9.1 已修复：P0
+---
 
-| 编号 | 修复内容 | 主要位置 | 验证 |
+## 9. Fix Progress (in this report's priority order)
+
+This section records the changes actually landed, corresponding to version 0.5.29 (build 45); the detailed narrative is in the `CHANGELOG.md` entry for the same number. Line numbers are based on HEAD `db12a62`; this section locates code by function name.
+
+### 9.1 Fixed: P0
+
+| ID | Fix | Primary location | Verification |
 |---|---|---|---|
-| P0-1 | 新建文件/文件夹一律独占创建（`.withoutOverwriting` / `createDirectory`），名称在创建时刻按目录实况重选，文件系统报告已存在则换下一个名字重试（最多 20 次）；`unique` 按卷语义比较名称（大小写不敏感 + Unicode 预组合），1 万次冲突后返回 UUID 后缀而不是静默重名 | `WorkspaceSession.createItem` / `createItemExclusively`/`itemAlreadyExists`、`WorkspaceItemName.comparisonKey` | `WorkspaceTests.testNamesAndMoves` 新增 `untitled.md`、`NFC/NFD`、大小写敏感卷断言 |
-| P0-2 | `openFile` 返回安装任务；恢复按 tab 串行 await 且 `activate: false`，最后选中保存的活动 tab；恢复完成才持久化窗口列表（失败时保留旧列表）；恢复任务随窗口关闭取消；`windowState()` 保存每 tab 真实 mode | `WorkspaceSession.restoreTabs`/`openRestored`/`present`、`WorkspaceWindowController.open` | `EditorTabTests.testSetActiveKeepsTheSet`、`testTabModeSurvivesTheStrip`；三平台构建通过 |
-| P0-3 | `windowShouldClose` 与 `applicationShouldTerminate` 先 flush 全部 buffer（抑制逐文件冲突弹窗），再弹一个合并清单：「Keep Editing」为默认/Esc，或「Close Anyway」/「Quit Anyway」；保存失败的文件被前置展示，取消后可见其 banner | `WorkspaceWindowController.windowShouldClose`/`prepareForQuit`/`confirmUnsaved`、`WorkspaceSession.unsavedForClose`/`presentForClose` | 编译 + 路径审查；窗口实机验收未做（见 9.4） |
-| P0-4 | 整篇替换在文本确实变化时清空 undo 栈（macOS `XYZMacTextView` 与 iOS `UITextView`），旧范围不再指向新文档 | `XYZMacEditor.replaceContents`、`XYZIOSEditor.replaceContents` | 代码路径审查；交互验收未做 |
+| P0-1 | New files/folders are always created exclusively (`.withoutOverwriting` / `createDirectory`); the name is re-chosen from the directory's actual state at creation time, and if the filesystem reports that it exists, the next name is retried (up to 20 times); `unique` compares names by volume semantics (case-insensitive + Unicode precomposed), and after 10,000 conflicts returns a UUID-suffixed name instead of silently duplicating | `WorkspaceSession.createItem` / `createItemExclusively`/`itemAlreadyExists`, `WorkspaceItemName.comparisonKey` | `WorkspaceTests.testNamesAndMoves` gained `untitled.md`, `NFC/NFD` and case-sensitive-volume assertions |
+| P0-2 | `openFile` returns the install task; restore awaits serially per tab with `activate: false` and finally selects the saved active tab; the window list is persisted only after restore completes (the old list is kept on failure); the restore task is cancelled with the window; `windowState()` saves each tab's real mode | `WorkspaceSession.restoreTabs`/`openRestored`/`present`, `WorkspaceWindowController.open` | `EditorTabTests.testSetActiveKeepsTheSet`, `testTabModeSurvivesTheStrip`; builds pass on all three platforms |
+| P0-3 | `windowShouldClose` and `applicationShouldTerminate` first flush all buffers (suppressing per-file conflict dialogs), then show one merged list: "Keep Editing" as default/Esc, or "Close Anyway"/"Quit Anyway"; files that failed to save are listed first and their banner is visible after cancelling | `WorkspaceWindowController.windowShouldClose`/`prepareForQuit`/`confirmUnsaved`, `WorkspaceSession.unsavedForClose`/`presentForClose` | compile + path review; in-window acceptance on a real machine not done (see 9.4) |
+| P0-4 | A whole-document replacement clears the undo stack when the text actually changed (macOS `XYZMacTextView` and iOS `UITextView`), so old ranges no longer point into the new document | `XYZMacEditor.replaceContents`, `XYZIOSEditor.replaceContents` | code-path review; interactive acceptance not done |
 
-### 9.2 已修复：P1（选定项）
+### 9.2 Fixed: P1 (selected items)
 
-| 编号 | 修复内容 | 验证 |
+| ID | Fix | Verification |
 |---|---|---|
-| P1-3 | `textDidChange` 立即作废 `LineIndex` 缓存并重绘行号，120 ms 防抖后在后台重建；gutter 与状态栏不再读到编辑前的行起点 | 构建通过 |
-| P1-4（部分） | gutter 无折行行盒改用编辑器字体与段落样式，不再用较小的 gutter 字体 | 构建通过；全量 `ensureLayout` 仍在，未做性能重构 |
-| P1-6 | session 转发 buffer 的 `objectWillChange`，磁盘重载/保存失败/文件消失会刷新正文与 banner | 构建通过 |
-| P1-7（部分） | `searchableFiles()` 统一 ⌘K 与 Replace in Folder 的候选集：排除目录、跳过路径、且侧栏隐藏文件时不列入 | 构建通过；执行前的磁盘再校验未做 |
-| P1-2 | `xyz-asset` 增加根目录约束：`WorkspacePathScope.contains` 标准化路径并解析符号链接；handler 按 webview 实例化并随笔记目录切换 | `WorkspaceTests.testPathScopeResolvesTraversalAndLinks`（`..` 越界、符号链接逃逸） |
-| P1-1 | Reading 默认不加载远程图片：`MarkdownHTML.render(_:allowRemoteImages:)` 关闭时渲染器根本不写 `http(s)` 的 `<img src>`（web view 无从发起请求，协议相对 `//host` 一并拦），设置项「Load remote images」默认关闭、可在 Settings 打开；相对路径图片不受影响 | `MarkdownHTMLTests` 新增 2 个用例（关闭时无远程 src、相对图片仍渲染、协议相对地址拦截） |
-| P1-17 | 补齐源码中缺失的 48 条用户可见文案（菜单、标签右键、⌘K 面板、Explorer、设置、状态栏、CLI 安装对话框、Replace in Folder）；catalog 238 → 286 key，全部带 zh-Hans | `Localizable.xcstrings` 校验；CI 新增 catalog 完整性步骤；未在真机看中文菜单 |
-| P1-11 | CRLF front matter 按 Unicode scalar 掩码，不再把 `\r\n` 当一个 Character 吞掉；大纲改用 `ReadingSource.prepare` 后再解析，front matter 里的 `#` 不再是标题、wiki link 标题与 Reading 一致 | `DocumentInsightTests` 新增 3 个用例（LF/CRLF 行号、wiki link 标题） |
-| P1-10 | 文档场景（iOS 文档浏览器 / Mac ⌘O）改为保留编码与换行：UTF-8/BOM/UTF-16/Windows-1252 均可读写，BOM 不再丢失；无法编码的新字符回退 UTF-8，避免写出空文件 | `TextDocument` 新增 5 个单测（BOM、UTF-16、Windows-1252、CRLF 原样、回退 UTF-8） |
-| P1-8（部分） | 保存前用新增的 `WorkspaceWriteTarget.resolveForWriting` 解析符号链接（含链式链接、环回退），原子写落在链接目标而不是把链接替换成普通文件；`WorkspaceFileCoordination.updateText`/`writeData` 均已接入 | `WriteTargetTests` 5 个用例（普通路径、链接、链式链接、环、写后仍是链接） |
-| P1-9（部分） | 分离的 detached 扫描改为可取消（关闭 ⌘K、切换文件夹时真正停下）；目录重载列表未变化时不再重扫整棵树 | 构建通过 |
-| P1-15（部分） | `TextBytes.decodeUnicode` 去掉重复 UTF-8 解码；`TextFind.lineNumber` 不再复制前缀字符串；regex `replaceAll` 不再为每个 match 复制整篇文档 | 既有 208 个单测全过（含 regex group replace） |
-| P1-14（部分） | 同 P1-15 的 `replaceAll` 拷贝消除；`matches` 仍无上限（需要 UI 语义决定） | — |
-| P1-12（文档） | `objectWillChange` 保持不发送，并在代码中写明原因：脏状态由 undo manager 驱动，逐键发送只会重建场景 | 注释；未加运行时验证 |
+| P1-3 | `textDidChange` invalidates the `LineIndex` cache immediately and redraws line numbers, then rebuilds it in the background after a 120 ms debounce; the gutter and status bar no longer read line starts from before the edit | builds pass |
+| P1-4 (partial) | the gutter's line box without wrapping now uses the editor font and paragraph style, not the smaller gutter font | builds pass; the full `ensureLayout` is still there, no performance refactor |
+| P1-6 | the session forwards the buffer's `objectWillChange`, so disk reloads/save failures/disappearing files refresh the body and banner | builds pass |
+| P1-7 (partial) | `searchableFiles()` unifies the candidate set of ⌘K and Replace in Folder: directories excluded, skipped paths excluded, and hidden files excluded when the sidebar hides them | builds pass; pre-execution disk re-verification not done |
+| P1-2 | `xyz-asset` gains a root restriction: `WorkspacePathScope.contains` standardizes the path and resolves symlinks; the handler is instantiated per webview and follows note-directory switches | `WorkspaceTests.testPathScopeResolvesTraversalAndLinks` (`..` escape, symlink escape) |
+| P1-1 | Reading does not load remote images by default: with `MarkdownHTML.render(_:allowRemoteImages:)` off, the renderer emits no `http(s)` `<img src>` at all (the web view has nothing to request, and protocol-relative `//host` is blocked as well); the "Load remote images" setting defaults to off and can be enabled in Settings; relative-path images are unaffected | 2 new cases in `MarkdownHTMLTests` (no remote src when off, relative images still render, protocol-relative addresses blocked) |
+| P1-17 | added the 48 user-visible strings missing from the source (menus, tab context menu, ⌘K panel, Explorer, Settings, status bar, CLI install dialog, Replace in Folder); the catalog went from 238 to 286 keys, all with zh-Hans | `Localizable.xcstrings` validation; a new catalog-completeness step in CI; Chinese menus not inspected on a real machine |
+| P1-11 | CRLF front matter is masked by Unicode scalar, so `\r\n` is no longer swallowed as one Character; the outline parses after `ReadingSource.prepare`, so `#` inside front matter is no longer a heading and wiki-link headings match Reading | 3 new cases in `DocumentInsightTests` (LF/CRLF line numbers, wiki-link headings) |
+| P1-10 | the document scene (iOS document browser / Mac ⌘O) now preserves encoding and line endings: UTF-8/BOM/UTF-16/Windows-1252 all read and write, the BOM is no longer lost, and characters that cannot be encoded fall back to UTF-8 instead of writing an empty file | 5 new unit tests in `TextDocument` (BOM, UTF-16, Windows-1252, CRLF preserved, UTF-8 fallback) |
+| P1-8 (partial) | saving resolves symlinks through the new `WorkspaceWriteTarget.resolveForWriting` (including chained links and loop fallback), so the atomic write lands on the link target instead of replacing the link with a regular file; wired into `WorkspaceFileCoordination.updateText`/`writeData` | 5 cases in `WriteTargetTests` (regular path, link, chained link, loop, still a link after writing) |
+| P1-9 (partial) | the detached scans became cancellable (they really stop when ⌘K is dismissed or the folder changes); a directory reload whose listing did not change no longer rescans the whole tree | builds pass |
+| P1-15 (partial) | `TextBytes.decodeUnicode` no longer decodes UTF-8 twice; `TextFind.lineNumber` no longer copies the prefix string; regex `replaceAll` no longer copies the whole document per match | all 208 existing unit tests pass (including regex group replace) |
+| P1-14 (partial) | the same `replaceAll` copy elimination as P1-15; `matches` still has no cap (which needs a UI-semantics decision) | — |
+| P1-12 (docs) | `objectWillChange` remains unsent, and the reason is written in the code: the dirty state is driven by the undo manager, and sending on every keystroke would only rebuild the scene | comment; no runtime verification added |
 
-### 9.3 已修复：P2 低成本项
+### 9.3 Fixed: low-cost P2 items
 
-| 项 | 修复 |
+| Item | Fix |
 |---|---|
-| dotfile 文本判定 | `FileFormats.isTextualName` 对 `.gitignore`/`.editorconfig`/`.env` 返回 true，`.DS_Store`/`.png` 仍为 false（含单测断言） |
-| JSON/CSS 行注释 | `TextTransforms.lineComment(for:)` 返回 nil，命令被禁用而不是写出解析器拒绝的文件（含单测断言） |
-| `unique` 冲突上限 | 9,998 个同名后返回带 UUID 后缀的名字，不再返回可能已存在的名字 |
-| BOM-less UTF-16 | 启发式判定提前到 UTF-8 之前：纯 ASCII 的 UTF-16 不再被当成带 NUL 的 UTF-8 读入并在保存时改字节（含单测） |
-| CLI `~` 边界 | `Resources/bin/xyz` 的 `case "~"`、`"~/"*` 加引号；`Scripts/xyz-test.sh` 新增 `tilde`、`tilde-dir` 用例（HOME 指向临时目录） |
-| CLI 临时文件 | 可预测的 `/tmp/xyz-cli-*.$$` 改为 `mktemp -d` + `trap` 清理，避免预置/符号链接与 SIGINT 残留；dry-run 8/8 通过 |
-| 图标脚本 | `tools/make_icons.py` 的 fontTools 改为惰性导入，`--help` 不再抛 traceback；Chrome 从多候选查找/`CHROME` 覆盖，缺依赖给一句话；新增 `tools/requirements.txt` |
-| CI 可信化 | `timeout-minutes: 60`；bundle 版本与 `Config/Base.xcconfig` 一致性检查；窗口检查步骤 `always()` 运行；acceptance 每个失败用例输出 `::error` 注解；Release 构建；artifact 增加截图与各步骤日志；catalog 完整性检查 |
+| dotfile text detection | `FileFormats.isTextualName` returns true for `.gitignore`/`.editorconfig`/`.env` and still false for `.DS_Store`/`.png` (with unit-test assertions) |
+| JSON/CSS line comments | `TextTransforms.lineComment(for:)` returns nil, so the command is disabled instead of writing a file the parser rejects (with unit-test assertions) |
+| `unique` conflict cap | after 9,998 names it returns a UUID-suffixed name instead of a name that may already exist |
+| BOM-less UTF-16 | the heuristic now runs before UTF-8: pure-ASCII UTF-16 is no longer read as UTF-8 with NULs and then rewritten on save (with a unit test) |
+| CLI `~` edge case | `case "~"` and `"~/"*` in `Resources/bin/xyz` are quoted; `Scripts/xyz-test.sh` gained `tilde`, `tilde-dir` cases (HOME pointed at a temp directory) |
+| CLI temp files | the predictable `/tmp/xyz-cli-*.$$` became `mktemp -d` + `trap` cleanup, avoiding pre-planted/symlink and SIGINT leftovers; dry-run 8/8 pass |
+| Icon script | `tools/make_icons.py` imports fontTools lazily, so `--help` no longer throws a traceback; Chrome is looked up through several candidates/`CHROME` override, and a missing dependency gives a one-line message; added `tools/requirements.txt` |
+| CI trustworthiness | `timeout-minutes: 60`; a bundle-version consistency check against `Config/Base.xcconfig`; window-check steps run under `always()`; acceptance emits an `::error` annotation per failing case; a Release build; artifacts include screenshots and per-step logs; a catalog-completeness check |
 
-### 9.4 仍未完成（有意保留，按优先级）
+### 9.4 Still open (deliberately left, by priority)
 
-- **P0-5 发布阻断（大幅推进，仍未收口）**：Release 已打开 Hardened Runtime；本机创建了 Developer ID Application 证书（Team `Z4FMG2KTPM`），archive → `method=developer-id` 导出 → zip 公证（submission `0e54a40b…`，Accepted）→ staple → `spctl` **accepted / source=Notarized Developer ID**；DMG 也已签名、公证（`a0e37293…`，Accepted）、staple 并被 `spctl` 接受。仍缺：tag/GitHub release、release workflow、acceptance 门禁（0/7）、安装版仍是 0.5.27、未做真机人工验收。步骤与记录见 `docs/release.md`。
-- **P1-1 远程图片默认阻断**：属产品决策（默认关闭 + 设置项 + 外链提示），本次只改文档。
-- **P1-5** 保存仍在主线程（1MB+ 文件/iCloud/网络卷可能卡顿）——需要一次无 GUI 验收的重构窗口。
-- **P1-8 硬链接**：原子写仍会拆分硬链接（保持原子性优先）；符号链接已修。
-- **P1-9 剩余**：目录加载本身（单次 `children` 调用）仍不可中断；`Task.detached` 取消只覆盖了有检查点的循环。
-- **P1-13** 每击键全文外传（editor → buffer → preview/outline/字数）未做节流；**P1-16** iOS Source 端样式/查找/着色仍落后；**P1-18** swizzling 收敛；**P1-19** 自检代码移出发布包；**P1-20** 手写 pbxproj 一致性。
-- **P2 死代码（部分）**：已删除 `ReadingLineMap`（+3 个测试）与 `ExplorerSection.fileCount`（+2 条断言），均无生产调用方；`SourceFormatting.swift` 的 6 个格式化命令与 `SourceEditing` 的行内 toggle **有意保留**——`FormatMenu.swift` 明确移除了 Format 菜单（"notes are written as Markdown text"），文件头已写明这一决定，删除需要产品层面确认。
-- **P2 其余**：6 套行号统一、lint/format 配置、可访问性、仓库描述（"An AI Editor."）与发布定位。
-- **P2 macOS 产物里的 iOS-only plist 键（试过，未成）**：把 6 个 `INFOPLIST_KEY_UI*` 改成 `[sdk=iphoneos*]`/`[sdk=iphonesimulator*]` 条件设置后，Xcode 的 Info.plist 生成器仍会在 macOS 产物里写出同名键（空值/false）——它按所有变体的键名合并、再取当前 SDK 的值。已回滚。要真正做到干净，需要关掉 `GENERATE_INFOPLIST_FILE` 改用完整 plist，或加一个删除这些键的 Process Info.plist 步骤；收益只是元数据整洁，未做。
+- **P0-5 release blocker (greatly advanced, still not closed)**: Release now enables Hardened Runtime; a Developer ID Application certificate was created locally (Team `Z4FMG2KTPM`), archive → `method=developer-id` export → zip notarization (submission `0e54a40b…`, Accepted) → staple → `spctl` **accepted / source=Notarized Developer ID**; the DMG was also signed, notarized (`a0e37293…`, Accepted), stapled and accepted by `spctl`. Still missing: tag/GitHub release, release workflow, the acceptance gate (0/7), the installed build still being 0.5.27, and manual acceptance on a real machine. The steps and records are in `docs/release.md`.
+- **P1-1 remote images blocked by default**: a product decision (off by default + a setting + an external-link prompt); this round changed documentation only.
+- **P1-5** saving is still on the main thread (1MB+ files/iCloud/network volumes can stutter) — it needs a refactoring window with no GUI acceptance.
+- **P1-8 hard links**: atomic writes still split hard links (atomicity wins for now); symlinks are fixed.
+- **P1-9 remainder**: directory loading itself (a single `children` call) is still not interruptible; `Task.detached` cancellation only covers loops that have a checkpoint.
+- **P1-13** the per-keystroke whole-text hand-off (editor → buffer → preview/outline/word count) is not throttled; **P1-16** the iOS Source side still lags on styles/find/coloring; **P1-18** converge swizzling; **P1-19** move the self-check code out of the release build; **P1-20** hand-written pbxproj consistency.
+- **P2 dead code (partial)**: `ReadingLineMap` (with 3 tests) and `ExplorerSection.fileCount` (with 2 assertions) were deleted — neither had a production caller; the 6 formatting commands in `SourceFormatting.swift` and the `SourceEditing` inline toggle are **deliberately kept** — `FormatMenu.swift` explicitly removed the Format menu ("notes are written as Markdown text"), the decision is written in the file header, and deleting them needs product-level confirmation.
+- **P2 remainder**: unifying the 6 line-number implementations, lint/format configuration, accessibility, the repository description ("An AI Editor.") and the release positioning.
+- **P2 iOS-only plist keys in the macOS product (tried, did not work)**: after changing the 6 `INFOPLIST_KEY_UI*` to conditional settings `[sdk=iphoneos*]`/`[sdk=iphonesimulator*]`, Xcode's Info.plist generator still writes keys of the same name (empty/false) into the macOS product — it merges the key names across all variants and then takes the value for the current SDK. Reverted. Doing it properly requires turning off `GENERATE_INFOPLIST_FILE` and using a full plist, or a Process Info.plist step that deletes these keys; the only benefit is cleaner metadata, so it was not done.
 
-### 9.5 本次验证基线
+### 9.5 Verification baseline for this round
 
-- `swift test --package-path XYZCore`：**207 tests / 0 failures**（第一轮后 194；第二轮 +14；第三轮 +2 远程图片用例、−3 已删的 `ReadingLineMap` 测试）。
-- `sh Scripts/xyz-test.sh`：**8/8 ok**（新增 `tilde`、`tilde-dir`）。
-- `xcodebuild`：macOS Debug、macOS Release、iOS Simulator Debug 均 **BUILD SUCCEEDED**（签名关闭，与 CI 同口径）。
-- `python3 tools/make_icons.py --help` 在未安装 fontTools 的机器上正常输出；`--sheet` 给出可执行的安装提示。
-- 未启动 GUI：退出/关窗弹窗、标签恢复、图片作用域、中文菜单只有编译 + 纯函数单测证据，没有窗口截图；签名沙盒、iCloud、真实中文 IME、性能测量均未跑。
-- 本机签名与公证链路（Team `Z4FMG2KTPM`，2026-11-07）：Apple Development 的 Debug/Release 构建通过；Developer ID archive + `developer-id` 导出成功（entitlements：sandbox / network.client / user-selected / bookmarks / iCloud Production，无 `get-task-allow`）；app zip 公证 Accepted 并 staple，`spctl` accepted；DMG 已签名、公证 Accepted、staple，`spctl` accepted。未打开 app，未打 tag、未上传。
+- `swift test --package-path XYZCore`: **207 tests / 0 failures** (194 after the first round; +14 in the second; +2 remote-image cases, −3 deleted `ReadingLineMap` tests in the third).
+- `sh Scripts/xyz-test.sh`: **8/8 ok** (new `tilde`, `tilde-dir`).
+- `xcodebuild`: macOS Debug, macOS Release and iOS Simulator Debug all **BUILD SUCCEEDED** (signing off, same settings as CI).
+- `python3 tools/make_icons.py --help` prints normally on a machine without fontTools installed; `--sheet` gives an actionable install hint.
+- GUI not launched: quit/close dialogs, tab restore, image scope and Chinese menus have only compilation + pure-function unit-test evidence, with no window screenshots; the signed sandbox, iCloud, a real Chinese IME and performance measurements were not run.
+- Local signing and notarization chain (Team `Z4FMG2KTPM`, 2026-11-07): Apple Development Debug/Release builds pass; Developer ID archive + `developer-id` export succeed (entitlements: sandbox / network.client / user-selected / bookmarks / iCloud Production, no `get-task-allow`); the app zip is notarized Accepted and stapled, `spctl` accepted; the DMG is signed, notarized Accepted, stapled and `spctl` accepted. The app was not opened, no tag was created and nothing was uploaded.
 
-### 9.6 报告未单列的补充修复
+### 9.6 Additional fixes not listed in the report
 
-**侧栏快捷键切换：卡顿、动画与表头文字重叠（用户报告；0.5.30 → 0.5.31）**
+**Sidebar shortcut toggle: stutter, animation and header text overlap (user report; 0.5.30 → 0.5.31)**
 
-- **卡顿**：`XYZSplitView` 每次显示/隐藏都 `rebuild()`，把 sidebar/detail/outline 三个 `NSHostingView` 全部摘挂，编辑器文本视图与 Reading 的 `WKWebView` 因此离开窗口并重绘；隐藏路径还用 60 Hz `Timer` 在 160 ms 内逐帧改宽度、逐帧触发 TextKit 重排；显示路径把自己刚清零的 `savedPosition` 当动画目标，动画实际未生效。0.5.30 改为 `syncPanes()` 只增删变化的一列（`addSubview(positioned:)`，detail 常驻），去掉逐帧动画。
-- **动画**：用户反馈"不卡了但不丝滑"，0.5.31 恢复 180 ms ease-out（Reduce Motion 时退化为瞬时）；每帧设完 pane frame 后 `flushPaneLayout()` 强制宿主 SwiftUI 布局，让文本/网页视图同帧跟随；三个 pane 加 `masksToBounds`；`sidebarWanted`/`outlineWanted` 修复动画中再按快捷键被吞。
-- **表头文字重叠**：用户截图显示侧栏表头变成 "HIC"/"HA" 两行压在文件列表上。根因是 `SidebarRootHeader.layout()` 与 `SidebarRowCell.layout()` 把 label **自身当前宽度** 赋给 `preferredMaxLayoutWidth`；动画首帧侧栏宽度≈0，`LIZHICHAO` 被折成三行，22 pt 表头的第二行画出边界。修复：两个 label 固定单行 + 尾部截断（`wraps=false`、`usesSingleLineMode=true`、`maximumNumberOfLines=1`），删除自引用换行宽度。
-- **诊断**：`-XYZDiagnostics` 下保留 `sidebar/outline shown=… eased in 180ms sidebar=… detail=… outline=…`、slide 起点、以及列宽异常（<260 pt）告警；一次性 resize 探针在发布前已移除。
+- **Stutter**: `XYZSplitView` called `rebuild()` on every show/hide, detaching and re-attaching all three `NSHostingView`s (sidebar/detail/outline), so the editor text view and Reading's `WKWebView` left the window and redrew; the hide path also used a 60 Hz `Timer` to change the width frame by frame over 160 ms, triggering TextKit relayout every frame; the show path used the `savedPosition` it had just zeroed as the animation target, so the animation never actually took effect. 0.5.30 switched to `syncPanes()`, which only adds/removes the column that changed (`addSubview(positioned:)`, with detail always present) and dropped the frame-by-frame animation.
+- **Animation**: after user feedback that "it no longer stutters but is not smooth", 0.5.31 restored a 180 ms ease-out (degrading to instant with Reduce Motion); after each frame's pane frames are set, `flushPaneLayout()` forces the host SwiftUI layout so the text/web views follow within the same frame; the three panes got `masksToBounds`; `sidebarWanted`/`outlineWanted` fix the shortcut being swallowed when pressed again during the animation.
+- **Header text overlap**: the user's screenshot showed the sidebar header turning into "HIC"/"HA" on two lines pressed over the file list. The root cause was that `SidebarRootHeader.layout()` and `SidebarRowCell.layout()` assigned the label's **own current width** to `preferredMaxLayoutWidth`; on the first frame of the animation the sidebar width is ≈0, so `LIZHICHAO` wrapped to three lines and the second line of a 22 pt header drew outside its bounds. Fix: both labels are single-line with tail truncation (`wraps=false`, `usesSingleLineMode=true`, `maximumNumberOfLines=1`), and the self-referential wrap width is gone.
+- **Diagnostics**: under `-XYZDiagnostics` the build keeps `sidebar/outline shown=… eased in 180ms sidebar=… detail=… outline=…`, the slide start point, and a warning for anomalous column width (<260 pt); the one-off resize probe was removed before release.
 
-验证：207 单测 / 8 CLI、macOS+iOS Debug 构建；0.5.31 (47) 已 Developer ID 签名、公证（app `ae1b56da…`、DMG `3229b1fa…`）、staple、`spctl` accepted，覆盖安装到 `/Applications`（按 `AGENTS.md` 只留一个）；隐藏启动正常；用户在真机确认动画顺滑、侧栏文字恢复单行（"好了"）。
+Verification: 207 unit tests / 8 CLI, macOS+iOS Debug builds; 0.5.31 (47) was Developer ID signed, notarized (app `ae1b56da…`, DMG `3229b1fa…`), stapled and `spctl` accepted, and installed over `/Applications` (keeping exactly one copy per `AGENTS.md`); the hidden launch works; the user confirmed on a real machine that the animation is smooth and the sidebar text is back to one line ("good now").
 
 ---
 
-## 附录：关键证据索引
+## Appendix: Key Evidence Index
 
-| 主题 | 关键位置 |
+| Topic | Key location |
 |---|---|
-| 新建文件/唯一名 | `XYZ/Workspace/WorkspaceSession.swift:410-455`、`XYZCore/Sources/XYZCore/WorkspaceSearch.swift:297-309` |
-| 标签恢复/持久化 | `XYZ/Workspace/WorkspaceSession.swift:539-563,727-761`、`XYZ/Workspace/WorkspaceWindowController.swift:245-254,461-468` |
-| 退出/flush | `XYZ/Workspace/WorkspaceWindowController.swift:129-137,445-451,652-657`、`XYZ/Workspace/WorkspaceSession.swift:1767-1770,1890-1935` |
-| undo | `XYZ/Editor/XYZMacEditor.swift:43-45,1376-1393`、`XYZ/Workspace/WorkspaceView.swift:1626-1658` |
+| New file / unique name | `XYZ/Workspace/WorkspaceSession.swift:410-455`, `XYZCore/Sources/XYZCore/WorkspaceSearch.swift:297-309` |
+| Tab restore / persistence | `XYZ/Workspace/WorkspaceSession.swift:539-563,727-761`, `XYZ/Workspace/WorkspaceWindowController.swift:245-254,461-468` |
+| Quit / flush | `XYZ/Workspace/WorkspaceWindowController.swift:129-137,445-451,652-657`, `XYZ/Workspace/WorkspaceSession.swift:1767-1770,1890-1935` |
+| undo | `XYZ/Editor/XYZMacEditor.swift:43-45,1376-1393`, `XYZ/Workspace/WorkspaceView.swift:1626-1658` |
 | Swizzling | `XYZ/Workspace/FolderOpening.swift:64-258` |
-| TextKit 降级 | `XYZ/Editor/XYZMacEditor.swift:1057-1128,1639-1644` |
+| TextKit downgrade | `XYZ/Editor/XYZMacEditor.swift:1057-1128,1639-1644` |
 | Gutter | `XYZ/Editor/LineNumberGutter.swift:154-179,273-290,313-322,346-361` |
-| 预览安全 | `XYZCore/Sources/XYZCore/HTMLRenderer.swift:301-318,448-511`、`XYZ/Preview/LocalAssets.swift:15-81`、`XYZ/Preview/MarkdownWebView.swift:838-1271` |
-| 保存主线程 | `XYZ/Workspace/WorkspaceSession.swift:1890-1935`、`XYZ/Workspace/WorkspaceFileAccess.swift:99-154` |
-| Buffer 发布 | `XYZ/Workspace/WorkspaceSession.swift:1633-1770,947-957` |
-| 文档编码 | `XYZCore/Sources/XYZCore/TextDocument.swift:5-40`、`XYZCore/Sources/XYZCore/MarkdownFileDocument.swift:33-38` |
-| front matter/大纲 | `XYZCore/Sources/XYZCore/ReadingSource.swift:60-75`、`XYZCore/Sources/XYZCore/MarkdownOutline.swift:20-26` |
-| 自检 harness | `XYZ/Editor/GutterSnapshot.swift:9-50,1279-1281`、`.github/workflows/ci.yml:77-199` |
-| 构建/发布 | `XYZ.xcodeproj/project.pbxproj:384,442,487`、`Config/Base.xcconfig`、`.github/workflows/ci.yml:71-75,83,135,156,180` |
-| CI 运行数据 | GitHub API `repos/lizhichaox/XYZ/actions/runs`（380 runs）；HEAD 失败 run `42332912178` |
-| 本地化 | `XYZ/Resources/Localizable.xcstrings`、`ci.yml:190` |
+| Preview security | `XYZCore/Sources/XYZCore/HTMLRenderer.swift:301-318,448-511`, `XYZ/Preview/LocalAssets.swift:15-81`, `XYZ/Preview/MarkdownWebView.swift:838-1271` |
+| Save on main thread | `XYZ/Workspace/WorkspaceSession.swift:1890-1935`, `XYZ/Workspace/WorkspaceFileAccess.swift:99-154` |
+| Buffer publication | `XYZ/Workspace/WorkspaceSession.swift:1633-1770,947-957` |
+| Document encoding | `XYZCore/Sources/XYZCore/TextDocument.swift:5-40`, `XYZCore/Sources/XYZCore/MarkdownFileDocument.swift:33-38` |
+| front matter/outline | `XYZCore/Sources/XYZCore/ReadingSource.swift:60-75`, `XYZCore/Sources/XYZCore/MarkdownOutline.swift:20-26` |
+| Self-check harness | `XYZ/Editor/GutterSnapshot.swift:9-50,1279-1281`, `.github/workflows/ci.yml:77-199` |
+| Build/release | `XYZ.xcodeproj/project.pbxproj:384,442,487`, `Config/Base.xcconfig`, `.github/workflows/ci.yml:71-75,83,135,156,180` |
+| CI run data | GitHub API `repos/lizhichaox/XYZ/actions/runs` (380 runs); HEAD failure run `42332912178` |
+| Localization | `XYZ/Resources/Localizable.xcstrings`, `ci.yml:190` |
