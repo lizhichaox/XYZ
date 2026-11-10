@@ -2235,6 +2235,18 @@ private struct WorkspaceDetail: View {
             scrollLink: session.scrollLink,
             markup: format.language == .markdown,
             syntax: format.language,
+            completionProvider: { query in
+                let needle = query.lowercased()
+                return session.paletteFiles()
+                    .filter { file in
+                        let ext = (file.relativePath as NSString).pathExtension.lowercased()
+                        return ext == "md" || ext == "markdown"
+                    }
+                    .map { ($0.relativePath as NSString).deletingPathExtension }
+                    .filter { needle.isEmpty || $0.lowercased().contains(needle) }
+                    .prefix(50)
+                    .map { $0 }
+            },
             forcesMonospace: format.usesCodeFont,
             onSelection: {
                 caret = $0

@@ -25,6 +25,10 @@
 
 ### Editing
 
+- Typing `[[` in a Markdown note offers note-name completion from the open folder. The
+  native completion list filters as you type; choosing a note inserts `[[Note]]`.
+
+
 - Return in code and configuration files now keeps the line's indentation and opens a
   level after `{`, `(`, or `[` (and after `:` in Python, YAML, TOML, and INI). A closing
   bracket at the caret outdents the new line. Typing an opening bracket or quote inserts

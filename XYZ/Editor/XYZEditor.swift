@@ -202,6 +202,8 @@ struct XYZEditor: View {
     var markup: Bool = true
     /// Plain coloring for code and structured text. Markdown keeps `markup`.
     var syntax: SyntaxLanguage = .plain
+    /// Note names for `[[` completion in Markdown.
+    var completionProvider: ((String) -> [String])? = nil
     /// Code uses a fixed-width face even when the prose setting is proportional.
     var forcesMonospace: Bool = false
     var onSelection: ((EditorCaret) -> Void)? = nil
@@ -242,6 +244,7 @@ struct XYZEditor: View {
             scrollLink: scrollLink,
             markup: markup,
             syntax: syntax,
+            completionProvider: completionProvider,
             lineNumbers: lineNumbersVisible ?? false,
             find: find,
             onSelection: onSelection,
