@@ -115,6 +115,7 @@ public struct PaletteCommand: Equatable, Sendable, Identifiable {
             keywords: ["search", "filter", "grep", "contents", "folder"]
         ),
         PaletteCommand(id: "file.new", title: "New File", keywords: ["create"]),
+        PaletteCommand(id: "file.today", title: "Open Today's Note", keywords: ["daily", "today", "date", "journal"]),
         PaletteCommand(id: "folder.new", title: "New Folder", keywords: ["create"]),
         PaletteCommand(
             id: "folder.open",

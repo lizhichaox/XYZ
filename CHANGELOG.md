@@ -23,7 +23,11 @@
   were translated; user-facing Chinese remains only in the localization catalogs and CJK
   test fixtures.
 
-### Editing
+### Workspace
+
+- The command palette can open today's note: it opens `yyyy-MM-dd.md` at the folder root,
+  creating the file when it does not exist.
+
 
 - Typing `[[` in a Markdown note offers note-name completion from the open folder. The
   native completion list filters as you type; choosing a note inserts `[[Note]]`.

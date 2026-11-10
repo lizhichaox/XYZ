@@ -580,6 +580,46 @@ final class WorkspaceSession: ObservableObject {
         ), pin: pin, line: line)
     }
 
+    /// Opens `yyyy-MM-dd.md` at the folder root, creating it when it does not exist.
+    func openTodayNote() {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.dateFormat = "yyyy-MM-dd"
+        let name = formatter.string(from: Date()) + ".md"
+        let destination = rootURL.appendingPathComponent(name)
+        if FileManager.default.fileExists(atPath: destination.path) {
+            openRelative(name)
+            return
+        }
+        let listed = (children[""] ?? []).map(\.name)
+        let parentURL = rootURL
+        Task { [weak self] in
+            let created = Self.createItemExclusively(
+                directory: false,
+                preferred: name,
+                listed: listed,
+                parent: "",
+                parentURL: parentURL
+            )
+            await MainActor.run {
+                guard let self else { return }
+                guard let created else {
+                    self.actionFailed(String(localized: "Couldn't create this item."))
+                    return
+                }
+                self.openFile(WorkspaceNode(
+                    name: created.name,
+                    relativePath: created.relativePath,
+                    isDirectory: false,
+                    isHidden: false
+                ), pin: true)
+                self.scheduleReload("")
+                self.scheduleIndex()
+            }
+        }
+    }
+
     /// Creates a new empty file or folder.
     ///
     /// The name is chosen again at the moment of creation, and creation itself never

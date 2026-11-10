@@ -78,6 +78,7 @@ protocol EditorCommandTarget: AnyObject {
     func jumpToMatchingBracket()
     func selectAllOccurrences()
     func selectNextOccurrence()
+    func openTodayNote()
 }
 
 @MainActor
@@ -123,6 +124,7 @@ extension EditorCommandTarget {
     func jumpToMatchingBracket() {}
     func selectAllOccurrences() {}
     func selectNextOccurrence() {}
+    func openTodayNote() {}
 }
 
 /// Menu actions and key equivalents for document windows and folder windows.
@@ -468,6 +470,8 @@ final class EditorCommands: NSObject {
             target?.toggleHiddenFiles()
         case "file.new":
             target?.newFile()
+        case "file.today":
+            target?.openTodayNote()
         case "folder.new":
             target?.newFolder()
         case "folder.open":

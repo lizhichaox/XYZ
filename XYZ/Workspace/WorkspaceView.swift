@@ -2362,6 +2362,10 @@ final class WorkspaceCommandBridge: ObservableObject, EditorCommandTarget {
         storedFind.perform?(.selectNextOccurrence)
     }
 
+    func openTodayNote() {
+        session?.openTodayNote()
+    }
+
     func paletteOpen(fileID: String, newWindow: Bool) {
         guard let session else { return }
         if newWindow {
