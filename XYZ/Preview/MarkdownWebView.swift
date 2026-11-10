@@ -1175,6 +1175,15 @@ enum PreviewPage {
           image.replaceWith(label);
           if (typeof xyzScheduleGutter === "function") xyzScheduleGutter();
         }
+        // A callout title folds its body, like Obsidian.
+        document.addEventListener("click", function(event) {
+          var title = event.target && event.target.closest ? event.target.closest(".callout-title") : null;
+          if (!title) return;
+          var callout = title.closest(".callout");
+          if (!callout) return;
+          var collapsed = callout.classList.toggle("collapsed");
+          title.setAttribute("aria-expanded", collapsed ? "false" : "true");
+        });
         // A tag chip asks the app to search the folder for that tag.
         document.addEventListener("click", function(event) {
           var tag = event.target && event.target.closest ? event.target.closest(".tag[data-tag]") : null;

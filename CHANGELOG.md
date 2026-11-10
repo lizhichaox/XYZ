@@ -42,6 +42,8 @@
 - Reading ends with a Backlinks section: notes in the folder that link to the open note
   through `[[wiki links]]` or Markdown links. Each row shows the note, line, and excerpt;
   clicking it opens that note. Fenced and inline code are ignored.
+- Callout titles are buttons: clicking one folds or unfolds the callout body, with the
+  chevron and `aria-expanded` following the state.
 
 ### Performance
 

@@ -110,7 +110,7 @@ final class MarkdownHTMLTests: XCTestCase {
     func testCalloutKeepsTheBodyAndDropsTheMarker() {
         let html = MarkdownHTML.render("> [!warning] Careful\n> Do not push\n")
         XCTAssertTrue(html.contains("<aside class=\"callout\" data-callout=\"warning\""))
-        XCTAssertTrue(html.contains("class=\"callout-title\">Careful</p>"))
+        XCTAssertTrue(html.contains("<button class=\"callout-title\" type=\"button\" aria-expanded=\"true\">Careful</button>"))
         XCTAssertTrue(html.contains("Do not push"))
         XCTAssertFalse(html.contains("[!warning]"))
         XCTAssertFalse(html.contains("<blockquote"))

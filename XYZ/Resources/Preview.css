@@ -181,12 +181,36 @@ aside.callout {
 }
 
 aside.callout .callout-title {
+  display: flex;
+  align-items: center;
+  gap: 0.35em;
+  width: 100%;
   margin: 0 0 0.35em;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
   font-size: 0.78em;
   font-weight: 600;
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--muted);
+  text-align: left;
+  cursor: pointer;
+}
+
+aside.callout .callout-title::before {
+  content: "▾";
+  font-size: 0.9em;
+  line-height: 1;
+}
+
+aside.callout.collapsed .callout-title::before {
+  content: "▸";
+}
+
+aside.callout.collapsed > :not(.callout-title) {
+  display: none;
 }
 
 aside.callout p { margin: 0.35em 0; }

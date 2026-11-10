@@ -72,9 +72,9 @@ private struct HTMLRenderingWalker: MarkupWalker {
             html.append(HTMLText.attribute(callout.kind))
             html.append("\"")
             html.append(lineMarkup(blockQuote))
-            html.append(">\n<p class=\"callout-title\">")
+            html.append(">\n<button class=\"callout-title\" type=\"button\" aria-expanded=\"true\">")
             html.append(HTMLText.escape(callout.title))
-            html.append("</p>\n")
+            html.append("</button>\n")
             renderCalloutBody(blockQuote)
             html.append("</aside>\n")
             return
