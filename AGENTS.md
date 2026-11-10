@@ -265,6 +265,10 @@ passing `refresh` case is the minimum evidence that folder clicks work.
   (0.1 pt face, zero line height, clear ink) after every restyle; restyling the range is
   also how unfolding removes them. Both keep the real string, the undo stack and
   `onTextChange` untouched. Never swap the text storage for a folded display string.
+- **Markdown folds by heading, code by indentation.** `MarkdownFolding` computes ATX
+  heading sections (skipping fenced code and YAML front matter); `CodeFolding` computes
+  indentation blocks. `rebuildFoldableRanges` picks one by language, and both feed the same
+  fold presentation, gutter chevrons and Fold All / Unfold All commands.
 - **Do not fold with a uniform line box.** Folding changes line geometry; the gutter,
   indent guides, whitespace dots, the caret band and the `⋯` marker all read laid-out
   rows, and hidden rows are skipped in the gutter.

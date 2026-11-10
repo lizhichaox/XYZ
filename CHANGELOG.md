@@ -36,6 +36,10 @@
 - Go to Matching Bracket and Select All Occurrences are in the Edit menu and the command
   palette, alongside Select Next Occurrence. Toggle Fold, Fold All, and Unfold All are in
   the command palette too.
+- Markdown headings fold in Editing, as they do in Obsidian's source mode and in VS Code's
+  Markdown folding: a heading hides its section until the next heading of the same or a
+  higher level. The gutter chevrons, Toggle Fold, Fold All, and Unfold All work as they do
+  for code. Fenced code is skipped, and a setext heading keeps its underline visible.
 
 
 - Return in code and configuration files now keeps the line's indentation and opens a

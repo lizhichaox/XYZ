@@ -24,8 +24,8 @@ public enum CodeFolding {
         }
     }
 
-    /// Markdown folds by heading level, not indentation, so it is handled by its own
-    /// outline and never here.
+    /// Markdown folds by heading level, not indentation, so it is handled by
+    /// `MarkdownFolding` and never here.
     public static func supports(_ language: SyntaxLanguage) -> Bool {
         switch language {
         case .plain, .markdown, .csv, .log:

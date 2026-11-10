@@ -1885,6 +1885,50 @@ enum GutterSnapshotCheck {
         return textKit1GutterClick()
     }
 
+    /// Markdown headings fold in Editing, as they do in Obsidian's source mode and in
+    /// VS Code's Markdown folding: a heading hides its section until the next heading of
+    /// the same or a higher level.
+    @MainActor
+    private static func acceptMarkdownFolding() -> String? {
+        let text = "# Alpha\nfirst body line\nsecond body line\n\n## Beta\nbeta body\n\n# Gamma\ngamma body\n"
+        let textView = XYZMacTextView(usingTextLayoutManager: true)
+        textView.frame = NSRect(x: 0, y: 0, width: 620, height: 800)
+        textView.textContainer?.containerSize = NSSize(width: 620, height: 1_000_000)
+        textView.textContainer?.widthTracksTextView = false
+        textView.enableFolding()
+        textView.sourceLanguage = .markdown
+        textView.string = text
+        textView.refreshFolding(immediate: true)
+        guard let manager = textView.textLayoutManager, let content = manager.textContentManager else {
+            return "the Markdown view has no TextKit 2 content manager"
+        }
+        func height() -> CGFloat {
+            manager.ensureLayout(for: content.documentRange)
+            manager.textViewportLayoutController.layoutViewport()
+            return manager.usageBoundsForTextContainer.maxY
+        }
+        guard textView.hasFoldableLines else { return "no Markdown heading folds were found" }
+        guard let alpha = textView.foldableRanges.first(where: { $0.headerLine == 1 }) else {
+            return "the first heading is not foldable"
+        }
+        guard alpha.lastLine == 6 else {
+            return "the first heading fold ends at line \(alpha.lastLine), expected 6"
+        }
+        let before = height()
+        textView.toggleFold(atLine: 1)
+        let folded = height()
+        guard folded < before else {
+            return "folding a Markdown heading did not collapse the layout (before \(Int(before)) folded \(Int(folded)))"
+        }
+        guard textView.isLineHidden(3) else { return "the folded heading does not hide its body" }
+        textView.unfoldAll()
+        guard abs(height() - before) < 2 else {
+            return "unfolding did not restore the layout (before \(Int(before)) reopened \(Int(height())))"
+        }
+        guard textView.string == text else { return "folding changed the text" }
+        return nil
+    }
+
     /// TextKit 1 view + gutter, laid out without a window: the chevron hit area must fold.
     @MainActor
     private static func textKit1GutterClick() -> String? {
@@ -2583,6 +2627,7 @@ enum GutterSnapshotCheck {
             record("mode-labels", acceptModeLabels())
             record("empty-line-prefs", acceptEmptyLine())
             record("code-folding", acceptCodeFolding())
+            record("markdown-folding", acceptMarkdownFolding())
             record("editor-folding", acceptEditorFolding())
             record("editor-folding-caret", acceptFoldingCaret())
             record("editor-caret-band", acceptCaretBand())

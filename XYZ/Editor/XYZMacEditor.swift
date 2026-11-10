@@ -2793,24 +2793,30 @@ extension XYZMacTextView: NSTextContentStorageDelegate {
     }
 
     private func rebuildFoldableRanges() {
-        // A file past the syntax limit does not get an indentation pass on every pause.
+        // A file past the syntax limit does not get a fold pass on every pause.
         guard (string as NSString).length <= 400_000 else {
             resetFolding()
             return
         }
         let before = foldedInnerRanges
         let previous = foldedHeaderTexts
-        let next = CodeFolding.folds(in: string, language: sourceLanguage)
+        // Markdown folds by heading level; code folds by indentation.
+        let next = sourceLanguage == .markdown
+            ? MarkdownFolding.folds(in: string)
+            : CodeFolding.folds(in: string, language: sourceLanguage)
         foldableRanges = next
         // Re-anchor each folded block by its header text. An edit above the block moves
         // the line number; the block stays folded where the same declaration now is.
+        var byText: [String: Int] = [:]
+        for fold in next {
+            guard let text = headerText(atLine: fold.headerLine), byText[text] == nil else { continue }
+            byText[text] = fold.headerLine
+        }
         var anchored: Set<Int> = []
         var texts: [Int: String] = [:]
         for (_, text) in previous {
-            guard let match = next.first(where: { headerText(atLine: $0.headerLine) == text }) else { continue }
-            if anchored.insert(match.headerLine).inserted {
-                texts[match.headerLine] = text
-            }
+            guard let line = byText[text], anchored.insert(line).inserted else { continue }
+            texts[line] = text
         }
         foldedHeaderLines = anchored
         foldedHeaderTexts = texts
