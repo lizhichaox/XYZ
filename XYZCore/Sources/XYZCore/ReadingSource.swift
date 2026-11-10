@@ -26,7 +26,79 @@ enum ReadingSource {
     static func prepare(_ source: String) -> (body: String, properties: Properties) {
         var properties = Properties()
         let masked = maskFrontMatter(source, into: &properties) ?? source
-        return (rewriteWikiLinks(masked), properties)
+        return (rewriteWikiLinks(maskComments(masked)), properties)
+    }
+
+    /// Obsidian comments (`%%...%%`) are hidden in Reading. Replace their characters with
+    /// spaces so every later source line keeps its number; fenced and inline code are left
+    /// alone.
+    private static func maskComments(_ source: String) -> String {
+        guard source.contains("%%") else { return source }
+        let ns = source as NSString
+        var result = ""
+        result.reserveCapacity(ns.length)
+        var inFence = false
+        var inComment = false
+        var inInlineCode = false
+        var cursor = 0
+        while cursor < ns.length {
+            let lineRange = ns.lineRange(for: NSRange(location: cursor, length: 0))
+            let line = ns.substring(with: lineRange)
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !inComment, trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
+                inFence.toggle()
+                result.append(line)
+                cursor = NSMaxRange(lineRange)
+                continue
+            }
+            if inFence {
+                result.append(line)
+                cursor = NSMaxRange(lineRange)
+                continue
+            }
+            var index = line.startIndex
+            while index < line.endIndex {
+                let character = line[index]
+                if inComment {
+                    if character == "%" {
+                        let next = line.index(after: index)
+                        if next < line.endIndex, line[next] == "%" {
+                            result.append("  ")
+                            index = line.index(after: next)
+                            inComment = false
+                            continue
+                        }
+                    }
+                    if character == "\n" || character == "\r" {
+                        result.append(character)
+                    } else {
+                        result.append(" ")
+                    }
+                    index = line.index(after: index)
+                    continue
+                }
+                if character == "`" {
+                    inInlineCode.toggle()
+                    result.append(character)
+                    index = line.index(after: index)
+                    continue
+                }
+                if !inInlineCode, character == "%" {
+                    let next = line.index(after: index)
+                    if next < line.endIndex, line[next] == "%" {
+                        result.append("  ")
+                        index = line.index(after: next)
+                        inComment = true
+                        continue
+                    }
+                }
+                result.append(character)
+                index = line.index(after: index)
+            }
+            inInlineCode = false
+            cursor = NSMaxRange(lineRange)
+        }
+        return result
     }
 
     /// Replaces a leading `---` block with spaces, and records simple `key: value` lines.

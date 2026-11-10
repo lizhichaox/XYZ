@@ -67,6 +67,24 @@ final class MarkdownHTMLTests: XCTestCase {
         XCTAssertTrue(html.contains("<span class=\"tag\" data-tag=\"release/1\">#release/1</span>"))
     }
 
+    func testInlineCommentIsHidden() {
+        let html = MarkdownHTML.render("A %%hidden%% word.\n")
+        XCTAssertFalse(html.contains("hidden"))
+        XCTAssertTrue(html.contains("A"))
+        XCTAssertTrue(html.contains("word"))
+    }
+
+    func testBlockCommentIsHiddenAndKeepsLineNumbers() {
+        let html = MarkdownHTML.render("%%\nhidden\n%%\n# Head\n")
+        XCTAssertFalse(html.contains("hidden"))
+        XCTAssertTrue(html.contains("data-line=\"4\""))
+    }
+
+    func testCommentInsideCodeStaysLiteral() {
+        let html = MarkdownHTML.render("`%%hidden%%`\n\n```\n%%hidden%%\n```\n")
+        XCTAssertTrue(html.contains("%%hidden%%"))
+    }
+
     func testHighlightBecomesMark() {
         let html = MarkdownHTML.render("A ==highlighted== word.\n")
         XCTAssertTrue(html.contains("<mark>highlighted</mark>"))

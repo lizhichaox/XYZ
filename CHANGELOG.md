@@ -47,6 +47,8 @@
   chevron and `aria-expanded` following the state.
 - `==highlight==` renders as a highlight in Reading; code and link text keep the literal
   markers.
+- Obsidian comments (`%%...%%`) are hidden in Reading, including block comments. Fenced
+  and inline code keep the literal markers, and line numbers after a comment do not move.
 
 ### Performance
 
