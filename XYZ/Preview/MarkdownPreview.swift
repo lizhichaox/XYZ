@@ -50,6 +50,10 @@ final class PreviewModel: ObservableObject {
     private var backlinksHTML = ""
     /// The rendered note without the footer, so a backlinks update does not re-render it.
     private var contentHTML = ""
+    /// The last text and options that produced `contentHTML`.
+    private var lastRenderedText: String?
+    private var lastRenderedRemoteImages: Bool?
+    private var lastRenderedTaskToggle: Bool?
 
     private var task: Task<Void, Never>?
     private var generation = 0
@@ -74,6 +78,12 @@ final class PreviewModel: ObservableObject {
     }
 
     func schedule(_ text: String, immediate: Bool) {
+        if text == lastRenderedText,
+           allowsRemoteImages == lastRenderedRemoteImages,
+           allowsTaskToggle == lastRenderedTaskToggle {
+            isRendering = false
+            return
+        }
         task?.cancel()
         generation &+= 1
         let token = generation
@@ -81,11 +91,14 @@ final class PreviewModel: ObservableObject {
         let allowsTaskToggle = allowsTaskToggle
         if immediate && text.utf8.count <= Self.synchronousLimit {
             isRendering = false
-            publish(MarkdownHTML.render(
-                text,
-                allowRemoteImages: allowsRemoteImages,
-                allowsTaskToggle: allowsTaskToggle
-            ))
+            publish(
+                MarkdownHTML.render(
+                    text,
+                    allowRemoteImages: allowsRemoteImages,
+                    allowsTaskToggle: allowsTaskToggle
+                ),
+                text: text
+            )
             return
         }
         isRendering = true
@@ -103,7 +116,7 @@ final class PreviewModel: ObservableObject {
             )
             guard self.generation == token else { return }
             self.isRendering = false
-            self.publish(rendered)
+            self.publish(rendered, text: text)
         }
     }
 
@@ -128,7 +141,10 @@ final class PreviewModel: ObservableObject {
         }.value
     }
 
-    private func publish(_ rendered: String) {
+    private func publish(_ rendered: String, text: String) {
+        lastRenderedText = text
+        lastRenderedRemoteImages = allowsRemoteImages
+        lastRenderedTaskToggle = allowsTaskToggle
         contentHTML = rendered
         let next = rendered + backlinksHTML
         guard html != next else { return }
@@ -139,11 +155,14 @@ final class PreviewModel: ObservableObject {
     func adopt(_ text: String) {
         guard text.utf8.count <= Self.synchronousLimit else { return }
         isRendering = false
-        publish(MarkdownHTML.render(
-            text,
-            allowRemoteImages: allowsRemoteImages,
-            allowsTaskToggle: allowsTaskToggle
-        ))
+        publish(
+            MarkdownHTML.render(
+                text,
+                allowRemoteImages: allowsRemoteImages,
+                allowsTaskToggle: allowsTaskToggle
+            ),
+            text: text
+        )
     }
 }
 

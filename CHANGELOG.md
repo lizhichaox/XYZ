@@ -56,6 +56,11 @@
 
 ### Performance
 
+- **Reading does not render the same text twice.** The preview remembers the last text
+  and options; the on-appear schedule after the initial adopt is now a no-op, and repeated
+  schedules with unchanged text skip the render.
+
+
 - **A backlinks update no longer re-renders the whole note.** The footer is appended to
   the HTML that is already on screen; on the 135 K probe that avoids a 43 ms render each
   time the scan finishes.
