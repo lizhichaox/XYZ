@@ -24,7 +24,7 @@ public enum MarkdownOutline {
         // `heading.range.line` still counts the file's own lines. Parsing the raw text
         // instead turned a `# comment` in YAML into a heading and listed `[[Page]]` as
         // literal brackets while the page showed a link.
-        let prepared = ReadingSource.prepare(markdown)
+        let prepared = ReadingSource.prepareForReading(markdown)
         var walker = OutlineWalker()
         walker.visit(MarkdownParser.parse(prepared.body))
         return walker.headings
@@ -35,7 +35,8 @@ private struct OutlineWalker: MarkupWalker {
     var headings: [OutlineHeading] = []
 
     mutating func visitHeading(_ heading: Heading) {
-        let title = heading.plainText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let title = FootnoteHTML.removingPlaceholders(heading.plainText)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let line = heading.range?.lowerBound.line ?? 0
         guard !title.isEmpty, line > 0 else { return }
         headings.append(OutlineHeading(level: heading.level, title: title, line: line))

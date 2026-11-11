@@ -12,11 +12,15 @@ struct HTMLRenderer {
     var allowsRemoteImages = true
     /// Reading can toggle a task checkbox only when the note is editable.
     var allowsTaskToggle = true
+    /// Footnote definitions are rendered without source-line attributes: they sit in a
+    /// footer that is not part of the note's line mapping.
+    var includesLineNumbers = true
 
     func render(_ document: Document, reserve: Int = 0) -> String {
         var walker = HTMLRenderingWalker(
             allowsRemoteImages: allowsRemoteImages,
-            allowsTaskToggle: allowsTaskToggle
+            allowsTaskToggle: allowsTaskToggle,
+            includesLineNumbers: includesLineNumbers
         )
         if reserve > 0 {
             walker.html.reserveCapacity(reserve)
@@ -29,6 +33,7 @@ struct HTMLRenderer {
 private struct HTMLRenderingWalker: MarkupWalker {
     var allowsRemoteImages: Bool
     var allowsTaskToggle: Bool
+    var includesLineNumbers: Bool
     var html = ""
     private var alignments: [Table.ColumnAlignment?] = []
     private var inHeader = false
@@ -38,9 +43,10 @@ private struct HTMLRenderingWalker: MarkupWalker {
     /// An explicit initializer, not the memberwise one: a struct with private stored
     /// properties only synthesizes a memberwise initializer on newer Swift versions, and
     /// the CI toolchain is older (it reported "takes no arguments").
-    init(allowsRemoteImages: Bool = true, allowsTaskToggle: Bool = true) {
+    init(allowsRemoteImages: Bool = true, allowsTaskToggle: Bool = true, includesLineNumbers: Bool = true) {
         self.allowsRemoteImages = allowsRemoteImages
         self.allowsTaskToggle = allowsTaskToggle
+        self.includesLineNumbers = includesLineNumbers
     }
 
     mutating func visitHeading(_ heading: Heading) {
@@ -405,6 +411,7 @@ private struct HTMLRenderingWalker: MarkupWalker {
     /// `data-line` / `data-end` are 1-based source lines. `data-end` is inclusive.
     /// The type is spelled out so it cannot be confused with XYZCore's edit range.
     private func lineMarkup(_ markup: Markup) -> String {
+        guard includesLineNumbers else { return "" }
         guard let range: Range<SourceLocation> = markup.range else { return "" }
         let start = range.lowerBound.line
         guard start > 0 else { return "" }
@@ -468,7 +475,7 @@ private struct HTMLRenderingWalker: MarkupWalker {
 public enum HeadingAnchor {
     public static func slug(_ title: String) -> String {
         var slug = ""
-        for character in title.lowercased() {
+        for character in FootnoteHTML.removingPlaceholders(title).lowercased() {
             if character.isLetter || character.isNumber || character == "-" || character == "_" {
                 slug.append(character)
             } else if character == " " || character == "\t" {

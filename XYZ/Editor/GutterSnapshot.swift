@@ -1985,6 +1985,51 @@ enum GutterSnapshotCheck {
         return result == "pass" ? nil : "reading folding: \(result)"
     }
 
+    /// Footnotes render as superscript references and a numbered footer, and the footer
+    /// stays visible when the last heading folds.
+    @MainActor
+    private static func acceptReadingFootnotes() -> String? {
+        let markdown = "# Title\nText[^1] and again[^1].\n\n[^1]: First note with **bold**.\n"
+        let html = MarkdownHTML.render(markdown)
+        let page = PreviewPage.shell(css: PreviewStyles.load(), html: html, theme: "light", prefs: PreviewPrefs())
+        let config = WKWebViewConfiguration()
+        config.setURLSchemeHandler(BundledFontSchemeHandler(), forURLScheme: AppFonts.scheme)
+        let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 700, height: 500), configuration: config)
+        let window = NSWindow(
+            contentRect: web.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = web
+        let waiter = ReadingLineWaiter()
+        web.navigationDelegate = waiter
+        web.loadHTMLString(page, baseURL: nil)
+        guard waiter.wait(seconds: 8) else { return "reading footnotes: the page did not load" }
+        let script = """
+        (function() {
+          var refs = document.querySelectorAll(".footnote-ref");
+          if (refs.length !== 2) return "references=" + refs.length;
+          if (!document.getElementById("fnref-1")) return "no first reference id";
+          var item = document.getElementById("fn-1");
+          if (!item) return "no footnote item";
+          if (!document.querySelector(".footnotes")) return "no footnotes section";
+          if (!item.textContent || item.textContent.indexOf("First note") === -1) return "definition text missing";
+          if (!item.querySelector("strong")) return "definition formatting missing";
+          var backref = item.querySelector(".footnote-backref");
+          if (!backref || backref.getAttribute("href") !== "#fnref-1") return "backref missing";
+          if (document.body.textContent.indexOf("[^1]") !== -1) return "literal marker left";
+          var title = document.getElementById("title");
+          if (!title) return "no heading";
+          title.querySelector(".xyz-heading-fold").click();
+          if (document.querySelector(".footnotes").classList.contains("xyz-folded")) return "the footer was folded";
+          return "pass";
+        })()
+        """
+        guard let result = evaluate(web, script) else { return "reading footnotes: the script did not return" }
+        return result == "pass" ? nil : "reading footnotes: \(result)"
+    }
+
     /// TextKit 1 view + gutter, laid out without a window: the chevron hit area must fold.
     @MainActor
     private static func textKit1GutterClick() -> String? {
@@ -2685,6 +2730,7 @@ enum GutterSnapshotCheck {
             record("code-folding", acceptCodeFolding())
             record("markdown-folding", acceptMarkdownFolding())
             record("reading-folding", acceptReadingFolding())
+            record("reading-footnotes", acceptReadingFootnotes())
             record("editor-folding", acceptEditorFolding())
             record("editor-folding-caret", acceptFoldingCaret())
             record("editor-caret-band", acceptCaretBand())

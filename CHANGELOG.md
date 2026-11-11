@@ -66,6 +66,10 @@
   of an empty page.
 - Callout titles are buttons: clicking one folds or unfolds the callout body, with the
   chevron and `aria-expanded` following the state.
+- Footnotes render as superscript references and a numbered footer, as in Obsidian:
+  `[^1]` links to `[^1]: text` at the bottom of the note. Definitions keep their inline
+  formatting, repeated references share one number, missing definitions stay literal,
+  code keeps the markers, and the footer stays visible when the last heading folds.
 - A heading's chevron folds its section in Reading, as in Obsidian's reading view: the
   blocks below the heading hide until the next heading of the same or a higher level. The
   fold state survives a content update, the Backlinks footer stays visible, and revealing

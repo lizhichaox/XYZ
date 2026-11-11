@@ -29,6 +29,266 @@ enum ReadingSource {
         return (rewriteWikiLinks(maskComments(masked)), properties)
     }
 
+    /// Footnotes: definitions removed from the body, references replaced by placeholders.
+    struct Footnotes {
+        /// Definition Markdown by id.
+        var definitions: [String: String] = [:]
+        /// Ids in first-reference order; the footnote number is the index plus one.
+        var order: [String] = []
+        /// The id each placeholder stands for, in document order.
+        var references: [String] = []
+        /// The footnote number for each reference, shared by repeated references.
+        var numbers: [Int] = []
+
+        var isEmpty: Bool { order.isEmpty }
+    }
+
+    /// The same preparation as `prepare`, plus footnote extraction and reference rewriting.
+    static func prepareForReading(_ source: String) -> (body: String, properties: Properties, footnotes: Footnotes) {
+        var properties = Properties()
+        let masked = maskFrontMatter(source, into: &properties) ?? source
+        let commented = maskComments(masked)
+        let extracted = extractFootnotes(commented)
+        let linked = rewriteWikiLinks(extracted.body)
+        let referenced = rewriteFootnoteReferences(linked, definitions: extracted.definitions)
+        var footnotes = Footnotes()
+        footnotes.definitions = extracted.definitions
+        footnotes.order = referenced.order
+        footnotes.references = referenced.references
+        footnotes.numbers = referenced.numbers
+        return (referenced.body, properties, footnotes)
+    }
+
+    /// Removes `[^id]: text` definitions (and their indented continuation lines) from the
+    /// body, leaving blank lines so every later source line keeps its number.
+    private static func extractFootnotes(_ source: String) -> (body: String, definitions: [String: String]) {
+        guard source.contains("[^") else { return (source, [:]) }
+        let ns = source as NSString
+        var result = ""
+        result.reserveCapacity(ns.length)
+        var definitions: [String: String] = [:]
+        var inFence = false
+        var cursor = 0
+        var pendingID: String?
+        var pendingLines: [String] = []
+        func flush() {
+            guard let id = pendingID else { return }
+            if definitions[id] == nil {
+                definitions[id] = pendingLines.joined(separator: "\n")
+            }
+            pendingID = nil
+            pendingLines = []
+        }
+        while cursor < ns.length {
+            let lineRange = ns.lineRange(for: NSRange(location: cursor, length: 0))
+            let line = ns.substring(with: lineRange)
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !inFence, trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
+                flush()
+                inFence.toggle()
+                result.append(line)
+                cursor = NSMaxRange(lineRange)
+                continue
+            }
+            if inFence {
+                flush()
+                result.append(line)
+                cursor = NSMaxRange(lineRange)
+                continue
+            }
+            if let definition = footnoteDefinition(line) {
+                flush()
+                pendingID = definition.id
+                pendingLines = [definition.content]
+                result.append(blankLine(line))
+                cursor = NSMaxRange(lineRange)
+                continue
+            }
+            if pendingID != nil, let continuation = footnoteContinuation(line) {
+                pendingLines.append(continuation)
+                result.append(blankLine(line))
+                cursor = NSMaxRange(lineRange)
+                continue
+            }
+            flush()
+            result.append(line)
+            cursor = NSMaxRange(lineRange)
+        }
+        flush()
+        return (result, definitions)
+    }
+
+    /// `[^id]: text` with up to three leading spaces.
+    private static func footnoteDefinition(_ line: String) -> (id: String, content: String)? {
+        var text = line
+        if text.hasSuffix("\n") { text.removeLast() }
+        if text.hasSuffix("\r") { text.removeLast() }
+        var index = text.startIndex
+        var spaces = 0
+        while index < text.endIndex, text[index] == " " {
+            spaces += 1
+            if spaces > 3 { return nil }
+            index = text.index(after: index)
+        }
+        guard index < text.endIndex, text[index] == "[" else { return nil }
+        index = text.index(after: index)
+        guard index < text.endIndex, text[index] == "^" else { return nil }
+        index = text.index(after: index)
+        let idStart = index
+        while index < text.endIndex, text[index] != "]" {
+            if text[index].isWhitespace { return nil }
+            index = text.index(after: index)
+        }
+        guard index < text.endIndex, text[index] == "]" else { return nil }
+        let id = String(text[idStart..<index])
+        guard !id.isEmpty else { return nil }
+        index = text.index(after: index)
+        guard index < text.endIndex, text[index] == ":" else { return nil }
+        index = text.index(after: index)
+        if index < text.endIndex, text[index] == " " || text[index] == "\t" {
+            index = text.index(after: index)
+        }
+        return (id, String(text[index...]))
+    }
+
+    /// A definition's continuation line: indented four spaces or one tab.
+    private static func footnoteContinuation(_ line: String) -> String? {
+        var text = line
+        if text.hasSuffix("\n") { text.removeLast() }
+        if text.hasSuffix("\r") { text.removeLast() }
+        if text.hasPrefix("\t") { return String(text.dropFirst()) }
+        if text.hasPrefix("    ") { return String(text.dropFirst(4)) }
+        return nil
+    }
+
+    /// The line's own line ending, so a removed definition keeps the line count.
+    private static func blankLine(_ line: String) -> String {
+        if line.hasSuffix("\r\n") { return "\r\n" }
+        if line.hasSuffix("\n") { return "\n" }
+        if line.hasSuffix("\r") { return "\r" }
+        return ""
+    }
+
+    /// Replaces `[^id]` outside code with a placeholder the HTML pass turns into a link.
+    private static func rewriteFootnoteReferences(
+        _ source: String,
+        definitions: [String: String]
+    ) -> (body: String, references: [String], numbers: [Int], order: [String]) {
+        guard !definitions.isEmpty, source.contains("[^") else { return (source, [], [], []) }
+        let ns = source as NSString
+        var result = ""
+        result.reserveCapacity(ns.length + 16)
+        var references: [String] = []
+        var numbers: [Int] = []
+        var order: [String] = []
+        var numberByID: [String: Int] = [:]
+        var inFence = false
+        var cursor = 0
+        while cursor < ns.length {
+            let lineRange = ns.lineRange(for: NSRange(location: cursor, length: 0))
+            let line = ns.substring(with: lineRange)
+            let trimmed = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if trimmed.hasPrefix("```") || trimmed.hasPrefix("~~~") {
+                inFence.toggle()
+                result.append(line)
+            } else if inFence {
+                result.append(line)
+            } else {
+                result.append(rewriteFootnoteLine(
+                    line,
+                    definitions: definitions,
+                    references: &references,
+                    numbers: &numbers,
+                    order: &order,
+                    numberByID: &numberByID
+                ))
+            }
+            let next = NSMaxRange(lineRange)
+            if next <= cursor { break }
+            cursor = next
+        }
+        return (result, references, numbers, order)
+    }
+
+    private static func rewriteFootnoteLine(
+        _ line: String,
+        definitions: [String: String],
+        references: inout [String],
+        numbers: inout [Int],
+        order: inout [String],
+        numberByID: inout [String: Int]
+    ) -> String {
+        var result = ""
+        var code = false
+        var chunk = ""
+        for character in line {
+            if character == "`" {
+                result.append(code ? chunk : rewriteFootnoteChunk(
+                    chunk,
+                    definitions: definitions,
+                    references: &references,
+                    numbers: &numbers,
+                    order: &order,
+                    numberByID: &numberByID
+                ))
+                chunk = ""
+                result.append(character)
+                code.toggle()
+            } else {
+                chunk.append(character)
+            }
+        }
+        result.append(code ? chunk : rewriteFootnoteChunk(
+            chunk,
+            definitions: definitions,
+            references: &references,
+            numbers: &numbers,
+            order: &order,
+            numberByID: &numberByID
+        ))
+        return result
+    }
+
+    private static func rewriteFootnoteChunk(
+        _ chunk: String,
+        definitions: [String: String],
+        references: inout [String],
+        numbers: inout [Int],
+        order: inout [String],
+        numberByID: inout [String: Int]
+    ) -> String {
+        var result = ""
+        var index = chunk.startIndex
+        while index < chunk.endIndex {
+            let next = chunk.index(after: index)
+            if chunk[index] == "[", next < chunk.endIndex, chunk[next] == "^" {
+                let idStart = chunk.index(after: next)
+                if let close = chunk[idStart...].firstIndex(of: "]") {
+                    let id = String(chunk[idStart..<close])
+                    if !id.isEmpty, !id.contains(where: { $0.isWhitespace }), definitions[id] != nil {
+                        let ordinal = references.count + 1
+                        let number: Int
+                        if let existing = numberByID[id] {
+                            number = existing
+                        } else {
+                            number = order.count + 1
+                            numberByID[id] = number
+                            order.append(id)
+                        }
+                        references.append(id)
+                        numbers.append(number)
+                        result.append("\u{E000}\(ordinal)\u{E001}")
+                        index = chunk.index(after: close)
+                        continue
+                    }
+                }
+            }
+            result.append(chunk[index])
+            index = next
+        }
+        return result
+    }
+
     /// Obsidian comments (`%%...%%`) are hidden in Reading. Replace their characters with
     /// spaces so every later source line keeps its number; fenced and inline code are left
     /// alone.

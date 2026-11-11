@@ -1246,8 +1246,8 @@ enum PreviewPage {
               if (button) button.setAttribute("aria-expanded", folded ? "false" : "true");
               continue;
             }
-            // The Backlinks footer is not part of the last section.
-            if (hidden && !node.classList.contains("backlinks")) {
+            // The Backlinks and footnotes footers are not part of the last section.
+            if (hidden && !node.classList.contains("backlinks") && !node.classList.contains("footnotes")) {
               node.classList.add("xyz-folded");
               xyzHiddenBlocks.add(node);
             } else {

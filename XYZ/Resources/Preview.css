@@ -482,6 +482,49 @@ pre.raw-html {
   white-space: pre-wrap;
 }
 
+/* Footnotes: a superscript reference and a numbered footer. */
+.footnote-ref {
+  font-size: 0.72em;
+  line-height: 0;
+  vertical-align: super;
+}
+
+.footnote-ref a {
+  text-decoration: none;
+  color: var(--link);
+}
+
+.footnotes {
+  margin-top: 2.4em;
+  font-size: 0.88em;
+  color: var(--muted);
+}
+
+.footnotes hr {
+  border: 0;
+  border-top: 1px solid var(--border);
+  margin: 0 0 0.9em;
+}
+
+.footnotes ol {
+  margin: 0;
+  padding-left: 1.5em;
+}
+
+.footnotes li {
+  margin: 0.4em 0;
+}
+
+.footnotes li p {
+  margin: 0.2em 0;
+}
+
+.footnote-backref {
+  margin-left: 0.35em;
+  text-decoration: none;
+  color: var(--link);
+}
+
 ::selection {
   background: var(--mark);
   color: inherit;
