@@ -1929,6 +1929,62 @@ enum GutterSnapshotCheck {
         return nil
     }
 
+    /// Reading folds a heading's section, like Obsidian's reading view: the chevron hides
+    /// the blocks below the heading until the next heading of the same or a higher level,
+    /// and reveal and find open the fold again.
+    @MainActor
+    private static func acceptReadingFolding() -> String? {
+        let markdown = "# Alpha\nbody one\nbody two\n\n## Beta\nbeta body\n\n# Gamma\ngamma body\n"
+        let html = MarkdownHTML.render(markdown)
+        let page = PreviewPage.shell(css: PreviewStyles.load(), html: html, theme: "light", prefs: PreviewPrefs())
+        let config = WKWebViewConfiguration()
+        config.setURLSchemeHandler(BundledFontSchemeHandler(), forURLScheme: AppFonts.scheme)
+        let web = WKWebView(frame: NSRect(x: 0, y: 0, width: 700, height: 500), configuration: config)
+        let window = NSWindow(
+            contentRect: web.frame,
+            styleMask: [.borderless],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = web
+        let waiter = ReadingLineWaiter()
+        web.navigationDelegate = waiter
+        web.loadHTMLString(page, baseURL: nil)
+        guard waiter.wait(seconds: 8) else { return "reading folding: the page did not load" }
+        let script = """
+        (function() {
+          var buttons = document.querySelectorAll("#content > h1 > .xyz-heading-fold, #content > h2 > .xyz-heading-fold, #content > h3 > .xyz-heading-fold");
+          if (buttons.length !== 3) return "fold buttons=" + buttons.length;
+          var chevron = buttons[0].getBoundingClientRect();
+          var heading = buttons[0].parentElement.getBoundingClientRect();
+          if (chevron.left < 0) return "chevron is off-screen: " + Math.round(chevron.left);
+          if (chevron.width < 8 || chevron.height < 8) return "chevron is too small";
+          if (chevron.top < heading.top - 1 || chevron.bottom > heading.bottom + 1) return "chevron is outside the heading";
+          var alpha = document.getElementById("alpha");
+          if (!alpha) return "no alpha heading";
+          alpha.querySelector(".xyz-heading-fold").click();
+          var hidden = document.querySelectorAll("#content > .xyz-folded").length;
+          if (hidden !== 3) return "folded blocks=" + hidden;
+          var top = xyzTop();
+          if (top.line !== 1) return "top line=" + top.line;
+          xyzRevealLine(6);
+          if (document.querySelectorAll("#content > .xyz-folded").length !== 0) return "reveal did not unfold";
+          alpha.querySelector(".xyz-heading-fold").click();
+          var found = xyzHighlightFind({pattern: "beta body", matchCase: false, wholeWord: false, regex: false, index: 0, direction: 0});
+          if (!found || found.count !== 1) return "find count=" + (found ? found.count : "nil");
+          if (document.querySelectorAll("#content > .xyz-folded").length !== 0) return "find did not unfold";
+          alpha.querySelector(".xyz-heading-fold").click();
+          if (document.querySelectorAll("#content > .xyz-folded").length === 0) return "the second fold did not hide anything";
+          xyzResetHeadingFolds();
+          if (document.querySelectorAll("#content > .xyz-folded").length !== 0) return "reset did not unfold";
+          if (document.querySelectorAll("#content > .xyz-heading-collapsed").length !== 0) return "reset left a collapsed heading";
+          return "pass";
+        })()
+        """
+        guard let result = evaluate(web, script) else { return "reading folding: the script did not return" }
+        return result == "pass" ? nil : "reading folding: \(result)"
+    }
+
     /// TextKit 1 view + gutter, laid out without a window: the chevron hit area must fold.
     @MainActor
     private static func textKit1GutterClick() -> String? {
@@ -2628,6 +2684,7 @@ enum GutterSnapshotCheck {
             record("empty-line-prefs", acceptEmptyLine())
             record("code-folding", acceptCodeFolding())
             record("markdown-folding", acceptMarkdownFolding())
+            record("reading-folding", acceptReadingFolding())
             record("editor-folding", acceptEditorFolding())
             record("editor-folding-caret", acceptFoldingCaret())
             record("editor-caret-band", acceptCaretBand())

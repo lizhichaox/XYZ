@@ -172,6 +172,8 @@ struct MarkdownPreview: View {
     var scrollLink: EditorScrollLink
     /// The note's folder, for relative pictures and links.
     var baseDirectory: URL?
+    /// Changes when a different note opens, so Reading starts unfolded.
+    var documentID: String = ""
     /// Off unless the Reading setting turns remote pictures on.
     var allowsRemoteImages: Bool = false
     /// Task checkboxes are interactive only when the note can be edited.
@@ -189,6 +191,7 @@ struct MarkdownPreview: View {
         host: PreviewWebHost,
         scrollLink: EditorScrollLink,
         baseDirectory: URL? = nil,
+        documentID: String = "",
         allowsRemoteImages: Bool = false,
         allowsTaskToggle: Bool = false,
         toggleTask: ((Int) -> Void)? = nil,
@@ -199,6 +202,7 @@ struct MarkdownPreview: View {
         self.host = host
         self.scrollLink = scrollLink
         self.baseDirectory = baseDirectory
+        self.documentID = documentID
         self.allowsRemoteImages = allowsRemoteImages
         self.allowsTaskToggle = allowsTaskToggle
         self.toggleTask = toggleTask
@@ -216,6 +220,7 @@ struct MarkdownPreview: View {
         MarkdownWebView(
             html: model.html,
             baseDirectory: baseDirectory,
+            documentID: documentID,
             host: host,
             scrollLink: scrollLink,
             toggleTask: toggleTask,

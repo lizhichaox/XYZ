@@ -103,6 +103,61 @@ h3 { font-size: 1.18em; }
 h4, h5, h6 { font-size: 1em; margin-top: 1.25em; }
 h1 + h2, h2 + h3, h3 + h4, h4 + h5, h5 + h6 { margin-top: 0.5em; }
 
+/* A heading's chevron folds its section. It sits in the left inset and only shows on
+   hover or keyboard focus, so the text column keeps its full width. */
+h1, h2, h3, h4, h5, h6 { position: relative; }
+
+.xyz-heading-fold {
+  position: absolute;
+  left: -22px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  border-radius: 3px;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-size: 11px;
+  line-height: 16px;
+  text-align: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.xyz-heading-fold::before { content: "▾"; }
+h1.xyz-heading-collapsed > .xyz-heading-fold::before,
+h2.xyz-heading-collapsed > .xyz-heading-fold::before,
+h3.xyz-heading-collapsed > .xyz-heading-fold::before,
+h4.xyz-heading-collapsed > .xyz-heading-fold::before,
+h5.xyz-heading-collapsed > .xyz-heading-fold::before,
+h6.xyz-heading-collapsed > .xyz-heading-fold::before { content: "▸"; }
+
+h1:hover > .xyz-heading-fold,
+h2:hover > .xyz-heading-fold,
+h3:hover > .xyz-heading-fold,
+h4:hover > .xyz-heading-fold,
+h5:hover > .xyz-heading-fold,
+h6:hover > .xyz-heading-fold,
+.xyz-heading-fold:focus-visible { opacity: 1; }
+
+.xyz-heading-fold:hover { background: color-mix(in srgb, var(--muted) 14%, transparent); }
+
+.xyz-folded { display: none !important; }
+
+/* Touch screens have no hover: keep the chevron visible but quiet. */
+@media (hover: none) {
+  .xyz-heading-fold { opacity: 0.55; }
+}
+
+/* The inset is too narrow for the chevron on a phone-width window. */
+@media (max-width: 560px) {
+  .xyz-heading-fold { display: none; }
+}
+
 p {
   margin: 0.85em 0;
   text-wrap: pretty;

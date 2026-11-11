@@ -2213,6 +2213,7 @@ private struct WorkspaceDetail: View {
             host: session.previewHost,
             scrollLink: session.scrollLink,
             baseDirectory: session.buffer?.url.deletingLastPathComponent(),
+            documentID: session.buffer?.relativePath ?? "",
             allowsRemoteImages: loadsRemoteImages,
             allowsTaskToggle: !isReadOnly && format.language == .markdown,
             toggleTask: { [weak session] line in

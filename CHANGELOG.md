@@ -66,6 +66,12 @@
   of an empty page.
 - Callout titles are buttons: clicking one folds or unfolds the callout body, with the
   chevron and `aria-expanded` following the state.
+- A heading's chevron folds its section in Reading, as in Obsidian's reading view: the
+  blocks below the heading hide until the next heading of the same or a higher level. The
+  fold state survives a content update, the Backlinks footer stays visible, and revealing
+  a line, an anchor, or a find match opens the fold it lands in. The chevron sits in the
+  left inset and appears on hover; touch screens keep it visible, and a phone-width window
+  hides it.
 - `==highlight==` renders as a highlight in Reading; code and link text keep the literal
   markers.
 - Obsidian comments (`%%...%%`) are hidden in Reading, including block comments. Fenced

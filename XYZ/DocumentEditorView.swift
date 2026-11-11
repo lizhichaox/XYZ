@@ -191,6 +191,7 @@ struct DocumentEditorView: View {
             host: webHost,
             scrollLink: scrollLink,
             baseDirectory: fileURL?.deletingLastPathComponent(),
+            documentID: fileURL?.path ?? "",
             allowsRemoteImages: loadsRemoteImages,
             allowsTaskToggle: isEditable && TextMarkup.allows(fileExtension: fileURL?.pathExtension),
             toggleTask: { [weak document, weak bridge] line in

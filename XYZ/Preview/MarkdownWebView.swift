@@ -79,6 +79,8 @@ struct MarkdownWebView: View {
     var html: String
     /// The note's folder. Relative image and link paths resolve against it.
     var baseDirectory: URL?
+    /// Changes when a different note opens, so Reading starts unfolded.
+    var documentID: String = ""
     var host: PreviewWebHost
     var scrollLink: EditorScrollLink
     /// A task checkbox in Reading was clicked. The argument is the source line.
@@ -98,9 +100,9 @@ struct MarkdownWebView: View {
             rootPath: baseDirectory?.standardizedFileURL.resolvingSymlinksInPath().path ?? ""
         )
         #if os(macOS)
-        MacMarkdownWebView(html: html, theme: colorScheme == .dark ? "dark" : "light", prefs: prefs, host: host, scrollLink: scrollLink, toggleTask: toggleTask, openTag: openTag)
+        MacMarkdownWebView(html: html, theme: colorScheme == .dark ? "dark" : "light", prefs: prefs, host: host, scrollLink: scrollLink, documentID: documentID, toggleTask: toggleTask, openTag: openTag)
         #else
-        IOSMarkdownWebView(html: html, theme: colorScheme == .dark ? "dark" : "light", prefs: prefs, host: host, scrollLink: scrollLink, toggleTask: toggleTask, openTag: openTag)
+        IOSMarkdownWebView(html: html, theme: colorScheme == .dark ? "dark" : "light", prefs: prefs, host: host, scrollLink: scrollLink, documentID: documentID, toggleTask: toggleTask, openTag: openTag)
         #endif
     }
 }
@@ -112,6 +114,7 @@ private struct MacMarkdownWebView: NSViewRepresentable {
     var prefs: PreviewPrefs
     var host: PreviewWebHost
     var scrollLink: EditorScrollLink
+    var documentID: String
     var toggleTask: ((Int) -> Void)?
     var openTag: ((String) -> Void)?
 
@@ -122,7 +125,7 @@ private struct MacMarkdownWebView: NSViewRepresentable {
             surface.install(webView)
             host.coordinator.toggleTask = toggleTask
             host.coordinator.openTag = openTag
-            host.coordinator.update(webView: webView, html: html, theme: theme, prefs: prefs, scrollLink: scrollLink)
+            host.coordinator.update(webView: webView, html: html, theme: theme, prefs: prefs, scrollLink: scrollLink, documentID: documentID)
         }
         return surface
     }
@@ -133,7 +136,7 @@ private struct MacMarkdownWebView: NSViewRepresentable {
         surface.install(webView)
         host.coordinator.toggleTask = toggleTask
         host.coordinator.openTag = openTag
-        host.coordinator.update(webView: webView, html: html, theme: theme, prefs: prefs, scrollLink: scrollLink)
+        host.coordinator.update(webView: webView, html: html, theme: theme, prefs: prefs, scrollLink: scrollLink, documentID: documentID)
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, nsView: ReadingSurface, context: Context) -> CGSize? {
@@ -396,6 +399,7 @@ private struct IOSMarkdownWebView: UIViewRepresentable {
     var prefs: PreviewPrefs
     var host: PreviewWebHost
     var scrollLink: EditorScrollLink
+    var documentID: String
     var toggleTask: ((Int) -> Void)?
     var openTag: ((String) -> Void)?
 
@@ -404,7 +408,7 @@ private struct IOSMarkdownWebView: UIViewRepresentable {
         let webView = claim(host.webView)
         host.coordinator.toggleTask = toggleTask
         host.coordinator.openTag = openTag
-        host.coordinator.update(webView: webView, html: html, theme: theme, prefs: prefs, scrollLink: scrollLink)
+        host.coordinator.update(webView: webView, html: html, theme: theme, prefs: prefs, scrollLink: scrollLink, documentID: documentID)
         return webView
     }
 
@@ -412,7 +416,7 @@ private struct IOSMarkdownWebView: UIViewRepresentable {
         host.setRoot(prefs.rootPath.isEmpty ? nil : URL(fileURLWithPath: prefs.rootPath))
         host.coordinator.toggleTask = toggleTask
         host.coordinator.openTag = openTag
-        host.coordinator.update(webView: webView, html: html, theme: theme, prefs: prefs, scrollLink: scrollLink)
+        host.coordinator.update(webView: webView, html: html, theme: theme, prefs: prefs, scrollLink: scrollLink, documentID: documentID)
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: WKWebView, context: Context) -> CGSize? {
@@ -473,6 +477,8 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate, WKScriptMessa
     private var appliedPrefs: PreviewPrefs?
     private var didLogScriptFailure = false
     private var scrollLink: EditorScrollLink?
+    /// The note the page is showing. A change starts Reading unfolded.
+    private var lastDocumentID: String?
     /// Last line the page posted. Capture reads this; `evaluateJavaScript` is too late for a toggle.
     private var readingLine = 0
     private var readingFraction = 0.0
@@ -551,11 +557,20 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate, WKScriptMessa
         }
     }
 
-    func update(webView: WKWebView, html: String, theme: String, prefs: PreviewPrefs, scrollLink: EditorScrollLink) {
+    func update(
+        webView: WKWebView,
+        html: String,
+        theme: String,
+        prefs: PreviewPrefs,
+        scrollLink: EditorScrollLink,
+        documentID: String
+    ) {
         pendingHTML = html
         pendingTheme = theme
         pendingPrefs = prefs
         self.scrollLink = scrollLink
+        let documentChanged = lastDocumentID != documentID
+        lastDocumentID = documentID
         scrollLink.capture = { [weak self, weak webView] in
             guard let self, let webView else {
                 return EditorScrollAnchor(fraction: 0, probe: "", line: 1)
@@ -572,6 +587,9 @@ final class PreviewWebCoordinator: NSObject, WKNavigationDelegate, WKScriptMessa
             return
         }
         guard isReady else { return }
+        if documentChanged {
+            evaluate(webView, "xyzResetHeadingFolds();")
+        }
         push(to: webView)
         if let line = scrollLink.takeQueuedReveal() {
             evaluate(webView, "xyzRevealLine(\(max(1, line)));")
@@ -904,6 +922,9 @@ enum PreviewPage {
         <script>
         var xyzPinned = 0;
         var xyzPinUntil = 0;
+        // The blocks a heading fold hides. A Set keeps the scroll reporter from asking the
+        // layout engine about every block on every frame.
+        var xyzHiddenBlocks = new Set();
         function setContent(html) {
           var selection = window.getSelection();
           if (selection) selection.removeAllRanges();
@@ -966,6 +987,8 @@ enum PreviewPage {
             if (!text) continue;
             var parent = node.parentNode;
             if (!parent || (parent.closest && parent.closest("script, style"))) continue;
+            var hidden = parent.closest ? parent.closest(".xyz-folded") : null;
+            if (hidden) xyzUnfoldBlock(hidden);
             expression.lastIndex = 0;
             var match = expression.exec(text);
             if (!match) continue;
@@ -1044,6 +1067,7 @@ enum PreviewPage {
           var all = content.querySelectorAll("[data-line]");
           var leaves = [];
           for (var i = 0; i < all.length; i++) {
+            if (xyzHiddenBlocks.has(all[i])) continue;
             if (all[i].querySelector("[data-line]")) continue;
             leaves.push(all[i]);
           }
@@ -1166,6 +1190,7 @@ enum PreviewPage {
         function xyzDecorate() {
           var root = document.getElementById("content");
           if (!root) return;
+          xyzDecorateHeadings();
           var images = root.querySelectorAll("img");
           for (var i = 0; i < images.length; i++) {
             images[i].addEventListener("error", xyzMissingImage, {once: true});
@@ -1186,6 +1211,100 @@ enum PreviewPage {
           image.replaceWith(label);
           if (typeof xyzScheduleGutter === "function") xyzScheduleGutter();
         }
+        // A heading folds its section, like Obsidian's reading view. The state is keyed by
+        // the heading's anchor id so it survives a content swap.
+        var xyzFoldedHeadings = {};
+        function xyzHeadingLevel(heading) {
+          return parseInt(heading.tagName.charAt(1), 10) || 6;
+        }
+        function xyzRefreshHeadingFolds() {
+          var root = document.getElementById("content");
+          if (!root) return;
+          xyzHiddenBlocks.clear();
+          var hidden = false;
+          var hiddenLevel = 0;
+          for (var i = 0; i < root.children.length; i++) {
+            var node = root.children[i];
+            var isHeading = /^H[1-6]$/.test(node.tagName);
+            if (isHeading) {
+              var level = xyzHeadingLevel(node);
+              if (hidden && level <= hiddenLevel) hidden = false;
+              if (hidden) {
+                node.classList.add("xyz-folded");
+                xyzHiddenBlocks.add(node);
+              } else {
+                node.classList.remove("xyz-folded");
+                xyzHiddenBlocks.delete(node);
+              }
+              if (!hidden && node.id && xyzFoldedHeadings[node.id]) {
+                hidden = true;
+                hiddenLevel = level;
+              }
+              var folded = !!(node.id && xyzFoldedHeadings[node.id]);
+              node.classList.toggle("xyz-heading-collapsed", folded);
+              var button = node.querySelector(".xyz-heading-fold");
+              if (button) button.setAttribute("aria-expanded", folded ? "false" : "true");
+              continue;
+            }
+            // The Backlinks footer is not part of the last section.
+            if (hidden && !node.classList.contains("backlinks")) {
+              node.classList.add("xyz-folded");
+              xyzHiddenBlocks.add(node);
+            } else {
+              node.classList.remove("xyz-folded");
+              xyzHiddenBlocks.delete(node);
+            }
+          }
+        }
+        function xyzDecorateHeadings() {
+          var root = document.getElementById("content");
+          if (!root) return;
+          for (var i = 0; i < root.children.length; i++) {
+            var heading = root.children[i];
+            if (!/^H[1-6]$/.test(heading.tagName)) continue;
+            if (!heading.querySelector(".xyz-heading-fold")) {
+              var button = document.createElement("button");
+              button.type = "button";
+              button.className = "xyz-heading-fold";
+              button.setAttribute("aria-expanded", "true");
+              button.setAttribute("aria-label", "Fold section");
+              button.setAttribute("title", "Fold section");
+              heading.insertBefore(button, heading.firstChild);
+            }
+          }
+          xyzRefreshHeadingFolds();
+        }
+        function xyzSetHeadingFolded(heading, folded) {
+          if (!heading.id) return;
+          if (folded) xyzFoldedHeadings[heading.id] = true;
+          else delete xyzFoldedHeadings[heading.id];
+          xyzRefreshHeadingFolds();
+        }
+        // A different note starts unfolded.
+        function xyzResetHeadingFolds() {
+          xyzFoldedHeadings = {};
+          xyzRefreshHeadingFolds();
+        }
+        // Opens every fold that hides `block`, outermost included.
+        function xyzUnfoldBlock(block) {
+          var changed = false;
+          var node = block.previousElementSibling;
+          var level = 7;
+          while (node) {
+            if (/^H[1-6]$/.test(node.tagName)) {
+              var headingLevel = xyzHeadingLevel(node);
+              if (headingLevel < level) {
+                if (node.id && xyzFoldedHeadings[node.id]) {
+                  delete xyzFoldedHeadings[node.id];
+                  changed = true;
+                }
+                level = headingLevel;
+              }
+            }
+            node = node.previousElementSibling;
+          }
+          if (changed) xyzRefreshHeadingFolds();
+        }
         // The Backlinks heading folds its list.
         document.addEventListener("click", function(event) {
           var title = event.target && event.target.closest ? event.target.closest(".backlinks-title") : null;
@@ -1203,6 +1322,20 @@ enum PreviewPage {
           if (!callout) return;
           var collapsed = callout.classList.toggle("collapsed");
           title.setAttribute("aria-expanded", collapsed ? "false" : "true");
+        });
+        // A heading's chevron folds or unfolds its section.
+        document.addEventListener("click", function(event) {
+          var button = event.target && event.target.closest ? event.target.closest(".xyz-heading-fold") : null;
+          if (!button) return;
+          event.preventDefault();
+          var heading = button.closest("h1,h2,h3,h4,h5,h6");
+          if (!heading) return;
+          var before = heading.getBoundingClientRect().top;
+          xyzSetHeadingFolded(heading, !(heading.id && xyzFoldedHeadings[heading.id]));
+          var after = heading.getBoundingClientRect().top;
+          if (after !== before) window.scrollBy(0, after - before);
+          if (typeof xyzScheduleGutter === "function") xyzScheduleGutter();
+          xyzReport();
         });
         // A tag chip asks the app to search the folder for that tag.
         document.addEventListener("click", function(event) {
@@ -1266,6 +1399,7 @@ enum PreviewPage {
           var nodes = document.querySelectorAll("[data-line]");
           var hit = null;
           for (var i = 0; i < nodes.length; i++) {
+            if (xyzHiddenBlocks.has(nodes[i])) continue;
             var rect = nodes[i].getBoundingClientRect();
             if (rect.top <= 1 && rect.bottom > 1) {
               hit = nodes[i];
@@ -1294,11 +1428,13 @@ enum PreviewPage {
         }
         function xyzLastSourceLine() {
           var nodes = document.querySelectorAll("[data-line]");
-          if (!nodes.length) return 1;
-          var last = nodes[nodes.length - 1];
-          var end = parseInt(last.getAttribute("data-end"), 10) || 0;
-          var start = parseInt(last.getAttribute("data-line"), 10) || 1;
-          return Math.max(start, end);
+          for (var i = nodes.length - 1; i >= 0; i--) {
+            if (xyzHiddenBlocks.has(nodes[i])) continue;
+            var end = parseInt(nodes[i].getAttribute("data-end"), 10) || 0;
+            var start = parseInt(nodes[i].getAttribute("data-line"), 10) || 1;
+            return Math.max(start, end);
+          }
+          return 1;
         }
         function xyzReport() {
           if (xyzPinned && Date.now() < xyzPinUntil) {
@@ -1335,6 +1471,8 @@ enum PreviewPage {
             xyzReport();
             return;
           }
+          xyzUnfoldBlock(best);
+          if (typeof xyzScheduleGutter === "function") xyzScheduleGutter();
           var startLine = bestStart;
           var endLine = parseInt(best.getAttribute("data-end"), 10) || startLine;
           if (endLine < startLine) endLine = startLine;
@@ -1357,6 +1495,8 @@ enum PreviewPage {
           if (!id) return;
           var target = document.getElementById(id);
           if (!target) return;
+          xyzUnfoldBlock(target);
+          if (typeof xyzScheduleGutter === "function") xyzScheduleGutter();
           xyzPinned = 0;
           target.scrollIntoView({block: "start"});
           xyzReport();
