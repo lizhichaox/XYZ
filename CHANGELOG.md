@@ -36,6 +36,9 @@
 - Go to Matching Bracket and Select All Occurrences are in the Edit menu and the command
   palette, alongside Select Next Occurrence. Toggle Fold, Fold All, and Unfold All are in
   the command palette too.
+- Insert Line Below (⌘↩), Insert Line Above (⇧⌘↩), and Select Line (⌘L) are in the Edit
+  menu and the command palette. Insert Line keeps the note's own line ending, and Select
+  Line extends by one line when pressed again.
 - Markdown headings fold in Editing, as they do in Obsidian's source mode and in VS Code's
   Markdown folding: a heading hides its section until the next heading of the same or a
   higher level. The gutter chevrons, Toggle Fold, Fold All, and Unfold All work as they do

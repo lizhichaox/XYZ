@@ -2355,6 +2355,14 @@ final class WorkspaceCommandBridge: ObservableObject, EditorCommandTarget {
         storedFind.editorView?.jumpToMatchingBracket()
     }
 
+    func insertLine(above: Bool) {
+        storedFind.editorView?.insertLine(above: above)
+    }
+
+    func selectLine() {
+        storedFind.editorView?.selectCurrentLine()
+    }
+
     func selectAllOccurrences() {
         storedFind.editorView?.selectAllOccurrences()
     }

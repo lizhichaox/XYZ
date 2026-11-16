@@ -2030,6 +2030,41 @@ enum GutterSnapshotCheck {
         return result == "pass" ? nil : "reading footnotes: \(result)"
     }
 
+    /// Insert Line Below/Above and Select Line through the real text view.
+    @MainActor
+    private static func acceptLineInsert() -> String? {
+        let text = "one\ntwo\nthree\n"
+        let textView = XYZMacTextView(usingTextLayoutManager: false)
+        textView.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
+        textView.string = text
+        textView.setSelectedRange(NSRange(location: 4, length: 0))
+        textView.xyzInsertLineBelow(nil)
+        guard textView.string == "one\ntwo\n\nthree\n" else {
+            return "insert below: \(textView.string.debugDescription)"
+        }
+        guard textView.selectedRange().location == 8 else {
+            return "insert below caret=\(textView.selectedRange().location)"
+        }
+        textView.xyzInsertLineAbove(nil)
+        guard textView.string == "one\ntwo\n\n\nthree\n" else {
+            return "insert above: \(textView.string.debugDescription)"
+        }
+        guard textView.selectedRange().location == 8 else {
+            return "insert above caret=\(textView.selectedRange().location)"
+        }
+        textView.string = text
+        textView.setSelectedRange(NSRange(location: 4, length: 0))
+        textView.xyzSelectLine(nil)
+        guard textView.selectedRange() == NSRange(location: 4, length: 3) else {
+            return "select line=\(textView.selectedRange())"
+        }
+        textView.xyzSelectLine(nil)
+        guard textView.selectedRange() == NSRange(location: 4, length: 9) else {
+            return "select next line=\(textView.selectedRange())"
+        }
+        return nil
+    }
+
     /// TextKit 1 view + gutter, laid out without a window: the chevron hit area must fold.
     @MainActor
     private static func textKit1GutterClick() -> String? {
@@ -2731,6 +2766,7 @@ enum GutterSnapshotCheck {
             record("markdown-folding", acceptMarkdownFolding())
             record("reading-folding", acceptReadingFolding())
             record("reading-footnotes", acceptReadingFootnotes())
+            record("editor-line-insert", acceptLineInsert())
             record("editor-folding", acceptEditorFolding())
             record("editor-folding-caret", acceptFoldingCaret())
             record("editor-caret-band", acceptCaretBand())

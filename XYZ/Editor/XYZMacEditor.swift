@@ -242,6 +242,55 @@ final class XYZMacTextView: NSTextView {
         _ = applySourceEdit(TextTransforms.deleteLine(in: string, selection: sourceSelection()))
     }
 
+    func insertLine(above: Bool) {
+        _ = applySourceEdit(TextTransforms.insertLine(in: string, selection: sourceSelection(), above: above))
+    }
+
+    @objc func xyzInsertLineBelow(_ sender: Any?) {
+        insertLine(above: false)
+    }
+
+    @objc func xyzInsertLineAbove(_ sender: Any?) {
+        insertLine(above: true)
+    }
+
+    /// Selects the caret's line; a second press extends the selection by one line.
+    @objc func xyzSelectLine(_ sender: Any?) {
+        selectCurrentLine()
+    }
+
+    func selectCurrentLine() {
+        let ns = string as NSString
+        guard ns.length > 0 else { return }
+        let selection = sourceSelection()
+        let origin = min(max(0, selection.end), ns.length - 1)
+        let line = ns.lineRange(for: NSRange(location: origin, length: 0))
+        let content = lineContent(ns, line: line)
+        if selection.length > 0, selection.location == content.location, selection.end == NSMaxRange(content) {
+            let next = NSMaxRange(line)
+            if next < ns.length {
+                let nextLine = ns.lineRange(for: NSRange(location: next, length: 0))
+                let nextContent = lineContent(ns, line: nextLine)
+                setSelectedRange(NSRange(location: content.location, length: NSMaxRange(nextContent) - content.location))
+                return
+            }
+        }
+        setSelectedRange(content)
+    }
+
+    private func lineContent(_ ns: NSString, line: NSRange) -> NSRange {
+        guard line.length > 0 else { return line }
+        let last = ns.character(at: NSMaxRange(line) - 1)
+        if last == 0x0A {
+            if line.length > 1, ns.character(at: NSMaxRange(line) - 2) == 0x0D {
+                return NSRange(location: line.location, length: line.length - 2)
+            }
+            return NSRange(location: line.location, length: line.length - 1)
+        }
+        if last == 0x0D { return NSRange(location: line.location, length: line.length - 1) }
+        return line
+    }
+
     @objc func xyzIndentLines(_ sender: Any?) {
         _ = applySourceEdit(TextTransforms.indentLines(in: string, selection: sourceSelection(), outdent: false))
     }

@@ -58,6 +58,53 @@ public enum TextTransforms {
         )
     }
 
+    /// Inserts an empty line above or below the caret's line and puts the caret on it.
+    /// The line's own line ending is used, so a CRLF note stays CRLF.
+    public static func insertLine(in text: String, selection: SourceRange, above: Bool) -> SourceReplacement? {
+        let ns = text as NSString
+        // A selection's active end is the line the command acts on, as in VS Code.
+        let anchor = selection.end
+        guard anchor >= 0, anchor <= ns.length else { return nil }
+        let origin = ns.length == 0 ? 0 : min(anchor, ns.length - 1)
+        let line = ns.lineRange(for: NSRange(location: origin, length: 0))
+        let newline = lineBreak(in: ns, line: line)
+        if above {
+            return SourceReplacement(
+                range: SourceRange(location: line.location, length: 0),
+                text: newline,
+                selection: SourceRange(location: line.location, length: 0)
+            )
+        }
+        let at = NSMaxRange(line)
+        let hasTerminator = line.length > 0
+            && (ns.character(at: NSMaxRange(line) - 1) == 0x0A || ns.character(at: NSMaxRange(line) - 1) == 0x0D)
+        let caret = hasTerminator ? at : at + (newline as NSString).length
+        return SourceReplacement(
+            range: SourceRange(location: at, length: 0),
+            text: newline,
+            selection: SourceRange(location: caret, length: 0)
+        )
+    }
+
+    /// The line's own terminator, or the document's first one when the line has none.
+    private static func lineBreak(in ns: NSString, line: NSRange) -> String {
+        if line.length > 0 {
+            let last = ns.character(at: NSMaxRange(line) - 1)
+            if last == 0x0A {
+                if line.length > 1, ns.character(at: NSMaxRange(line) - 2) == 0x0D { return "\r\n" }
+                return "\n"
+            }
+            if last == 0x0D { return "\r" }
+        }
+        var best: NSRange?
+        for candidate in [ns.range(of: "\r\n"), ns.range(of: "\r"), ns.range(of: "\n")]
+        where candidate.location != NSNotFound {
+            if best == nil || candidate.location < best!.location { best = candidate }
+        }
+        guard let best else { return "\n" }
+        return ns.substring(with: best)
+    }
+
     /// Adds `prefix` after each line's indent, or removes it when every line already has it.
     /// `suffix` closes a comment that is not a line marker, such as HTML.
     public static func toggleComment(

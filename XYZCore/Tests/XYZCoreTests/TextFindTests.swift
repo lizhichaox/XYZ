@@ -154,6 +154,27 @@ final class TextTransformTests: XCTestCase {
         XCTAssertFalse(deleted.contains("two"))
     }
 
+    func testInsertLineAboveAndBelow() {
+        let text = "one\ntwo\nthree\n"
+        let below = TextTransforms.insertLine(in: text, selection: caret(4), above: false)
+        XCTAssertEqual(apply(below, to: text), "one\ntwo\n\nthree\n")
+        XCTAssertEqual(below?.selection.location, 8)
+        let above = TextTransforms.insertLine(in: text, selection: caret(4), above: true)
+        XCTAssertEqual(apply(above, to: text), "one\n\ntwo\nthree\n")
+        XCTAssertEqual(above?.selection.location, 4)
+        // The last line has no terminator: the document's line ending is used.
+        let last = TextTransforms.insertLine(in: "one\ntwo", selection: caret(5), above: false)
+        XCTAssertEqual(apply(last, to: "one\ntwo"), "one\ntwo\n")
+        XCTAssertEqual(last?.selection.location, 8)
+        // CRLF stays CRLF.
+        let crlf = TextTransforms.insertLine(in: "one\r\ntwo\r\n", selection: caret(6), above: false)
+        XCTAssertEqual(apply(crlf, to: "one\r\ntwo\r\n"), "one\r\ntwo\r\n\r\n")
+        // An empty document gets one line.
+        let empty = TextTransforms.insertLine(in: "", selection: caret(0), above: false)
+        XCTAssertEqual(apply(empty, to: ""), "\n")
+        XCTAssertEqual(empty?.selection.location, 1)
+    }
+
     func testCommentIndentJoinSortTrimAndCase() {
         let commented = apply(TextTransforms.toggleComment(in: "a\nb", selection: range(0, 3), prefix: "// "), to: "a\nb")
         XCTAssertEqual(commented, "// a\n// b")

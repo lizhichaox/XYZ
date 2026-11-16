@@ -76,6 +76,8 @@ protocol EditorCommandTarget: AnyObject {
     var findModel: EditorFindModel? { get }
     func performCustomCommand(_ id: String) -> Bool
     func jumpToMatchingBracket()
+    func insertLine(above: Bool)
+    func selectLine()
     func selectAllOccurrences()
     func selectNextOccurrence()
     func openTodayNote()
@@ -125,6 +127,8 @@ extension EditorCommandTarget {
     var findModel: EditorFindModel? { nil }
     func performCustomCommand(_ id: String) -> Bool { false }
     func jumpToMatchingBracket() {}
+    func insertLine(above: Bool) {}
+    func selectLine() {}
     func selectAllOccurrences() {}
     func selectNextOccurrence() {}
     func openTodayNote() {}
@@ -498,6 +502,12 @@ final class EditorCommands: NSObject {
             _ = target?.reopenClosedTab()
         case "edit.jumpBracket":
             target?.jumpToMatchingBracket()
+        case "edit.insertLineBelow":
+            target?.insertLine(above: false)
+        case "edit.insertLineAbove":
+            target?.insertLine(above: true)
+        case "edit.selectLine":
+            target?.selectLine()
         case "edit.selectAllOccurrences":
             target?.selectAllOccurrences()
         case "edit.selectNextOccurrence":
@@ -778,6 +788,9 @@ enum PaletteTitles {
         case "file.reveal": return String(localized: "Reveal in Finder")
         case "file.revealInSidebar": return String(localized: "Reveal Active File")
         case "view.goToLine": return String(localized: "Go to Line")
+        case "edit.insertLineBelow": return String(localized: "Insert Line Below")
+        case "edit.insertLineAbove": return String(localized: "Insert Line Above")
+        case "edit.selectLine": return String(localized: "Select Line")
         case "tab.reopen": return String(localized: "Reopen Closed Tab")
         case "view.wordWrap": return String(localized: "Wrap Lines")
         case "file.copyPath": return String(localized: "Copy Path")
@@ -799,6 +812,9 @@ enum LineEditMenu {
         #selector(XYZMacTextView.xyzMoveLineDown(_:)),
         #selector(XYZMacTextView.xyzMoveLineUp(_:)),
         #selector(XYZMacTextView.xyzDeleteLine(_:)),
+        #selector(XYZMacTextView.xyzInsertLineBelow(_:)),
+        #selector(XYZMacTextView.xyzInsertLineAbove(_:)),
+        #selector(XYZMacTextView.xyzSelectLine(_:)),
         #selector(XYZMacTextView.xyzIndentLines(_:)),
         #selector(XYZMacTextView.xyzOutdentLines(_:)),
         #selector(XYZMacTextView.xyzToggleComment(_:)),
@@ -911,6 +927,9 @@ enum EditorMenuSupport {
             ("xyz.edit.moveUp", String(localized: "Move Line Up"), up, [.option], #selector(XYZMacTextView.xyzMoveLineUp(_:))),
             ("xyz.edit.moveDown", String(localized: "Move Line Down"), down, [.option], #selector(XYZMacTextView.xyzMoveLineDown(_:))),
             ("xyz.edit.deleteLine", String(localized: "Delete Line"), "k", [.command, .shift], #selector(XYZMacTextView.xyzDeleteLine(_:))),
+            ("xyz.edit.insertLineBelow", String(localized: "Insert Line Below"), "\r", .command, #selector(XYZMacTextView.xyzInsertLineBelow(_:))),
+            ("xyz.edit.insertLineAbove", String(localized: "Insert Line Above"), "\r", [.command, .shift], #selector(XYZMacTextView.xyzInsertLineAbove(_:))),
+            ("xyz.edit.selectLine", String(localized: "Select Line"), "l", .command, #selector(XYZMacTextView.xyzSelectLine(_:))),
             ("xyz.edit.indent", String(localized: "Indent"), "]", .command, #selector(XYZMacTextView.xyzIndentLines(_:))),
             ("xyz.edit.outdent", String(localized: "Outdent"), "[", .command, #selector(XYZMacTextView.xyzOutdentLines(_:))),
             ("xyz.edit.comment", String(localized: "Toggle Comment"), ";", .command, #selector(XYZMacTextView.xyzToggleComment(_:))),

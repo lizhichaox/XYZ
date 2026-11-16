@@ -359,6 +359,14 @@ final class DocumentCommandBridge: ObservableObject, EditorCommandTarget {
         findStore.editorView?.jumpToMatchingBracket()
     }
 
+    func insertLine(above: Bool) {
+        findStore.editorView?.insertLine(above: above)
+    }
+
+    func selectLine() {
+        findStore.editorView?.selectCurrentLine()
+    }
+
     func selectAllOccurrences() {
         findStore.editorView?.selectAllOccurrences()
     }
